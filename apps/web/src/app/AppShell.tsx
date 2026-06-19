@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import {
   callTool,
   deleteAssets, renameAsset,
@@ -52,6 +52,25 @@ export function AppShell() {
   const [inspectorWidth, setInspectorWidth] = useState(() => Number(localStorage.getItem("taptap.inspectorWidth") ?? 280));
   const [rightPanelTab, setRightPanelTab] = useState<"status" | "tools" | "logs" | "errors">("status");
   const failedTasks = useMemo(() => tasks.filter((task) => task.status === "failed"), [tasks]);
+
+  const previousFailedTasksRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const currentFailedIds = new Set(failedTasks.map(t => t.taskId));
+    let hasNewFailed = false;
+    for (const id of currentFailedIds) {
+      if (!previousFailedTasksRef.current.has(id)) {
+        hasNewFailed = true;
+        break;
+      }
+    }
+    previousFailedTasksRef.current = currentFailedIds;
+
+    if (hasNewFailed) {
+      setInspectorMinimized(false);
+      setRightPanelTab("errors");
+    }
+  }, [failedTasks]);
 
   const selectedProject = useMemo(() => projects.find((project) => project.id === selectedProjectId), [projects, selectedProjectId]);
 
@@ -293,6 +312,18 @@ export function AppShell() {
     setNotice(`调用 ${toolName}...`);
     setRightPanelTab("logs");
     setInspectorMinimized(false);
+
+    const tempTask: TaskRecord = {
+      taskId: "temp-" + Date.now(),
+      projectId: selectedProject.id,
+      toolName: toolName,
+      inputJson: JSON.stringify(args, null, 2),
+      status: "running",
+      startedAt: new Date().toISOString(),
+      inputSummary: "生成中..."
+    };
+    setTasks(current => [tempTask, ...current]);
+
     try {
       const result = await callTool(selectedProject.id, toolName, args);
       setNotice(`${toolName} 完成，资产索引 ${result.assetsIndexed}`);
@@ -306,9 +337,30 @@ export function AppShell() {
     }
   }
 
+  async function handleRecoverVideoTask(oldTaskId: string) {
+    if (!selectedProject) return;
+    setBusy(true);
+    setNotice("正在尝试恢复旧任务状态...");
+    try {
+      await callTool(selectedProject.id, "query_video_task", { task_id: oldTaskId });
+      setNotice(`已触发恢复查询: ${oldTaskId}`);
+      await refreshProject(selectedProject.id);
+      await handleRefreshTasks();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+      await refreshProject(selectedProject.id).catch(() => undefined);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleRefreshTasks() {
     const taskList = await listTasks(selectedProjectId || undefined).catch(() => []);
     setTasks(taskList);
+  }
+
+  function handleDeleteTask(taskId: string) {
+    setTasks(current => current.filter(t => t.taskId !== taskId));
   }
 
   async function handleClearTasks() {
@@ -402,7 +454,15 @@ export function AppShell() {
             onSelect={handleSelectSelection}
             onSelectProject={handleSelectProject}
             onScanProjects={handleScanProjects}
-            onOpenModule={selectModule}
+            onOpenModule={(m) => {
+              setActiveModule(m);
+              setSelection(undefined);
+            }}
+            onCollapseSidebar={() => {
+              setSidebarCollapsed(true);
+              setInspectorMinimized(true);
+            }}
+            onShowError={() => setInspectorMinimized(false)}
           />
           {failedTasks.length > 0 && (
             <div className="shrink-0 h-[220px] border-t border-[#b03939]/25 bg-surface-panel">
@@ -436,11 +496,15 @@ export function AppShell() {
             minimized={inspectorMinimized} 
             activeTab={rightPanelTab}
             onTabChange={setRightPanelTab}
-            onToggleMinimized={() => setInspectorMinimized((value) => !value)} 
-            onStartRuntime={handleStartRuntime} 
-            onRefreshTools={handleRefreshTools} 
-            onStatusLite={handleStatusLite} 
+            onToggleMinimized={() => setInspectorMinimized(!inspectorMinimized)}
+            onStartRuntime={handleStartRuntime}
+            onRefreshTools={handleRefreshTools}
+            onStatusLite={handleStatusLite}
             onSelectSelection={handleSelectSelection}
+            onClearTasks={handleClearTasks}
+            onRefreshTasks={handleRefreshTasks}
+            onDeleteTask={handleDeleteTask}
+            onRecoverVideoTask={handleRecoverVideoTask}
           />
         </div>
       </div>

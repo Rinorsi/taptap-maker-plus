@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Check, Copy, ChevronDown, ChevronUp, FileImage, FolderOpen, ImageIcon, ImagePlus, Layers, Maximize2, MoveRight, RefreshCw, Search, Settings2, Trash2, Upload, Wand2, X, LayoutGrid, List } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, FileImage, FolderOpen, ImagePlus, Maximize2, MoveRight, RefreshCw, Search, Settings2, Trash2, Upload, Wand2, Play, Activity, LayoutGrid, List, Layers, X, Loader2, Clock, ImageIcon, Copy } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { assetPreviewUrl, type AssetSummary, type ProjectSummary, type TaskRecord, type ToolSummary } from "../../api";
 import { Button } from "../../components/ui/Button";
@@ -63,9 +63,9 @@ const aspectRatioOptions = [
 ];
 
 const modelOptions = [
-  { value: "auto", label: "自动" },
-  { value: "nanobanana", label: "nanobanana" },
-  { value: "gpt", label: "gpt" }
+  { value: "auto", label: "自动选择 (Auto)" },
+  { value: "nanobanana", label: "Nano Banana 2 / Gemini" },
+  { value: "gpt", label: "GPT Image 2 / OpenAI" }
 ];
 
 const resolutionOptions = [
@@ -113,6 +113,7 @@ export function ImageStudio({
   const [search, setSearch] = useState("");
   const [flattenAll, setFlattenAll] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [viewTab, setViewTab] = useState<"preview" | "manage">("preview");
   const [selectedFolderKey, setSelectedFolderKey] = useState<FolderKey>("__all__");
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
   const [moveTargetFolder, setMoveTargetFolder] = useState(DEFAULT_IMPORT_FOLDER);
@@ -132,16 +133,15 @@ export function ImageStudio({
     await onRenameAsset(editingAssetPath, editingName.trim());
     setEditingAssetPath(null);
   };
-  const [previewAsset, setPreviewAsset] = useState<AssetSummary | null>(null);
+  const [lightboxAsset, setLightboxAsset] = useState<AssetSummary | null>(null);
+
+  const [elapsedTime, setElapsedTime] = useState(0);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const generateTool = useMemo(() => tools.find((tool) => tool.name === "generate_image"), [tools]);
   const batchTool = useMemo(() => tools.find((tool) => tool.name === "batch_generate_images"), [tools]);
   const editTool = useMemo(() => tools.find((tool) => tool.name === "edit_image"), [tools]);
-
-  useEffect(() => {
-    if (generateTool) onSelectTool(generateTool);
-  }, [generateTool, onSelectTool]);
 
   useEffect(() => {
     if (selectedFolderKey === "__all__") {
@@ -208,6 +208,34 @@ export function ImageStudio({
     if (!project) return undefined;
     return tasks.find((task) => task.projectId === project.id && (task.toolName === "generate_image" || task.toolName === "batch_generate_images" || task.toolName === "edit_image") && (task.status === "queued" || task.status === "running"));
   }, [project, tasks]);
+
+  const displayAsset = imageAssets && imageAssets.length > 0 ? imageAssets[0] : null;
+  const isLastGenerated = displayAsset !== null;
+
+  const previewMetadata = useMemo(() => {
+    if (!displayAsset) return null;
+    const task = tasks.find(t => t.status === "succeeded" && t.rawResultJson && t.rawResultJson.includes(displayAsset.fileName));
+    if (!task) return null;
+    try {
+      const parsed = JSON.parse(task.inputJson);
+      return parsed;
+    } catch {
+      return null;
+    }
+  }, [displayAsset, tasks]);
+
+  useEffect(() => {
+    if (!activeGenerationTask) {
+      setElapsedTime(0);
+      return;
+    }
+    const start = new Date(activeGenerationTask.startedAt).getTime();
+    setElapsedTime(Math.floor((Date.now() - start) / 1000));
+    const interval = setInterval(() => {
+      setElapsedTime(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [activeGenerationTask]);
 
   function handleGenerate() {
     if (!generateTool || !project || !prompt.trim()) return;
@@ -277,14 +305,12 @@ export function ImageStudio({
     if (!paths.length) return;
     await onDeleteAssets(paths);
     setSelectedPaths([]);
-    setPreviewAsset(null);
   }
 
   async function moveSelection(paths = selectedPaths, targetFolder = moveTargetFolder) {
     if (!paths.length) return;
     await onMoveAssets(paths, targetFolder);
     setSelectedPaths([]);
-    setPreviewAsset(null);
   }
 
   function openPicker() {
@@ -296,8 +322,7 @@ export function ImageStudio({
   }
 
   function openPreview(asset: AssetSummary) {
-    setPreviewAsset(asset);
-    onSelectAsset?.(asset);
+    setLightboxAsset(asset);
   }
 
   async function copyText(text: string) {
@@ -316,13 +341,13 @@ export function ImageStudio({
   return (
     <div className="flex flex-col gap-5 p-6 h-full min-h-0 w-full max-w-[1600px] mx-auto overflow-hidden">
       {/* Top Header */}
-      <div className="flex items-center justify-between gap-6 shrink-0">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shrink-0">
         <div>
           <span className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-subtle font-semibold mb-1">
             <ImageIcon className="w-3.5 h-3.5" />
             Image Studio
           </span>
-          <h1 className="text-2xl font-extrabold text-text m-0">图像生成工作室</h1>
+          <h1 className="text-xl md:text-2xl font-extrabold text-text m-0">图像生成工作室</h1>
           <p className="text-xs text-text-muted mt-1 max-w-xl">
             {project ? `当前项目：${project.name}` : "请先选择项目"}
           </p>
@@ -340,7 +365,7 @@ export function ImageStudio({
         <div className="flex-1 flex gap-5 min-h-0 overflow-hidden">
           
           {/* Left Parameters Panel */}
-          <div className="w-[380px] md:w-[420px] shrink-0 bg-surface-app/40 backdrop-blur-2xl border border-white/5 rounded-3xl flex flex-col min-h-0 shadow-[0_8px_30px_rgb(0,0,0,0.12)] overflow-hidden relative">
+          <div className="w-[280px] md:w-[320px] lg:w-[360px] xl:w-[420px] shrink-0 bg-surface-app/40 backdrop-blur-2xl border border-white/5 rounded-3xl flex flex-col min-h-0 shadow-[0_8px_30px_rgb(0,0,0,0.12)] overflow-hidden relative">
   <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[80%] h-32 bg-brand/10 blur-[60px] rounded-full pointer-events-none" />
   
   <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 min-h-0 relative z-10">
@@ -547,41 +572,153 @@ export function ImageStudio({
 </div>
           {/* Right Gallery & File Manager Panel */}
           <div className="flex-1 bg-surface-panel border border-border rounded-large flex flex-col min-h-0 overflow-hidden shadow-sm">
-            <div className="px-4 py-3 border-b border-border flex flex-nowrap items-center justify-between gap-3 shrink-0 bg-surface-raised/40 overflow-hidden">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  {selectedFolderKey !== "__all__" && (
-                    <button onClick={() => setSelectedFolderKey("__all__")} className="p-1 hover:bg-surface-raised rounded transition-colors text-text-subtle hover:text-text" title="返回根目录"><MoveRight className="w-4 h-4 rotate-180" /></button>
-                  )}
-                  <FolderOpen className="w-4 h-4 text-brand-strong" />
-                  <h3 className="text-sm font-bold text-text">{selectedFolderKey === "__all__" ? "图像根目录 (image)" : selectedFolderKey === "__root__" ? "未分类" : selectedFolderKey}</h3>
+            <div className="px-4 py-2.5 border-b border-border flex flex-wrap items-center justify-between gap-4 shrink-0 bg-surface-raised/40">
+              
+              {/* Left: Context & Navigation */}
+              <div className="flex flex-wrap items-center gap-3 min-w-0 flex-1">
+                <div className="flex p-1 bg-surface-app border border-border-soft rounded-lg shadow-inner shrink-0">
+                  <button onClick={() => setViewTab("preview")} className={cn("px-3 py-1 text-[11px] font-bold rounded transition-all", viewTab === "preview" ? "bg-surface-raised shadow-sm text-text border border-border-soft" : "text-text-subtle hover:text-text")}>预览</button>
+                  <button onClick={() => setViewTab("manage")} className={cn("px-3 py-1 text-[11px] font-bold rounded transition-all", viewTab === "manage" ? "bg-surface-raised shadow-sm text-text border border-border-soft" : "text-text-subtle hover:text-text")}>图片库</button>
                 </div>
-                <div className="mt-1 flex items-center gap-2 text-[11px] text-text-subtle">
-                  <span>{currentFolderPath}</span>
-                </div>
+                
+                {viewTab === "manage" && selectedFolderKey !== "__all__" && (
+                  <>
+                    <div className="h-4 w-[1px] bg-border hidden md:block" />
+                    <div className="flex items-center gap-2 min-w-0">
+                      <button onClick={() => setSelectedFolderKey("__all__")} className="p-1.5 hover:bg-surface-app border border-transparent hover:border-border rounded-md transition-all text-text-subtle hover:text-text shrink-0 bg-surface-panel shadow-sm" title="返回根目录">
+                        <MoveRight className="w-4 h-4 rotate-180" />
+                      </button>
+                      <div className="flex flex-col min-w-0 justify-center">
+                        <span className="text-sm font-bold text-text truncate leading-tight">{selectedFolderKey === "__root__" ? "未分类" : selectedFolderKey}</span>
+                        <span className="text-[10px] text-text-subtle truncate leading-tight mt-0.5" dir="rtl">{currentFolderPath}</span>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
-              <div className="flex flex-nowrap items-center gap-2 shrink-0">
-                <div className="relative w-[180px]">
+
+              {/* Right: Search & Actions */}
+              <div className="flex flex-wrap items-center gap-3 shrink-0">
+                <div className="relative w-[140px] md:w-[180px] lg:w-[220px]">
                   <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-subtle" />
-                  <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索文件名或路径" className="h-8 pl-8 text-xs bg-surface-app" />
+                  <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索文件..." className="h-8 pl-8 text-xs bg-surface-app rounded-full border-border-soft focus:border-brand/50 transition-all" />
                 </div>
-                <div className="h-4 w-[1px] bg-border mx-1" />
-                <label className="flex items-center gap-1.5 text-xs text-text-subtle hover:text-text cursor-pointer mr-1 whitespace-nowrap">
-                   <input type="checkbox" checked={flattenAll} onChange={(e) => setFlattenAll(e.target.checked)} className="rounded border-border bg-surface-panel text-brand focus:ring-brand/30 w-3.5 h-3.5" />
-                   平铺全部
+
+                <div className="h-4 w-[1px] bg-border hidden sm:block" />
+
+                <label className="flex items-center gap-1.5 text-xs text-text-subtle hover:text-text cursor-pointer select-none">
+                  <input type="checkbox" checked={flattenAll} onChange={(e) => setFlattenAll(e.target.checked)} className="rounded border-border bg-surface-app text-brand focus:ring-brand/30 w-3.5 h-3.5" />
+                  平铺
                 </label>
-                <div className="h-4 w-[1px] bg-border mx-1" />
-                <div className="flex bg-surface-muted p-0.5 rounded-control">
+
+                <div className="flex bg-surface-muted p-0.5 rounded-control shrink-0">
                   <button onClick={() => setViewMode("grid")} className={cn("p-1.5 rounded-sm transition-colors", viewMode === "grid" ? "bg-surface-panel shadow-sm text-brand" : "text-text-subtle hover:text-text")} title="小图模式"><LayoutGrid className="w-3.5 h-3.5" /></button>
                   <button onClick={() => setViewMode("list")} className={cn("p-1.5 rounded-sm transition-colors", viewMode === "list" ? "bg-surface-panel shadow-sm text-brand" : "text-text-subtle hover:text-text")} title="列表模式"><List className="w-3.5 h-3.5" /></button>
                 </div>
-                <Button variant="outline" size="sm" onClick={onScanAssets} disabled={!project} className="gap-1.5 px-2" title="刷新目录"><RefreshCw className="h-3.5 w-3.5" /></Button>
+
+                <Button variant="outline" size="icon" onClick={onScanAssets} disabled={!project} className="h-8 w-8 shrink-0 rounded-full bg-surface-app" title="刷新目录"><RefreshCw className="h-3.5 w-3.5" /></Button>
               </div>
             </div>
             
             <div className="flex min-h-0 flex-1 gap-0 overflow-hidden">
+              {viewTab === "preview" ? (
+                <div className="flex min-h-0 flex-1 flex-col items-center justify-center bg-surface-panel p-6 overflow-y-auto relative">
+                   {activeGenerationTask ? (
+                     <div className="flex flex-col items-center justify-center w-full h-full max-w-md mx-auto animate-in fade-in duration-500">
+                        <div className="relative mb-8">
+                          <div className="absolute inset-0 bg-brand/20 blur-xl rounded-full"></div>
+                          <Loader2 className="w-16 h-16 text-brand animate-spin relative z-10" />
+                        </div>
+                        <h3 className="text-xl font-bold text-text mb-2 tracking-wide">图片生成中</h3>
+                        <p className="text-sm text-text-subtle mb-8 text-center px-4">
+                          正在调度 {activeGenerationTask.toolName === "generate_image" ? "生成" : "批量生成"} 任务，请稍候...
+                        </p>
+                        
+                        <div className="w-full bg-surface-raised rounded-2xl p-6 shadow-inner border border-white/5 relative overflow-hidden">
+                          <div className="flex items-center justify-between mb-3">
+                             <div className="flex items-center gap-2 text-brand">
+                               <Clock className="w-4 h-4" />
+                               <span className="text-sm font-bold">已用时: {elapsedTime} 秒</span>
+                             </div>
+                             <span className="text-xs font-bold text-text-muted">预计 60 秒</span>
+                          </div>
+                          
+                          <div className="h-2 w-full bg-surface-app rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-brand transition-all ease-linear duration-1000" 
+                              style={{ width: `${Math.min(100, (elapsedTime / 60) * 100)}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                     </div>
+                   ) : displayAsset ? (
+                     <div className="flex flex-col items-center max-w-full w-full mt-4">
+                       <div className="relative mb-4 shrink-0">
+                         <img src={assetPreviewUrl(project?.id ?? "", displayAsset.relativePath)} alt={displayAsset.fileName} className="max-h-[55vh] object-contain rounded-xl shadow-2xl" />
+                         {isLastGenerated && (
+                           <div className="absolute -top-3 -left-3 bg-brand text-[#04202a] text-[10px] font-black px-2 py-1 rounded-lg shadow-lg border border-brand/20 rotate-[-5deg] z-10">上次生成</div>
+                         )}
+                       </div>
+                       
+                       <div className="w-full max-w-4xl shrink-0 bg-surface-raised/80 p-2.5 pr-3 rounded-xl border border-border flex items-center justify-between gap-4 text-[11px] text-text-subtle shadow-sm relative overflow-hidden">
+                         <div className="absolute top-0 left-0 w-1 h-full bg-brand/50"></div>
+                         
+                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pl-3 flex-1 min-w-0">
+                           {previewMetadata?.prompt && (
+                             <div className="flex items-center min-w-0">
+                               <span className="font-bold text-text-muted mr-1.5 shrink-0">Prompt:</span>
+                               <span className="text-text truncate max-w-[200px]" title={previewMetadata.prompt}>{previewMetadata.prompt}</span>
+                             </div>
+                           )}
+                           
+                           <div className="flex items-center shrink-0">
+                             <span className="font-bold text-text-muted mr-1.5">Model:</span>
+                             <span className="bg-surface-app px-1.5 py-0.5 rounded text-text">{previewMetadata?.model || "default"}</span>
+                           </div>
+                           
+                           <div className="flex items-center shrink-0">
+                             <span className="font-bold text-text-muted mr-1.5">Size:</span>
+                             <span className="bg-surface-app px-1.5 py-0.5 rounded text-text">{previewMetadata?.target_size || "-"}</span>
+                           </div>
+                           
+                           {previewMetadata?.seed !== undefined && (
+                             <div className="flex items-center shrink-0">
+                               <span className="font-bold text-text-muted mr-1.5">Seed:</span>
+                               <span className="bg-surface-app px-1.5 py-0.5 rounded text-text">{previewMetadata.seed}</span>
+                             </div>
+                           )}
+                           
+                           <div className="flex items-center min-w-0 shrink-0">
+                             <span className="font-bold text-text-muted mr-1.5 shrink-0">File:</span>
+                             <span className="truncate max-w-[120px]" title={displayAsset.fileName}>{displayAsset.fileName}</span>
+                           </div>
+                         </div>
 
-
+                         <div className="shrink-0 pl-3 border-l border-white/5">
+                           <Button 
+                             variant="outline" 
+                             size="sm" 
+                             className="text-red-400 hover:bg-red-500/10 hover:border-red-500/50 hover:text-red-500 text-[11px] h-7 px-3 rounded-lg"
+                             onClick={() => {
+                               void deleteSelection([displayAsset.relativePath]);
+                             }}
+                           >
+                             <Trash2 className="w-3.5 h-3.5 mr-1" />
+                             废弃
+                           </Button>
+                         </div>
+                       </div>
+                     </div>
+                   ) : (
+                     <div className="flex flex-col items-center text-text-subtle opacity-60">
+                        <ImagePlus className="w-16 h-16 mb-4 opacity-50" />
+                        <p className="text-sm font-medium">暂无当前图片</p>
+                        <p className="text-xs mt-1">请生成新图片或从管理面板选择</p>
+                     </div>
+                   )}
+                </div>
+              ) : (
+                <>
               {/* 画廊区域 */}
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface-panel relative">
                 {selectedCount > 0 && (
@@ -614,7 +751,7 @@ export function ImageStudio({
   }}
 >
                   {selectedFolderKey === "__all__" && !flattenAll && folders.filter(f => f.key !== "__all__" && f.key !== "__root__").length > 0 && (
-                     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4 mb-6 pb-6 border-b border-border-soft">
+                     <div className="grid gap-4 mb-6 pb-6 border-b border-border-soft" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(70px, 1fr))" }}>
                         {folders.filter(f => f.key !== "__all__" && f.key !== "__root__").map(folder => (
                            <div 
                              key={folder.key} 
@@ -653,7 +790,11 @@ export function ImageStudio({
                   )}
 
                   {visibleAssets.length === 0 ? (
-                    <EmptyAssetState hasProject={!!project} onImport={openPicker} />
+                    <div className="flex flex-col items-center justify-center text-text-muted mt-20">
+                      <FileImage className="w-12 h-12 mb-3 opacity-20" />
+                      <p className="text-sm font-medium">当前目录为空</p>
+                      <Button variant="ghost" size="sm" onClick={openPicker} className="mt-2 text-xs">从本地导入</Button>
+                    </div>
                   ) : viewMode === "list" ? (
                       <div className="flex flex-col gap-2">
                         {activeGenerationTask && (
@@ -667,7 +808,7 @@ export function ImageStudio({
                           return (
                             <div key={asset.id} draggable onDragStart={(event) => { event.dataTransfer.setData("text/plain", asset.relativePath); event.dataTransfer.effectAllowed = "move"; }} className={cn("flex items-center gap-4 p-2 rounded-card border transition-all cursor-pointer group", selected ? "border-brand bg-brand/5 shadow-sm" : "border-border hover:border-brand/50 bg-surface-panel hover:bg-surface-raised")} onClick={() => toggleSelected(asset.relativePath)}>
                               <div className="relative w-12 h-12 shrink-0 bg-black/20 rounded overflow-hidden" onClick={(e) => { e.stopPropagation(); openPreview(asset); }}>
-                                <img src={assetPreviewUrl(asset.projectId, asset.relativePath)} alt={asset.fileName} className="w-full h-full object-cover" loading="lazy" />
+                                <img draggable={false} src={assetPreviewUrl(asset.projectId, asset.relativePath)} alt={asset.fileName} className="w-full h-full object-cover" loading="lazy" />
                                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"><Maximize2 className="w-4 h-4 text-white" /></div>
                               </div>
                               <div className="flex-1 min-w-0 flex flex-col justify-center">
@@ -693,7 +834,7 @@ export function ImageStudio({
                         })}
                       </div>
                   ) : (
-                    <div className="columns-3 md:columns-4 lg:columns-5 xl:columns-6 gap-3 space-y-3">
+                    <div className="gap-3 space-y-3 pb-8" style={{ columnWidth: "120px" }}>
                       {activeGenerationTask && (
                         <div className="break-inside-avoid flex flex-col bg-surface-muted/30 border border-brand/40 rounded-card overflow-hidden animate-pulse shadow-sm">
                            <div className="aspect-square w-full relative bg-surface-app flex flex-col items-center justify-center gap-3">
@@ -719,7 +860,7 @@ export function ImageStudio({
                             className={cn("break-inside-avoid relative group flex flex-col overflow-hidden rounded-card border transition-all cursor-pointer", selected ? "border-brand shadow-sm" : "border-border hover:border-brand/50")}
                             onClick={() => openPreview(asset)}
                           >
-                            <img src={assetPreviewUrl(asset.projectId, asset.relativePath)} alt={asset.fileName} className="w-full h-auto object-cover" loading="lazy" />
+                            <img draggable={false} src={assetPreviewUrl(asset.projectId, asset.relativePath)} alt={asset.fileName} className="w-full h-auto object-cover" loading="lazy" />
                             
                             <div className={cn("absolute top-2 right-2 flex justify-end z-10", selected ? "opacity-100" : "opacity-0 group-hover:opacity-100 transition-opacity")}>
                                <label className={cn("flex h-5 w-5 items-center justify-center rounded border cursor-pointer shadow-sm", selected ? "border-brand bg-brand text-[#04202a]" : "border-border-strong bg-surface-app text-brand-strong hover:bg-brand hover:border-brand hover:text-[#04202a]")} onClick={(e) => e.stopPropagation()}>
@@ -765,29 +906,15 @@ export function ImageStudio({
                   </div>
                 </div>
                 
-              </div>
+                </div>
+              </>
+              )}
             </div>
           </div>
         </div>
       )}
 
       {/* Old placeholders removed */}
-
-      <AnimatePresence>
-      {previewAsset && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 p-6" onClick={() => setPreviewAsset(null)}>
-          <motion.img 
-            initial={{ scale: 0.95, opacity: 0 }} 
-            animate={{ scale: 1, opacity: 1 }} 
-            exit={{ scale: 0.95, opacity: 0 }} 
-            src={assetPreviewUrl(previewAsset.projectId, previewAsset.relativePath)} 
-            alt={previewAsset.fileName} 
-            className="max-h-[95vh] max-w-[95vw] object-contain shadow-2xl cursor-default" 
-            onClick={(e) => e.stopPropagation()}
-          />
-        </motion.div>
-      )}
-      </AnimatePresence>
 
       <input
         ref={fileInputRef}
@@ -803,6 +930,22 @@ export function ImageStudio({
           event.currentTarget.value = "";
         }}
       />
+
+      <AnimatePresence>
+        {lightboxAsset && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-6" onClick={() => setLightboxAsset(null)}>
+             <img 
+               src={assetPreviewUrl(lightboxAsset.projectId, lightboxAsset.relativePath)} 
+               alt={lightboxAsset.fileName} 
+               className="max-h-[95vh] max-w-[95vw] object-contain shadow-2xl cursor-default" 
+               onClick={(e) => e.stopPropagation()} 
+             />
+             <Button variant="ghost" size="icon" className="absolute top-4 right-4 h-12 w-12 text-white/50 hover:text-white hover:bg-white/10 rounded-full bg-black/20 backdrop-blur-md" onClick={() => setLightboxAsset(null)}>
+                <X className="h-6 w-6" />
+             </Button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

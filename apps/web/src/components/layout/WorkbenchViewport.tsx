@@ -7,6 +7,7 @@ import { WelcomeView } from "../../features/projects/WelcomeView";
 import { AssetHub } from "../../features/assets/AssetHub";
 import { ToolStudio } from "../../features/generation/ToolStudio";
 import { ImageStudio } from "../../features/generation/ImageStudio";
+import { VideoStudio } from "../../features/generation/VideoStudio";
 import { RunsView } from "../../features/runs/RunsView";
 import { SettingsView } from "../../features/settings/SettingsView";
 import { BuildCenter } from "../../features/build/BuildCenter";
@@ -35,6 +36,8 @@ type Props = {
   onSelectProject: (projectId: string) => void;
   onScanProjects: () => void;
   onOpenModule: (module: WorkbenchModule) => void;
+  onCollapseSidebar?: () => void;
+  onShowError?: () => void;
 };
 
 export function WorkbenchViewport(props: Props) {
@@ -79,7 +82,24 @@ export function WorkbenchViewport(props: Props) {
             />
           ) : null}
           {props.activeModule === "studio-video" ? (
-            <ToolStudio category="video" title="视频工作室" project={props.project} tools={props.tools} assets={props.assets} tasks={props.tasks} busy={props.busy} onCallTool={props.onCallTool} onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })} onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })} />
+            <VideoStudio 
+              project={props.project} 
+              tools={props.tools} 
+              assets={props.assets}
+              tasks={props.tasks}
+              busy={props.busy} 
+              onCallTool={props.onCallTool} 
+              onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })} 
+              onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })}
+              onScanAssets={props.onScanAssets}
+              onRebuildAssetProvenance={props.onRebuildAssetProvenance}
+              onDeleteAssets={props.onDeleteAssets}
+              onMoveAssets={props.onMoveAssets}
+              onRenameAsset={props.onRenameAsset}
+              onImportImages={props.onImportImages}
+              onCollapseSidebar={props.onCollapseSidebar}
+              onShowError={props.onShowError}
+            />
           ) : null}
           {props.activeModule === "studio-music" ? (
             <ToolStudio category="music" title="音频工作室" project={props.project} tools={props.tools} assets={props.assets} tasks={props.tasks} busy={props.busy} onCallTool={props.onCallTool} onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })} onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })} />

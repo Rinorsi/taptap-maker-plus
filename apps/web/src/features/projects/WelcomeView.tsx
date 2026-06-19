@@ -17,7 +17,15 @@ export function WelcomeView({ projects, onSelectProject, onScanProjects, busy }:
         
         {/* 居中标题区 */}
         <div className="flex flex-col items-center justify-center text-center mb-14 animate-in fade-in slide-in-from-bottom-4 duration-700 pt-8 md:pt-12">
-          <img src="https://maker.taptap.cn/taptap-maker.svg" alt="TapTap Maker" className="h-[52px] object-contain pointer-events-none select-none mb-5" />
+          <div className="flex items-center justify-center gap-2 mb-5 select-none pointer-events-none">
+            <img src="https://maker.taptap.cn/taptap-maker.svg" alt="TapTap Maker" className="h-[52px] object-contain" />
+            <span 
+              className="text-[34px] font-black tracking-widest bg-clip-text text-transparent bg-gradient-to-br from-[#6b67f5] to-[#4541b5] drop-shadow-sm" 
+              style={{ fontFamily: 'PingFang SC, system-ui, -apple-system, sans-serif' }}
+            >
+              ++
+            </span>
+          </div>
           <p className="text-[15px] text-text-subtle font-medium tracking-wide">本地 MCP 智能开发工作台。快速载入项目，开启资产、工作流与构建。</p>
         </div>
 
@@ -90,13 +98,18 @@ export function WelcomeView({ projects, onSelectProject, onScanProjects, busy }:
         </div>
 
         {/* 底部链接 */}
-        <div className="mt-12 flex items-center justify-center gap-8 border-t border-border-soft pt-8 animate-in fade-in duration-700 delay-300">
-          <a href="https://developer.taptap.cn/" target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[13px] text-text-muted hover:text-text transition-colors">
-            <BookOpen className="w-4 h-4" /> 官方文档
-          </a>
-          <a href="https://developer.taptap.cn/" target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[13px] text-text-muted hover:text-text transition-colors">
-            <HelpCircle className="w-4 h-4" /> 获取帮助
-          </a>
+        <div className="mt-12 flex flex-col items-center justify-center gap-4 border-t border-border-soft pt-8 animate-in fade-in duration-700 delay-300">
+          <div className="flex items-center gap-8">
+            <a href="https://developer.taptap.cn/" target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[13px] text-text-muted hover:text-text transition-colors">
+              <BookOpen className="w-4 h-4" /> 官方文档
+            </a>
+            <a href="https://developer.taptap.cn/" target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[13px] text-text-muted hover:text-text transition-colors">
+              <HelpCircle className="w-4 h-4" /> 获取帮助
+            </a>
+          </div>
+          <div className="text-[11px] font-mono font-bold text-text-muted/40 tracking-[0.2em] mt-4 uppercase">
+            Maker++
+          </div>
         </div>
 
       </div>

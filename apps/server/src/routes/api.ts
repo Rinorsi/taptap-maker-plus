@@ -60,6 +60,15 @@ const assetImportSchema = z.object({
   dataUrl: z.string().min(1)
 });
 
+const flowSaveSchema = z.object({
+  name: z.string().min(1),
+  data: z.any()
+});
+
+const flowAutoSaveSchema = z.object({
+  data: z.any()
+});
+
 const workflowGraphSchema = z.object({
   nodes: z.array(z.unknown()),
   edges: z.array(z.unknown()),
@@ -119,6 +128,10 @@ async function executeToolCall(project: ProjectSummary, toolName: string, args: 
   const generation = createGeneration(project.id, toolName, args);
   try {
     const result = await runtimeManager.callTool(project, toolName, args);
+    const typedResult = result as { isError?: boolean };
+    if (typedResult?.isError) {
+      throw new Error(extractMcpText(result) || "MCP Tool returned an error");
+    }
     const finishedTask = finishTask(task.taskId, "succeeded", result);
     const finishedGeneration = finishGeneration(generation.id, "succeeded", result);
     const assets = await scanProjectAssets(project);
@@ -467,6 +480,65 @@ export async function registerApiRoutes(app: FastifyInstance) {
     requireProject(request.params.projectId);
     deleteWorkflowGraph(request.params.projectId, request.params.workflowId);
     return { ok: true, workflows: listWorkflowGraphs(request.params.projectId) };
+  });
+
+  // Flows (Multimodal Canvas)
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/flows", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    const flowsDir = path.join(project.rootPath, "assets", "flows");
+    if (!fs.existsSync(flowsDir)) return { flows: [] };
+    const files = fs.readdirSync(flowsDir).filter(f => f.endsWith('.json'));
+    const flows = files.map(f => {
+      const stat = fs.statSync(path.join(flowsDir, f));
+      return { name: f.replace('.json', ''), mtimeMs: stat.mtimeMs };
+    }).sort((a, b) => b.mtimeMs - a.mtimeMs);
+    return { flows };
+  });
+
+  app.get<{ Params: { projectId: string; name: string } }>("/api/projects/:projectId/flows/:name", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    const safeName = request.params.name.replace(/[^a-zA-Z0-9_-]/g, '');
+    const flowPath = path.join(project.rootPath, "assets", "flows", `${safeName}.json`);
+    if (!fs.existsSync(flowPath)) return reply.code(404).send({ error: "Flow not found" });
+    const data = fs.readFileSync(flowPath, "utf8");
+    return { data: JSON.parse(data) };
+  });
+
+  app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/flows", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    const parsed = flowSaveSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    
+    const safeName = parsed.data.name.replace(/[^a-zA-Z0-9_-]/g, '');
+    if (!safeName) return reply.code(400).send({ error: "Invalid name" });
+    
+    const flowsDir = path.join(project.rootPath, "assets", "flows");
+    fs.mkdirSync(flowsDir, { recursive: true });
+    
+    const flowPath = path.join(flowsDir, `${safeName}.json`);
+    fs.writeFileSync(flowPath, JSON.stringify(parsed.data.data, null, 2), "utf8");
+    return { ok: true, name: safeName };
+  });
+
+  app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/flows/auto-save", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    const parsed = flowAutoSaveSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    
+    const flowsDir = path.join(project.rootPath, "assets", "flows");
+    fs.mkdirSync(flowsDir, { recursive: true });
+    
+    const flowPath = path.join(flowsDir, `_autosave.json`);
+    fs.writeFileSync(flowPath, JSON.stringify(parsed.data.data, null, 2), "utf8");
+    return { ok: true, name: "_autosave" };
+  });
+
+  app.delete<{ Params: { projectId: string; name: string } }>("/api/projects/:projectId/flows/:name", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    const safeName = request.params.name.replace(/[^a-zA-Z0-9_-]/g, '');
+    const flowPath = path.join(project.rootPath, "assets", "flows", `${safeName}.json`);
+    if (fs.existsSync(flowPath)) fs.unlinkSync(flowPath);
+    return { ok: true };
   });
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/workflow-runs", async (request) => {

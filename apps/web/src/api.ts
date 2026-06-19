@@ -392,3 +392,39 @@ export async function deleteWorkflow(projectId: string, workflowId: string) {
     await fetch(`/api/projects/${encodeURIComponent(projectId)}/workflows/${encodeURIComponent(workflowId)}`, { method: "DELETE" })
   );
 }
+
+// --- Flows (Multimodal Canvas) ---
+export async function listFlows(projectId: string): Promise<{ name: string, mtimeMs: number }[]> {
+  const res = await fetch(`/api/projects/${projectId}/flows`);
+  if (!res.ok) throw new Error(`Failed to list flows: ${res.statusText}`);
+  return (await res.json()).flows;
+}
+
+export async function getFlow(projectId: string, name: string): Promise<any> {
+  const res = await fetch(`/api/projects/${projectId}/flows/${name}`);
+  if (!res.ok) throw new Error(`Failed to get flow: ${res.statusText}`);
+  return (await res.json()).data;
+}
+
+export async function saveFlow(projectId: string, name: string, data: any): Promise<void> {
+  const res = await fetch(`/api/projects/${projectId}/flows`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, data }),
+  });
+  if (!res.ok) throw new Error(`Failed to save flow: ${res.statusText}`);
+}
+
+export async function autoSaveFlow(projectId: string, data: any): Promise<void> {
+  const res = await fetch(`/api/projects/${projectId}/flows/auto-save`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data }),
+  });
+  if (!res.ok) throw new Error(`Failed to auto save flow: ${res.statusText}`);
+}
+
+export async function deleteFlow(projectId: string, name: string): Promise<void> {
+  const res = await fetch(`/api/projects/${projectId}/flows/${name}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`Failed to delete flow: ${res.statusText}`);
+}

@@ -61,11 +61,15 @@ export function TopBar({ toolCount, theme, projects = [], tools = [], assets = [
   return (
     <header className="flex items-center gap-4 px-4 h-[52px] border-b border-border bg-surface-panel z-10 shrink-0 relative">
       <div className="flex items-center min-w-0 shrink-0 w-[240px] pl-1">
-        <span className="font-black text-[28px] tracking-[-0.05em] leading-none select-none">
-          <span className="text-[#00D9C5]">TapTap</span>
-          <span className="text-[#4D4DAD] ml-1">Maker</span>
-          <span className="text-purple-500 ml-1">Plus</span>
-        </span>
+        <div className="flex items-center gap-1.5 select-none pointer-events-none">
+          <img src="https://maker.taptap.cn/taptap-maker.svg" alt="TapTap Maker" className="h-[28px] object-contain" />
+          <span 
+            className="text-[20px] font-black tracking-widest bg-clip-text text-transparent bg-gradient-to-br from-[#6b67f5] to-[#4541b5] drop-shadow-sm ml-0.5" 
+            style={{ fontFamily: 'PingFang SC, system-ui, -apple-system, sans-serif' }}
+          >
+            ++
+          </span>
+        </div>
       </div>
 
       <div className="flex-1 min-w-[220px] max-w-[560px] mx-auto relative">

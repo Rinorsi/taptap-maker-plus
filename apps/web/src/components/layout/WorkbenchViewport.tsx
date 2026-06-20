@@ -12,6 +12,7 @@ import { RunsView } from "../../features/runs/RunsView";
 import { SettingsView } from "../../features/settings/SettingsView";
 import { BuildCenter } from "../../features/build/BuildCenter";
 import { WorkflowCanvas } from "../../features/workflow/WorkflowCanvas";
+import { MusicStudio } from "../../features/generation/MusicStudio";
 
 type Props = {
   activeModule: WorkbenchModule;
@@ -102,7 +103,22 @@ export function WorkbenchViewport(props: Props) {
             />
           ) : null}
           {props.activeModule === "studio-music" ? (
-            <ToolStudio category="music" title="音频工作室" project={props.project} tools={props.tools} assets={props.assets} tasks={props.tasks} busy={props.busy} onCallTool={props.onCallTool} onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })} onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })} />
+            <MusicStudio 
+              project={props.project} 
+              tools={props.tools} 
+              assets={props.assets} 
+              tasks={props.tasks} 
+              busy={props.busy} 
+              onCallTool={props.onCallTool} 
+              onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })} 
+              onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })}
+              onScanAssets={props.onScanAssets}
+              onRebuildAssetProvenance={props.onRebuildAssetProvenance}
+              onDeleteAssets={props.onDeleteAssets}
+              onMoveAssets={props.onMoveAssets}
+              onRenameAsset={props.onRenameAsset}
+              onImportImages={props.onImportImages}
+            />
           ) : null}
           {props.activeModule === "studio-3d" ? (
             <ToolStudio category="model3d" title="3D 工作室" project={props.project} tools={props.tools} assets={props.assets} tasks={props.tasks} busy={props.busy} onCallTool={props.onCallTool} onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })} onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })} />

@@ -86,6 +86,56 @@ function Field({ label, value, onChange, options }: { label: string, value: stri
   );
 }
 
+function isVideoTaskStatusRunning(rawResultJson: string) {
+  const runningStatuses = new Set(["running", "queued", "processing", "starting"]);
+  for (const value of readVideoTaskStatuses(rawResultJson)) {
+    if (runningStatuses.has(value)) return true;
+  }
+  return false;
+}
+
+function readVideoTaskStatuses(rawResultJson: string) {
+  const statuses: string[] = [];
+  try {
+    const raw = JSON.parse(rawResultJson) as {
+      status?: unknown;
+      provider_status?: unknown;
+      structuredContent?: unknown;
+      content?: unknown;
+    };
+    pushStatus(statuses, raw.status);
+    pushStatus(statuses, raw.provider_status);
+
+    if (raw.structuredContent && typeof raw.structuredContent === "object" && !Array.isArray(raw.structuredContent)) {
+      const structured = raw.structuredContent as { status?: unknown; provider_status?: unknown };
+      pushStatus(statuses, structured.status);
+      pushStatus(statuses, structured.provider_status);
+    }
+
+    if (Array.isArray(raw.content)) {
+      for (const item of raw.content) {
+        if (!item || typeof item !== "object") continue;
+        const text = (item as { type?: unknown; text?: unknown }).text;
+        if (typeof text !== "string") continue;
+        try {
+          const parsed = JSON.parse(text) as { status?: unknown; provider_status?: unknown };
+          pushStatus(statuses, parsed.status);
+          pushStatus(statuses, parsed.provider_status);
+        } catch {
+          // ignore non-JSON text chunks
+        }
+      }
+    }
+  } catch {
+    return statuses;
+  }
+  return statuses;
+}
+
+function pushStatus(statuses: string[], value: unknown) {
+  if (typeof value === "string") statuses.push(value);
+}
+
 function defaultVideoName() {
   return `vid_${Date.now()}`;
 }
@@ -223,12 +273,7 @@ export function VideoStudio({
     const videoTasks = tasks.filter(t => t.projectId === project.id && (t.toolName === "create_video_task" || t.toolName === "query_video_task"));
     const latestCompleted = videoTasks.find(t => t.status === "succeeded" && t.rawResultJson);
     if (!latestCompleted || !latestCompleted.rawResultJson) return false;
-    try {
-      const res = JSON.parse(latestCompleted.rawResultJson);
-      return res && (res.status === "running" || res.status === "queued" || res.status === "processing" || res.status === "starting");
-    } catch {
-      return false;
-    }
+    return isVideoTaskStatusRunning(latestCompleted.rawResultJson);
   }, [project, tasks]);
 
   const displayAsset = previewAsset || (currentAssets && currentAssets.length > 0 ? currentAssets[0] : null);
@@ -808,6 +853,7 @@ export function VideoStudio({
                          <div 
                            key={folder.key} 
                            className="cursor-pointer group flex flex-col items-center gap-2 p-3 hover:bg-surface-raised rounded-large border border-transparent hover:border-border transition-all text-center relative" 
+                           title={folder.path}
                            onClick={() => setSelectedFolderKey(folder.key)}
                            onDragOver={(e) => {
                              e.preventDefault();
@@ -836,6 +882,9 @@ export function VideoStudio({
                             <FolderOpen className="w-12 h-12 text-brand/80 group-hover:text-brand group-hover:scale-105 transition-transform" />
                             <span className="text-xs font-bold text-text truncate w-full">{folder.label}</span>
                             <span className="text-[10px] text-text-subtle">{folder.count} 项</span>
+                            <div className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 hidden -translate-x-1/2 whitespace-nowrap rounded-control border border-border bg-surface-panel px-2 py-1 text-[10px] font-semibold text-text shadow-lg group-hover:block">
+                              {folder.label}
+                            </div>
                          </div>
                       ))}
                    </div>

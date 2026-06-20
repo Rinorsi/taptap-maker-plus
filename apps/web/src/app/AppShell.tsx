@@ -28,7 +28,6 @@ import { TopBar } from "../components/layout/TopBar";
 import { ProjectSidebar } from "../components/layout/ProjectSidebar";
 import { WorkbenchViewport } from "../components/layout/WorkbenchViewport";
 import { AgentInspectorPanel, type InspectorSelection } from "../components/layout/AgentInspectorPanel";
-import { TaskQueue } from "../components/layout/TaskQueue";
 
 export function AppShell() {
   const [theme, setTheme] = useState<"light" | "dark">(() => (localStorage.getItem("taptap.theme") === "dark" ? "dark" : "light"));
@@ -51,6 +50,8 @@ export function AppShell() {
   const [inspectorMinimized, setInspectorMinimized] = useState(false);
   const [inspectorWidth, setInspectorWidth] = useState(() => Number(localStorage.getItem("taptap.inspectorWidth") ?? 280));
   const [rightPanelTab, setRightPanelTab] = useState<"status" | "tools" | "logs" | "errors">("status");
+  const [recoveringVideoTaskId, setRecoveringVideoTaskId] = useState<string>();
+  const [videoRecoveryCooldowns, setVideoRecoveryCooldowns] = useState<Record<string, number>>({});
   const failedTasks = useMemo(() => tasks.filter((task) => task.status === "failed"), [tasks]);
 
   const previousFailedTasksRef = useRef<Set<string>>(new Set());
@@ -137,6 +138,26 @@ export function AppShell() {
     setAssets(assetList);
     setTasks(taskList);
   }
+
+  // Auto-refresh tasks every 10 seconds if any task is running
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    const hasRunning = tasks.some(t => t.status === "running" || t.status === "queued");
+    if (!hasRunning) return;
+    const interval = setInterval(() => {
+      listTasks(selectedProjectId).then(setTasks).catch(() => undefined);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [selectedProjectId, tasks]);
+
+  useEffect(() => {
+    const hasActiveCooldown = Object.values(videoRecoveryCooldowns).some((until) => until > Date.now());
+    if (!hasActiveCooldown) return;
+    const interval = setInterval(() => {
+      setVideoRecoveryCooldowns((current) => ({ ...current }));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [videoRecoveryCooldowns]);
 
   async function handleSelectProject(projectId: string) {
     setSelectedProjectId(projectId);
@@ -339,17 +360,32 @@ export function AppShell() {
 
   async function handleRecoverVideoTask(oldTaskId: string) {
     if (!selectedProject) return;
+    const cooldownUntil = videoRecoveryCooldowns[oldTaskId] ?? 0;
+    const cooldownRemaining = Math.ceil((cooldownUntil - Date.now()) / 1000);
+    if (recoveringVideoTaskId) {
+      setNotice(`正在查询 ${recoveringVideoTaskId}，请等待当前恢复动作完成`);
+      return;
+    }
+    if (cooldownRemaining > 0) {
+      setNotice(`刚刚查询过 ${oldTaskId}，请 ${cooldownRemaining} 秒后再试`);
+      return;
+    }
     setBusy(true);
-    setNotice("正在尝试恢复旧任务状态...");
+    setRecoveringVideoTaskId(oldTaskId);
+    setVideoRecoveryCooldowns((current) => ({ ...current, [oldTaskId]: Date.now() + 120_000 }));
+    setRightPanelTab("errors");
+    setInspectorMinimized(false);
+    setNotice(`正在查询视频任务 ${oldTaskId}，请不要重复点击`);
     try {
       await callTool(selectedProject.id, "query_video_task", { task_id: oldTaskId });
-      setNotice(`已触发恢复查询: ${oldTaskId}`);
+      setNotice(`视频任务状态查询完成：${oldTaskId}`);
       await refreshProject(selectedProject.id);
       await handleRefreshTasks();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
       await refreshProject(selectedProject.id).catch(() => undefined);
     } finally {
+      setRecoveringVideoTaskId(undefined);
       setBusy(false);
     }
   }
@@ -464,19 +500,6 @@ export function AppShell() {
             }}
             onShowError={() => setInspectorMinimized(false)}
           />
-          {failedTasks.length > 0 && (
-            <div className="shrink-0 h-[220px] border-t border-[#b03939]/25 bg-surface-panel">
-              <TaskQueue
-                tasks={failedTasks}
-                projects={projects}
-                collapsed={false}
-                onToggleCollapsed={() => undefined}
-                onClear={handleClearTasks}
-                onSelectTask={(task) => handleSelectSelection({ type: "task", item: task })}
-                onRefresh={handleRefreshTasks}
-              />
-            </div>
-          )}
         </div>
 
         <div className="relative shrink-0 flex h-full border-l border-border bg-surface-panel" style={{ width: "var(--inspector-width)", transition: "width 0.3s cubic-bezier(0.16, 1, 0.3, 1)" }}>
@@ -505,6 +528,8 @@ export function AppShell() {
             onRefreshTasks={handleRefreshTasks}
             onDeleteTask={handleDeleteTask}
             onRecoverVideoTask={handleRecoverVideoTask}
+            recoveringVideoTaskId={recoveringVideoTaskId}
+            videoRecoveryCooldowns={videoRecoveryCooldowns}
           />
         </div>
       </div>

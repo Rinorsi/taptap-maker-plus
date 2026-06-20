@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import { config } from "./config.js";
-import type { AssetProvenanceSummary, AssetSummary, GenerationRecord, MakerWorkflowGraph, ProjectSummary, TaskRecord, TaskStatus, ToolSummary, ToolsListSnapshot, WorkflowGraphRecord, WorkflowNodeRunResult, WorkflowRunRecord, WorkflowRunStatus } from "../types.js";
+import type { AssetProvenanceSummary, AssetSummary, CreditRecord, GenerationRecord, MakerWorkflowGraph, ProjectSummary, TaskRecord, TaskStatus, ToolSummary, ToolsListSnapshot, WorkflowGraphRecord, WorkflowNodeRunResult, WorkflowRunRecord, WorkflowRunStatus } from "../types.js";
 
 fs.mkdirSync(config.dataDir, { recursive: true });
 
@@ -135,6 +135,17 @@ sqlite.exec(`
     finished_at TEXT,
     FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
   );
+  CREATE TABLE IF NOT EXISTS credit_ledger (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    task_id TEXT,
+    tool_name TEXT NOT NULL,
+    credits INTEGER NOT NULL,
+    asset_path TEXT,
+    raw_result_json TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+  );
 `);
 
 const parseJson = <T>(value: string, fallback: T): T => {
@@ -210,6 +221,17 @@ const toGeneration = (row: any): GenerationRecord => ({
   errorMessage: row.error_message ?? undefined,
   createdAt: row.created_at,
   finishedAt: row.finished_at ?? undefined
+});
+
+const toCreditRecord = (row: any): CreditRecord => ({
+  id: row.id,
+  projectId: row.project_id,
+  taskId: row.task_id ?? undefined,
+  toolName: row.tool_name,
+  credits: row.credits,
+  assetPath: row.asset_path ?? undefined,
+  rawResultJson: row.raw_result_json ?? undefined,
+  createdAt: row.created_at
 });
 
 const toWorkflowGraph = (row: any): WorkflowGraphRecord => ({
@@ -367,8 +389,53 @@ export function upsertAssets(projectId: string, assets: AssetSummary[]) {
   tx();
 }
 
-export function listAssets(projectId: string, limit = 200): AssetSummary[] {
-  const assets = sqlite.prepare("SELECT * FROM assets WHERE project_id = ? ORDER BY mtime_ms DESC, relative_path COLLATE NOCASE LIMIT ?").all(projectId, limit).map(toAsset);
+type ListAssetsOptions = {
+  limit?: number;
+  offset?: number;
+  assetType?: string;
+  rootPrefix?: string;
+  q?: string;
+};
+
+function normalizeAssetListOptions(input?: number | ListAssetsOptions): Required<Pick<ListAssetsOptions, "limit" | "offset">> & Omit<ListAssetsOptions, "limit" | "offset"> {
+  if (typeof input === "number") {
+    return { limit: Math.max(1, Math.min(input, 10000)), offset: 0 };
+  }
+  const limit = Math.max(1, Math.min(input?.limit ?? 1000, 10000));
+  const offset = Math.max(0, input?.offset ?? 0);
+  return { limit, offset, assetType: input?.assetType, rootPrefix: input?.rootPrefix, q: input?.q };
+}
+
+export function listAssets(projectId: string, options?: number | ListAssetsOptions): AssetSummary[] {
+  const normalized = normalizeAssetListOptions(options);
+  const where = ["project_id = ?"];
+  const params: unknown[] = [projectId];
+
+  if (normalized.assetType) {
+    where.push("asset_type = ?");
+    params.push(normalized.assetType);
+  }
+
+  if (normalized.rootPrefix) {
+    const prefix = normalized.rootPrefix.replaceAll("\\", "/").replace(/\/+$/, "");
+    where.push("(relative_path = ? OR relative_path LIKE ?)");
+    params.push(prefix, `${prefix}/%`);
+  }
+
+  if (normalized.q) {
+    const needle = `%${normalized.q}%`;
+    where.push("(file_name LIKE ? OR relative_path LIKE ?)");
+    params.push(needle, needle);
+  }
+
+  params.push(normalized.limit, normalized.offset);
+
+  const assets = sqlite.prepare(`
+    SELECT * FROM assets
+    WHERE ${where.join(" AND ")}
+    ORDER BY mtime_ms DESC, relative_path COLLATE NOCASE
+    LIMIT ? OFFSET ?
+  `).all(...params).map(toAsset);
   const provenance = listAssetProvenance(projectId);
   const byPath = new Map<string, AssetProvenanceSummary[]>();
   for (const item of provenance) {
@@ -491,6 +558,49 @@ export function finishGeneration(id: string, status: "succeeded" | "failed", res
 
 export function listGenerations(projectId: string, limit = 40): GenerationRecord[] {
   return sqlite.prepare("SELECT * FROM generations WHERE project_id = ? ORDER BY created_at DESC LIMIT ?").all(projectId, limit).map(toGeneration);
+}
+
+export function addCreditRecord(input: {
+  projectId: string;
+  taskId?: string;
+  toolName: string;
+  credits: number;
+  assetPath?: string;
+  rawResultJson?: string;
+}): CreditRecord {
+  if (input.taskId) {
+    const existing = sqlite.prepare("SELECT * FROM credit_ledger WHERE task_id = ?").get(input.taskId);
+    if (existing) return toCreditRecord(existing);
+  }
+
+  const record: CreditRecord = {
+    id: randomUUID(),
+    projectId: input.projectId,
+    taskId: input.taskId,
+    toolName: input.toolName,
+    credits: input.credits,
+    assetPath: input.assetPath,
+    rawResultJson: input.rawResultJson,
+    createdAt: new Date().toISOString()
+  };
+  sqlite.prepare(`
+    INSERT INTO credit_ledger (id, project_id, task_id, tool_name, credits, asset_path, raw_result_json, created_at)
+    VALUES (@id, @projectId, @taskId, @toolName, @credits, @assetPath, @rawResultJson, @createdAt)
+  `).run({
+    ...record,
+    taskId: record.taskId ?? null,
+    assetPath: record.assetPath ?? null,
+    rawResultJson: record.rawResultJson ?? null
+  });
+  return record;
+}
+
+export function listCreditRecords(projectId?: string, limit = 200): CreditRecord[] {
+  const sql = projectId
+    ? "SELECT * FROM credit_ledger WHERE project_id = ? ORDER BY created_at DESC LIMIT ?"
+    : "SELECT * FROM credit_ledger ORDER BY created_at DESC LIMIT ?";
+  const rows = projectId ? sqlite.prepare(sql).all(projectId, limit) : sqlite.prepare(sql).all(limit);
+  return rows.map(toCreditRecord);
 }
 
 export function listWorkflowGraphs(projectId: string, limit = 40): WorkflowGraphRecord[] {

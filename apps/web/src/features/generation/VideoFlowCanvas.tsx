@@ -340,7 +340,9 @@ function VideoFlowCanvasInner({ project, allAssets, activeGenerationTask, isClou
       
       if (n.type === "collectorNode" && n.data.presetId === "MultiModalPayloadNode") {
         // Collect stats
-        let imagesCount = 0; let videosCount = 0; let audiosCount = 0; let error = null;
+        let promptCount = 0; let imagesCount = 0; let videosCount = 0; let audiosCount = 0; let settingsCount = 0; let error = null;
+        const executor = nodes.find(node => node.type === "executorNode" && node.data.presetId === "CreateVideoTaskNode");
+        const directPrevs = executor ? prevMap.get(executor.id) || [] : [n];
         
         const visited = new Set<string>();
         const traverse = (nodeId: string) => {
@@ -349,20 +351,30 @@ function VideoFlowCanvasInner({ project, allAssets, activeGenerationTask, isClou
           const prevs = prevMap.get(nodeId) || [];
           for (const p of prevs) {
             const preset = getPresetById(p.data.presetId as string);
+            if (preset?.category === "prompt" && p.data.text) promptCount++;
             if (preset?.category === "image") imagesCount++;
             if (preset?.category === "video") videosCount++;
             if (preset?.category === "audio") audiosCount++;
+            if (preset?.category === "settings") settingsCount++;
             traverse(p.id);
           }
         };
-        traverse(n.id);
+        for (const inputNode of directPrevs) {
+          const preset = getPresetById(inputNode.data.presetId as string);
+          if (preset?.category === "prompt" && inputNode.data.text) promptCount++;
+          if (preset?.category === "image") imagesCount++;
+          if (preset?.category === "video") videosCount++;
+          if (preset?.category === "audio") audiosCount++;
+          if (preset?.category === "settings") settingsCount++;
+          traverse(inputNode.id);
+        }
 
         if (imagesCount > 9) error = "最多 9 张图片";
         else if (videosCount > 3) error = "最多 3 个视频";
         else if (audiosCount > 3) error = "最多 3 个音频";
         else if (audiosCount > 0 && imagesCount === 0) error = "缺少必需的图片参考";
 
-        return { ...base, data: { ...base.data, imagesCount, videosCount, audiosCount, error } };
+        return { ...base, data: { ...base.data, promptCount, imagesCount, videosCount, audiosCount, settingsCount, error } };
       }
       
       if (n.type === "executorNode") {

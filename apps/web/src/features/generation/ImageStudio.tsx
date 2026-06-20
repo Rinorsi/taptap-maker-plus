@@ -549,7 +549,9 @@ export function ImageStudio({
       </div>
       <div className="shrink-0 mb-0.5">
          <button type="button" onClick={() => setTransparent(!transparent)} className={cn("inline-flex items-center gap-2 rounded-xl border-2 h-10 px-4 text-[13px] font-bold transition-all", transparent ? "bg-brand/10 border-brand text-brand-strong" : "bg-surface-raised border-transparent text-text-muted hover:bg-surface-panel hover:text-text")}>
-            {transparent ? <Check className="h-4 w-4" /> : <Layers className="h-4 w-4 opacity-50" />}
+            <div className={cn("w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors", transparent ? "border-brand bg-brand text-[#04202a]" : "border-text-muted")}>
+              {transparent && <Check className="w-2.5 h-2.5" />}
+            </div>
             透明背景
          </button>
       </div>
@@ -755,7 +757,8 @@ export function ImageStudio({
                         {folders.filter(f => f.key !== "__all__" && f.key !== "__root__").map(folder => (
                            <div 
                              key={folder.key} 
-                             className="cursor-pointer group flex flex-col items-center gap-2 p-3 hover:bg-surface-raised rounded-large border border-transparent hover:border-border transition-all text-center relative" 
+                              className="cursor-pointer group flex flex-col items-center gap-2 p-3 hover:bg-surface-raised rounded-large border border-transparent hover:border-border transition-all text-center relative" 
+                              title={folder.path}
                              onClick={() => setSelectedFolderKey(folder.key)}
                              onDragOver={(e) => {
                                e.preventDefault();
@@ -784,6 +787,9 @@ export function ImageStudio({
                               <FolderOpen className="w-12 h-12 text-brand/80 group-hover:text-brand group-hover:scale-105 transition-transform" />
                               <span className="text-xs font-bold text-text truncate w-full">{folder.label}</span>
                               <span className="text-[10px] text-text-subtle">{folder.count} 项</span>
+                              <div className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 hidden -translate-x-1/2 whitespace-nowrap rounded-control border border-border bg-surface-panel px-2 py-1 text-[10px] font-semibold text-text shadow-lg group-hover:block">
+                                {folder.label}
+                              </div>
                            </div>
                         ))}
                      </div>

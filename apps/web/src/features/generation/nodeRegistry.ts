@@ -280,6 +280,17 @@ export const NODE_PRESETS: NodePreset[] = [
     defaultData: { value: "false", type: "generate_audio" },
     mcpMapping: { target: "settings" }
   },
+  {
+    id: "ReturnLastFrameNode",
+    label: "返回尾帧 (LastFrame)",
+    category: "settings",
+    icon: Frame,
+    description: "生成完成后是否返回最后一帧图片",
+    inputHandles: [],
+    outputHandles: ["right"],
+    defaultData: { value: "false", type: "return_last_frame" },
+    mcpMapping: { target: "settings" }
+  },
 
   // ==================== COLLECTOR ====================
   {

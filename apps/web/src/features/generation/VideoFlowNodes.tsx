@@ -135,6 +135,7 @@ export function GenericSettingsNode({ data, id }: any) {
     if (data.type === "duration") return <Field label="时长 (Duration)" value={String(data.value)} onChange={(val: string) => data.onChange(id, "value", val)} options={[{value: "5", label: "5s"}, {value: "10", label: "10s"}]} />;
     if (data.type === "model") return <Field label="模型 (Model)" value={data.value} onChange={(val: string) => data.onChange(id, "value", val)} options={[{value: "default", label: "默认"}, {value: "fast", label: "极速"}]} />;
     if (data.type === "generate_audio") return <Field label="生成音频 (GenAudio)" value={String(data.value)} onChange={(val: string) => data.onChange(id, "value", val)} options={[{value: "false", label: "否"}, {value: "true", label: "是"}]} />;
+    if (data.type === "return_last_frame") return <Field label="返回尾帧 (LastFrame)" value={String(data.value)} onChange={(val: string) => data.onChange(id, "value", val)} options={[{value: "false", label: "否"}, {value: "true", label: "是"}]} />;
     
     return (
       <input 
@@ -183,7 +184,11 @@ export function GenericCollectorNode({ data, id }: any) {
         </div>
         <div className="p-4 flex flex-col gap-3 bg-surface-app/30">
           {isPayload && (
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-5 gap-2">
+               <div className="bg-surface-panel rounded p-2 text-center flex flex-col gap-1 border border-border-soft shadow-sm">
+                 <span className="text-[10px] text-text-subtle font-bold">提示</span>
+                 <span className={cn("text-sm font-black", data.promptCount ? "text-brand" : "text-text-muted")}>{data.promptCount || 0}</span>
+               </div>
                <div className="bg-surface-panel rounded p-2 text-center flex flex-col gap-1 border border-border-soft shadow-sm">
                  <span className="text-[10px] text-text-subtle font-bold">图片</span>
                  <span className={cn("text-sm font-black", data.imagesCount > 9 ? "text-red-500" : (data.imagesCount === 0 ? "text-text-muted" : "text-brand"))}>{data.imagesCount || 0}/9</span>
@@ -195,6 +200,10 @@ export function GenericCollectorNode({ data, id }: any) {
                <div className="bg-surface-panel rounded p-2 text-center flex flex-col gap-1 border border-border-soft shadow-sm">
                  <span className="text-[10px] text-text-subtle font-bold">音频</span>
                  <span className={cn("text-sm font-black", data.audiosCount > 3 ? "text-red-500" : (data.audiosCount === 0 ? "text-text-muted" : "text-blue-500"))}>{data.audiosCount || 0}/3</span>
+               </div>
+               <div className="bg-surface-panel rounded p-2 text-center flex flex-col gap-1 border border-border-soft shadow-sm">
+                 <span className="text-[10px] text-text-subtle font-bold">参数</span>
+                 <span className={cn("text-sm font-black", data.settingsCount ? "text-brand" : "text-text-muted")}>{data.settingsCount || 0}</span>
                </div>
             </div>
           )}

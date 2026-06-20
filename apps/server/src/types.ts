@@ -92,6 +92,17 @@ export type TaskRecord = {
   finishedAt?: string;
 };
 
+export type CreditRecord = {
+  id: string;
+  projectId: string;
+  taskId?: string;
+  toolName: string;
+  credits: number;
+  assetPath?: string;
+  rawResultJson?: string;
+  createdAt: string;
+};
+
 export type ToolsListSnapshot = {
   projectId: string;
   rawResultJson: string;

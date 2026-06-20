@@ -29,14 +29,16 @@ import {
   listWorkflowRuns,
   saveWorkflowGraph,
   setSelectedProject,
-  updateTaskStatus
+  updateTaskStatus,
+  addCreditRecord,
+  listCreditRecords
 } from "../lib/db.js";
 import { scanMakerProjects } from "../services/projectDiscovery.js";
 import { scanProjectAssets } from "../services/assetScanner.js";
 import { rebuildAssetProvenance } from "../services/assetProvenance.js";
 import { runtimeManager } from "../services/mcpRuntime.js";
 import { getProjectBuildLogs } from "../services/projectLogs.js";
-import type { MakerWorkflowGraph, ProjectSummary, ToolSummary, WorkflowNodeRunResult, WorkflowRunStatus } from "../types.js";
+import type { MakerWorkflowGraph, ProjectSummary, TaskRecord, ToolSummary, WorkflowNodeRunResult, WorkflowRunStatus } from "../types.js";
 
 const callToolSchema = z.object({
   arguments: z.record(z.string(), z.unknown()).optional(),
@@ -58,6 +60,14 @@ const assetImportSchema = z.object({
   fileName: z.string().min(1),
   targetFolder: z.string().min(1),
   dataUrl: z.string().min(1)
+});
+
+const assetListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(10000).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+  assetType: z.string().min(1).optional(),
+  rootPrefix: z.string().min(1).optional(),
+  q: z.string().optional()
 });
 
 const flowSaveSchema = z.object({
@@ -122,6 +132,77 @@ function withRuntime(project: ProjectSummary) {
   return { ...project, runtime: runtimeManager.getSummary(project.id) };
 }
 
+function extractCredits(result: unknown): number | undefined {
+  for (const object of resultObjects(result)) {
+    if (typeof object.credits === "number") return object.credits;
+  }
+  return undefined;
+}
+
+function extractAssetPath(result: unknown): string | undefined {
+  for (const object of resultObjects(result)) {
+    if (typeof object.localPath === "string") return object.localPath;
+    if (typeof object.videoUrl === "string") return object.videoUrl;
+    if (typeof object.imageUrl === "string") return object.imageUrl;
+    if (typeof object.audioUrl === "string") return object.audioUrl;
+    if (typeof object.modelUrl === "string") return object.modelUrl;
+    if (typeof object.assetPath === "string") return object.assetPath;
+  }
+  return undefined;
+}
+
+function resultObjects(result: unknown): Record<string, unknown>[] {
+  const objects: Record<string, unknown>[] = [];
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    const res = result as Record<string, unknown>;
+    objects.push(res);
+    if (res.structuredContent && typeof res.structuredContent === "object" && !Array.isArray(res.structuredContent)) {
+      objects.push(res.structuredContent as Record<string, unknown>);
+    }
+  }
+
+  const text = extractMcpText(result);
+  if (text) {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        objects.push(parsed as Record<string, unknown>);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return objects;
+}
+
+function parseTaskResult(task: TaskRecord): unknown {
+  if (!task.rawResultJson) return undefined;
+  try {
+    return JSON.parse(task.rawResultJson);
+  } catch {
+    return undefined;
+  }
+}
+
+function syncCreditRecordsFromTasks(projectId?: string) {
+  const tasks = listTasks(projectId, 1000);
+  for (const task of tasks) {
+    if (task.status !== "succeeded") continue;
+    const result = parseTaskResult(task);
+    const credits = extractCredits(result);
+    if (credits === undefined) continue;
+    addCreditRecord({
+      projectId: task.projectId,
+      taskId: task.taskId,
+      toolName: task.toolName,
+      credits,
+      assetPath: extractAssetPath(result),
+      rawResultJson: task.rawResultJson
+    });
+  }
+}
+
 async function executeToolCall(project: ProjectSummary, toolName: string, args: Record<string, unknown>) {
   const task = createTask(project.id, toolName, args, "queued");
   updateTaskStatus(task.taskId, "running");
@@ -134,6 +215,19 @@ async function executeToolCall(project: ProjectSummary, toolName: string, args: 
     }
     const finishedTask = finishTask(task.taskId, "succeeded", result);
     const finishedGeneration = finishGeneration(generation.id, "succeeded", result);
+    
+    const credits = extractCredits(result);
+    if (credits !== undefined) {
+      addCreditRecord({
+        projectId: project.id,
+        taskId: task.taskId,
+        toolName: toolName,
+        credits: credits,
+        assetPath: extractAssetPath(result),
+        rawResultJson: JSON.stringify(result)
+      });
+    }
+
     const assets = await scanProjectAssets(project);
     return { task: finishedTask, generation: finishedGeneration, result, text: extractMcpText(result), assetsIndexed: assets.length };
   } catch (error) {
@@ -416,9 +510,11 @@ export async function registerApiRoutes(app: FastifyInstance) {
     return { ok: true, assets, count: assets.length };
   });
 
-  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/assets", async (request) => {
+  app.get<{ Params: { projectId: string }; Querystring: unknown }>("/api/projects/:projectId/assets", async (request, reply) => {
     requireProject(request.params.projectId);
-    return { assets: listAssets(request.params.projectId) };
+    const parsed = assetListQuerySchema.safeParse(request.query ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    return { assets: listAssets(request.params.projectId, parsed.data) };
   });
 
   app.post<{ Params: { projectId: string } }>("/api/projects/:projectId/assets/provenance/rebuild", async (request) => {
@@ -567,6 +663,11 @@ export async function registerApiRoutes(app: FastifyInstance) {
   app.delete<{ Querystring: { projectId?: string } }>("/api/tasks", async (request) => {
     deleteTasks(request.query.projectId);
     return { ok: true, tasks: listTasks(request.query.projectId) };
+  });
+
+  app.get<{ Querystring: { projectId?: string } }>("/api/credits", async (request) => {
+    syncCreditRecordsFromTasks(request.query.projectId);
+    return { credits: listCreditRecords(request.query.projectId) };
   });
 
   app.get<{ Params: { taskId: string } }>("/api/tasks/:taskId", async (request, reply) => {

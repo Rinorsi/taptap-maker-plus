@@ -33,6 +33,8 @@ type Props = {
   onRefreshTasks: () => void;
   onDeleteTask: (taskId: string) => void;
   onRecoverVideoTask?: (taskId: string) => void;
+  recoveringVideoTaskId?: string;
+  videoRecoveryCooldowns?: Record<string, number>;
 };
 
 export function AgentInspectorPanel({ 
@@ -51,7 +53,9 @@ export function AgentInspectorPanel({
   onClearTasks,
   onRefreshTasks,
   onDeleteTask,
-  onRecoverVideoTask
+  onRecoverVideoTask,
+  recoveringVideoTaskId,
+  videoRecoveryCooldowns = {}
 }: Props) {
 
   const handleTabClick = (tab: "status" | "tools" | "logs" | "errors") => {
@@ -154,7 +158,12 @@ export function AgentInspectorPanel({
                 ) : selection.type === "tool" ? (
                   <ToolInspector tool={selection.item} />
                 ) : selection.type === "task" ? (
-                  <TaskInspector task={selection.item} />
+                  <TaskInspector
+                    task={selection.item}
+                    onRecoverVideoTask={onRecoverVideoTask}
+                    recoveringVideoTaskId={recoveringVideoTaskId}
+                    videoRecoveryCooldowns={videoRecoveryCooldowns}
+                  />
                 ) : (
                   <AssetInspector asset={selection.item} projectId={project?.id} />
                 )}
@@ -180,6 +189,8 @@ export function AgentInspectorPanel({
                 onSelectTask={(t) => onSelectSelection({ type: "task", item: t })} 
                 onClearTasks={onClearTasks}
                 onRecoverVideoTask={onRecoverVideoTask}
+                recoveringVideoTaskId={recoveringVideoTaskId}
+                videoRecoveryCooldowns={videoRecoveryCooldowns}
               />
             )}
           </div>
@@ -283,12 +294,34 @@ function ToolInspector({ tool }: { tool: ToolSummary }) {
   );
 }
 
-function TaskInspector({ task }: { task: TaskRecord }) {
+function TaskInspector({
+  task,
+  onRecoverVideoTask,
+  recoveringVideoTaskId,
+  videoRecoveryCooldowns = {}
+}: {
+  task: TaskRecord;
+  onRecoverVideoTask?: (taskId: string) => void;
+  recoveringVideoTaskId?: string;
+  videoRecoveryCooldowns?: Record<string, number>;
+}) {
   const [copied, setCopied] = useState(false);
-  const handleCopy = () => {
-    navigator.clipboard.writeText(task.rawResultJson || task.inputJson || "");
+  const [copiedError, setCopiedError] = useState(false);
+  const errorText = task.errorMessage ?? "";
+  const rawText = task.rawResultJson ?? "";
+  const recoveryTaskId = getVideoConcurrencyTaskId(task);
+  const recoveryState = recoveryTaskId ? getRecoveryState(recoveryTaskId, recoveringVideoTaskId, videoRecoveryCooldowns) : undefined;
+
+  const handleCopy = (text = task.rawResultJson || task.inputJson || "") => {
+    navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopyError = () => {
+    navigator.clipboard.writeText(errorText || rawText || task.inputJson);
+    setCopiedError(true);
+    setTimeout(() => setCopiedError(false), 2000);
   };
   
   const statusDisplay = task.status === "failed" ? "失败" : 
@@ -304,9 +337,30 @@ function TaskInspector({ task }: { task: TaskRecord }) {
       <InfoRow label="开始时间" value={task.startedAt} />
       <InfoRow label="结束时间" value={task.finishedAt ?? "-"} />
       {task.errorMessage && (
-        <pre className="mt-2 p-3 bg-[#b03939]/10 text-[#b03939] border border-[#b03939]/20 rounded-panel text-[11px] font-mono whitespace-pre-wrap break-words max-h-40 overflow-y-auto scrollbar-thin">
-          {task.errorMessage}
-        </pre>
+        <div className="mt-2 overflow-hidden rounded-panel border border-[#b03939]/20 bg-[#b03939]/10">
+          <div className="flex items-center justify-between gap-2 border-b border-[#b03939]/15 px-3 py-2">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-[#b03939]">错误详情</span>
+            <button
+              onClick={handleCopyError}
+              className="inline-flex items-center gap-1 rounded-control px-2 py-1 text-[10px] font-semibold text-[#b03939] hover:bg-[#b03939]/10"
+              title="复制错误详情"
+              type="button"
+            >
+              {copiedError ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+              {copiedError ? "已复制" : "复制错误"}
+            </button>
+          </div>
+          <pre className="max-h-40 overflow-y-auto p-3 text-[11px] font-mono text-[#b03939] whitespace-pre-wrap break-words scrollbar-thin">
+            {task.errorMessage}
+          </pre>
+        </div>
+      )}
+      {recoveryTaskId && recoveryState && (
+        <RecoveryAction
+          taskId={recoveryTaskId}
+          state={recoveryState}
+          onRecoverVideoTask={onRecoverVideoTask}
+        />
       )}
       <div className="mt-2 flex-1 flex flex-col min-h-0">
         <div className="flex items-center justify-between mb-2">
@@ -315,7 +369,7 @@ function TaskInspector({ task }: { task: TaskRecord }) {
             请求/返回数据 (Payload)
           </span>
           <button 
-            onClick={handleCopy}
+            onClick={() => handleCopy()}
             className="text-text-muted hover:text-text transition-colors flex items-center justify-center p-1"
             title="一键复制数据"
           >
@@ -556,7 +610,21 @@ function ConsoleTab({ tasks, projects, onSelectTask, onDeleteTask }: { tasks: Ta
   );
 }
 
-function ErrorsTab({ tasks, onSelectTask, onClearTasks, onRecoverVideoTask }: { tasks: TaskRecord[]; onSelectTask: (task: TaskRecord) => void; onClearTasks: () => void; onRecoverVideoTask?: (taskId: string) => void }) {
+function ErrorsTab({
+  tasks,
+  onSelectTask,
+  onClearTasks,
+  onRecoverVideoTask,
+  recoveringVideoTaskId,
+  videoRecoveryCooldowns = {}
+}: {
+  tasks: TaskRecord[];
+  onSelectTask: (task: TaskRecord) => void;
+  onClearTasks: () => void;
+  onRecoverVideoTask?: (taskId: string) => void;
+  recoveringVideoTaskId?: string;
+  videoRecoveryCooldowns?: Record<string, number>;
+}) {
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-2 overflow-hidden">
       {tasks.length > 0 && (
@@ -572,8 +640,8 @@ function ErrorsTab({ tasks, onSelectTask, onClearTasks, onRecoverVideoTask }: { 
           <div className="rounded-panel border border-dashed border-border p-5 text-center text-xs text-text-muted">当前没有失败任务。</div>
         ) : tasks.map((task) => {
           const isConcurrencyError = task.rawResultJson?.includes("并发超限") || task.errorMessage?.includes("并发超限");
-          const oldTaskIdMatch = task.rawResultJson?.match(/cgt-[a-zA-Z0-9-]+/) || task.errorMessage?.match(/cgt-[a-zA-Z0-9-]+/);
-          const oldTaskId = oldTaskIdMatch ? oldTaskIdMatch[0] : null;
+          const oldTaskId = getVideoConcurrencyTaskId(task);
+          const recoveryState = oldTaskId ? getRecoveryState(oldTaskId, recoveringVideoTaskId, videoRecoveryCooldowns) : undefined;
           
           return (
             <button key={task.taskId} type="button" onClick={() => onSelectTask(task)} className="rounded-card border border-[#b03939]/25 bg-[#b03939]/5 p-3 text-left hover:bg-[#b03939]/10">
@@ -585,7 +653,7 @@ function ErrorsTab({ tasks, onSelectTask, onClearTasks, onRecoverVideoTask }: { 
               </div>
               <p className="m-0 line-clamp-3 text-[11px] leading-relaxed text-text-muted">{task.errorMessage || task.rawResultJson || task.inputSummary}</p>
               
-              {isConcurrencyError && oldTaskId && (
+              {isConcurrencyError && oldTaskId && recoveryState && (
                 <div className="mt-3 p-3 bg-surface-app border border-brand/20 rounded-lg flex flex-col gap-2.5 shadow-inner" onClick={e => e.stopPropagation()}>
                   <div className="flex items-center gap-1.5 text-brand">
                     <AlertCircle className="w-3.5 h-3.5" />
@@ -594,15 +662,7 @@ function ErrorsTab({ tasks, onSelectTask, onClearTasks, onRecoverVideoTask }: { 
                   <span className="text-[10px] text-text-muted leading-relaxed">
                     检测到旧任务 <code className="bg-surface-raised px-1 py-0.5 rounded text-text font-mono select-all">{oldTaskId}</code> 尚未释放。
                   </span>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="w-full text-[11px] h-8 bg-brand/10 border-brand/30 text-brand hover:bg-brand hover:text-[#04202a] transition-all font-bold mt-1 shadow-sm" 
-                    onClick={() => onRecoverVideoTask?.(oldTaskId)}
-                  >
-                    <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
-                    安全恢复并刷新状态
-                  </Button>
+                  <RecoveryButton taskId={oldTaskId} state={recoveryState} onRecoverVideoTask={onRecoverVideoTask} />
                 </div>
               )}
               
@@ -632,11 +692,71 @@ function ErrorsTab({ tasks, onSelectTask, onClearTasks, onRecoverVideoTask }: { 
   );
 }
 
+type RecoveryState = {
+  loading: boolean;
+  cooldownSeconds: number;
+  disabled: boolean;
+};
+
+function getVideoConcurrencyTaskId(task: TaskRecord) {
+  const text = `${task.rawResultJson ?? ""}\n${task.errorMessage ?? ""}`;
+  const match = text.match(/cgt-[a-zA-Z0-9-]+/);
+  return match ? match[0] : undefined;
+}
+
+function getRecoveryState(taskId: string, recoveringVideoTaskId?: string, videoRecoveryCooldowns: Record<string, number> = {}): RecoveryState {
+  const cooldownSeconds = Math.max(0, Math.ceil(((videoRecoveryCooldowns[taskId] ?? 0) - Date.now()) / 1000));
+  const loading = recoveringVideoTaskId === taskId;
+  return {
+    loading,
+    cooldownSeconds,
+    disabled: loading || cooldownSeconds > 0 || !!recoveringVideoTaskId
+  };
+}
+
+function RecoveryAction({ taskId, state, onRecoverVideoTask }: { taskId: string; state: RecoveryState; onRecoverVideoTask?: (taskId: string) => void }) {
+  return (
+    <div className="rounded-panel border border-brand/20 bg-brand/5 p-3">
+      <div className="mb-2 flex items-center gap-1.5 text-brand">
+        <AlertCircle className="w-3.5 h-3.5" />
+        <span className="text-[11px] font-bold">视频并发任务锁定</span>
+      </div>
+      <p className="m-0 mb-2 text-[10px] leading-relaxed text-text-muted">
+        云端提示旧任务 <code className="rounded bg-surface-raised px-1 py-0.5 font-mono text-text select-all">{taskId}</code> 还在占用并发名额。
+      </p>
+      <RecoveryButton taskId={taskId} state={state} onRecoverVideoTask={onRecoverVideoTask} />
+    </div>
+  );
+}
+
+function RecoveryButton({ taskId, state, onRecoverVideoTask }: { taskId: string; state: RecoveryState; onRecoverVideoTask?: (taskId: string) => void }) {
+  const label = state.loading
+    ? "正在查询任务状态..."
+    : state.cooldownSeconds > 0
+      ? `等待 ${state.cooldownSeconds} 秒后可重试`
+      : "安全恢复并刷新状态";
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="w-full text-[11px] h-8 bg-brand/10 border-brand/30 text-brand hover:bg-brand hover:text-[#04202a] transition-all font-bold mt-1 shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+      onClick={() => onRecoverVideoTask?.(taskId)}
+      disabled={state.disabled || !onRecoverVideoTask}
+    >
+      <RefreshCw className={cn("w-3.5 h-3.5 mr-1.5", state.loading && "animate-spin")} />
+      {label}
+    </Button>
+  );
+}
+
 function classifyError(task: TaskRecord) {
   const text = `${task.errorMessage ?? ""}\n${task.rawResultJson ?? ""}`.toLowerCase();
   if (text.includes("timeout") || text.includes("timed out")) return "timeout";
   if (text.includes("schema") || text.includes("validation") || text.includes("invalid")) return "schema";
   if (text.includes("mcp") || text.includes("runtime") || text.includes("stdio")) return "mcp";
   if (text.includes("network") || text.includes("fetch") || text.includes("504")) return "network";
-  return "tool";
+  if (text.includes("balance") || text.includes("credit")) return "INSUFFICIENT_FUNDS";
+  if (text.includes("rate limit") || text.includes("429")) return "RATE_LIMIT";
+  return "UNKNOWN";
 }

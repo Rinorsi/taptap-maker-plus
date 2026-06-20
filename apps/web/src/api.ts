@@ -258,8 +258,28 @@ export async function refreshTools(projectId: string) {
   );
 }
 
-export async function listAssets(projectId: string): Promise<AssetSummary[]> {
-  const data = await json<{ assets: AssetSummary[] }>(await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets`));
+export type ListAssetsOptions = {
+  limit?: number;
+  offset?: number;
+  assetType?: string;
+  rootPrefix?: string;
+  q?: string;
+};
+
+function assetListQuery(options?: ListAssetsOptions) {
+  if (!options) return "";
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.offset !== undefined) params.set("offset", String(options.offset));
+  if (options.assetType) params.set("assetType", options.assetType);
+  if (options.rootPrefix) params.set("rootPrefix", options.rootPrefix);
+  if (options.q) params.set("q", options.q);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+export async function listAssets(projectId: string, options?: ListAssetsOptions): Promise<AssetSummary[]> {
+  const data = await json<{ assets: AssetSummary[] }>(await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets${assetListQuery(options)}`));
   return data.assets;
 }
 
@@ -427,4 +447,21 @@ export async function autoSaveFlow(projectId: string, data: any): Promise<void> 
 export async function deleteFlow(projectId: string, name: string): Promise<void> {
   const res = await fetch(`/api/projects/${projectId}/flows/${name}`, { method: "DELETE" });
   if (!res.ok) throw new Error(`Failed to delete flow: ${res.statusText}`);
+}
+
+export type CreditRecord = {
+  id: string;
+  projectId: string;
+  taskId?: string;
+  toolName: string;
+  credits: number;
+  assetPath?: string;
+  rawResultJson?: string;
+  createdAt: string;
+};
+
+export async function listCredits(projectId?: string): Promise<CreditRecord[]> {
+  const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+  const data = await json<{ credits: CreditRecord[] }>(await fetch(`/api/credits${query}`));
+  return data.credits;
 }

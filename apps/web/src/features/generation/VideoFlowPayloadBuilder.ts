@@ -37,7 +37,8 @@ export function buildVideoPayloadFromGraph(nodes: Node[], edges: Edge[]): Payloa
     return { ok: false, errors, warnings };
   }
 
-  // Traverse recursively starting from aggregator
+  // Traverse recursively from all executor inputs. This allows prompt composer
+  // branches to connect directly to the executor while Payload handles validation.
   const collectedNodes: Node[] = [];
   const visited = new Set<string>();
   
@@ -51,7 +52,10 @@ export function buildVideoPayloadFromGraph(nodes: Node[], edges: Edge[]): Payloa
     }
   };
   
-  traverse(aggregator.id);
+  for (const node of directPrevs) {
+    collectedNodes.push(node);
+    traverse(node.id);
+  }
 
   // Now gather data according to presets
   const promptArr: string[] = [];
@@ -116,7 +120,7 @@ export function buildVideoPayloadFromGraph(nodes: Node[], edges: Edge[]): Payloa
 
   // Validations
   if (!prompt || prompt.trim() === "") {
-    warnings.push("建议提供提示词，否则可能无法生成预期的内容。");
+    warnings.push("未采集到有效提示词。请连接至少一个写入文本的提示词节点；「提示词合并器」只负责中转，不会自动生成提示词。");
   }
 
   if (images.length === 0 && videos.length === 0 && audios.length === 0) {

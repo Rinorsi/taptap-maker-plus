@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import fs from "node:fs";
 import { config } from "../lib/config.js";
 import { getToolsListSnapshot, saveTools } from "../lib/db.js";
 import type { ProjectSummary, RuntimeSummary, ToolSummary } from "../types.js";
@@ -16,6 +17,8 @@ function buildMcpEnv(): Record<string, string> {
     if (typeof value === "string") env[key] = value;
   }
   env.TAPTAP_MCP_ENV = config.makerEnv;
+  env.npm_config_cache = config.makerNpmCacheDir;
+  env.NPM_CONFIG_CACHE = config.makerNpmCacheDir;
   return env;
 }
 
@@ -66,6 +69,7 @@ class SdkMcpClient {
   async connect() {
     if (this.client) return;
     this.closing = false;
+    fs.mkdirSync(config.makerNpmCacheDir, { recursive: true });
     const client = new Client({ name: "taptap-maker-plus", version: "0.1.0" }, { capabilities: {} });
     const transport = new StdioClientTransport({
       command: "cmd.exe",

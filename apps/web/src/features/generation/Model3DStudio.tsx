@@ -476,7 +476,7 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
             </Button>
           </div>
           
-          <div className="flex-1 min-h-0 bg-surface-app relative">
+          <div className="flex-1 min-h-0 bg-surface-app relative" style={{ backgroundImage: "radial-gradient(var(--color-border) 1px, transparent 1px)", backgroundSize: "16px 16px" }}>
              {displayAssetPath ? (
                displayAssetExtension === "mdl" ? (
                  mdlPreview ? (

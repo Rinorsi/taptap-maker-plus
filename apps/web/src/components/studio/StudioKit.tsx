@@ -97,7 +97,7 @@ export function StudioPromptField({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         className={cn(
-          "w-full resize-y rounded-2xl border-2 border-transparent bg-surface-panel px-4 py-3 text-[13px] shadow-sm transition-all placeholder:text-text-subtle focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10",
+          "w-full resize-y rounded-2xl border border-transparent bg-surface-panel px-4 py-3 text-[13px] shadow-sm transition-all placeholder:text-text-subtle focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10",
           minHeightClass
         )}
       />

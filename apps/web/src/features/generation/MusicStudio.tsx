@@ -298,18 +298,15 @@ export function MusicStudio({
                             className="h-10 rounded-xl bg-surface-raised border-transparent focus:border-brand focus:bg-surface-panel transition-all shadow-inner text-[13px]" 
                           />
                         </div>
-                        <div className="flex flex-col gap-2">
-                          <Label className="text-xs font-bold text-text-muted flex items-center justify-between">
-                            <span>风格 (Style)</span>
-                            <span className="text-[10px] text-brand font-bold bg-brand/10 px-1.5 py-0.5 rounded">自定必备</span>
-                          </Label>
-                          <textarea 
-                            value={style} 
-                            onChange={e => setStyle(e.target.value)} 
-                            placeholder="electronic, ambient, epic... 可以输入多个风格标签，用逗号分隔" 
-                            className="w-full min-h-[80px] rounded-xl border-2 border-transparent bg-surface-raised px-3 py-2 text-[13px] placeholder:text-text-subtle focus:outline-none focus:border-brand focus:bg-surface-panel transition-all shadow-inner resize-y" 
-                          />
-                        </div>
+                        <StudioPromptField
+                          id="style"
+                          label="风格 (Style)"
+                          value={style}
+                          onChange={setStyle}
+                          placeholder="electronic, ambient, epic... 可以输入多个风格标签，用逗号分隔"
+                          minHeightClass="min-h-[80px]"
+                          meta={<span className="text-[10px] text-brand font-bold bg-brand/10 px-1.5 py-0.5 rounded">自定必备</span>}
+                        />
                       </div>
 
                       {/* Negative Tags */}

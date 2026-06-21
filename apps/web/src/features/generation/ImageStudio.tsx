@@ -308,7 +308,6 @@ export function ImageStudio({
         </div>
       )}
       <div className="flex flex-col gap-2">
-        <Label htmlFor="target_size" className="text-xs font-bold text-text-muted">目标尺寸</Label>
         <StudioSelectField id="target_size" label="目标尺寸" value={targetSize} options={targetSizeOptions} onChange={(size) => {
           setTargetSize(size);
           if (size === "512x512" || size === "1024x1024" || size === "1536x1536") setAspectRatio("1:1");

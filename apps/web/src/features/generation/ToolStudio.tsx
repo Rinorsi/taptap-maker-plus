@@ -18,7 +18,7 @@ type Props = {
   assets: AssetSummary[];
   tasks: TaskRecord[];
   busy: boolean;
-  onCallTool: (toolName: string, args: Record<string, unknown>) => Promise<void>;
+  onCallTool: (toolName: string, args: Record<string, unknown>) => Promise<unknown>;
   onSelectTool: (tool: ToolSummary) => void;
   onSelectAsset?: (asset: AssetSummary) => void;
 };

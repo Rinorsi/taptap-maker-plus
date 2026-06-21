@@ -287,7 +287,7 @@ export function AppShell() {
     }
   }
 
-  async function handleImportImages(files: File[], targetFolder: string) {
+  async function handleImportAssets(files: File[], targetFolder: string) {
     if (!selectedProject || !files.length) return;
     setBusy(true);
     try {
@@ -328,7 +328,7 @@ export function AppShell() {
   }
 
   async function handleCallTool(toolName: string, args: Record<string, unknown>) {
-    if (!selectedProject) return;
+    if (!selectedProject) return undefined;
     setBusy(true);
     setNotice(`调用 ${toolName}...`);
     setRightPanelTab("logs");
@@ -350,9 +350,11 @@ export function AppShell() {
       setNotice(`${toolName} 完成，资产索引 ${result.assetsIndexed}`);
       await refreshProject(selectedProject.id);
       if (result.task) handleSelectSelection({ type: "task", item: result.task });
+      return result;
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
       await refreshProject(selectedProject.id).catch(() => undefined);
+      return undefined;
     } finally {
       setBusy(false);
     }
@@ -457,36 +459,36 @@ export function AppShell() {
         onOpenModule={selectModule}
         onSelect={handleSelectSelection}
       />
-      
-      <div 
-        className="flex-1 min-h-0 flex overflow-hidden transition-all duration-300" 
+
+      <div
+        className="flex-1 min-h-0 flex overflow-hidden transition-all duration-300"
         style={{ "--inspector-width": inspectorMinimized ? "48px" : `${inspectorWidth}px` } as React.CSSProperties}
       >
         <div className="relative shrink-0 h-full" style={{ width: sidebarCollapsed ? 56 : sidebarWidth }}>
           <ProjectSidebar projects={projects} selectedProjectId={selectedProjectId} activeModule={activeModule} tasks={tasks} collapsed={sidebarCollapsed} width={sidebarWidth} onToggleCollapsed={() => setSidebarCollapsed((value) => !value)} onSelectProject={handleSelectProject} onSelectModule={selectModule} onScanProjects={handleScanProjects} />
           {!sidebarCollapsed && <div className="absolute -right-[5px] top-0 bottom-0 w-[10px] z-10 cursor-col-resize hover:bg-brand/20 transition-colors" role="separator" aria-label="调整项目侧栏宽度" onPointerDown={beginSidebarResize} />}
         </div>
-        
+
         <div className="flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden bg-surface-app">
-          <WorkbenchViewport 
-            activeModule={activeModule} 
-            project={selectedProject ? { ...selectedProject, runtime: runtimeView } : undefined} 
+          <WorkbenchViewport
+            activeModule={activeModule}
+            project={selectedProject ? { ...selectedProject, runtime: runtimeView } : undefined}
             projects={projects}
-            runtime={runtimeView} 
-            tools={tools} 
-            assets={assets} 
-            tasks={tasks} 
-            statusText={statusText} 
-            busy={busy} 
-            onStartRuntime={handleStartRuntime} 
-            onScanAssets={handleScanAssets} 
+            runtime={runtimeView}
+            tools={tools}
+            assets={assets}
+            tasks={tasks}
+            statusText={statusText}
+            busy={busy}
+            onStartRuntime={handleStartRuntime}
+            onScanAssets={handleScanAssets}
             onRebuildAssetProvenance={handleRebuildAssetProvenance}
-            onDeleteAssets={handleDeleteAssets} 
+            onDeleteAssets={handleDeleteAssets}
             onMoveAssets={handleMoveAssets}
-            onRenameAsset={handleRenameAsset} 
-            onImportImages={handleImportImages} 
-            onCallStatusLite={handleStatusLite} 
-            onCallTool={handleCallTool} 
+            onRenameAsset={handleRenameAsset}
+            onImportAssets={handleImportAssets}
+            onCallStatusLite={handleStatusLite}
+            onCallTool={handleCallTool}
             onSelect={handleSelectSelection}
             onSelectProject={handleSelectProject}
             onScanProjects={handleScanProjects}
@@ -504,19 +506,19 @@ export function AppShell() {
 
         <div className="relative shrink-0 flex h-full border-l border-border bg-surface-panel" style={{ width: "var(--inspector-width)", transition: "width 0.3s cubic-bezier(0.16, 1, 0.3, 1)" }}>
           {!inspectorMinimized && (
-            <div 
-              className="absolute -left-[5px] top-0 bottom-0 w-[10px] z-10 cursor-col-resize hover:bg-brand/20 transition-colors" 
-              role="separator" 
-              aria-label="调整 Inspector 面板宽度" 
-              onPointerDown={beginInspectorResize} 
+            <div
+              className="absolute -left-[5px] top-0 bottom-0 w-[10px] z-10 cursor-col-resize hover:bg-brand/20 transition-colors"
+              role="separator"
+              aria-label="调整 Inspector 面板宽度"
+              onPointerDown={beginInspectorResize}
             />
           )}
-          <AgentInspectorPanel 
-            project={selectedProject ? { ...selectedProject, runtime: runtimeView } : undefined} 
-            tools={tools} 
-            tasks={tasks} 
-            selection={selection} 
-            minimized={inspectorMinimized} 
+          <AgentInspectorPanel
+            project={selectedProject ? { ...selectedProject, runtime: runtimeView } : undefined}
+            tools={tools}
+            tasks={tasks}
+            selection={selection}
+            minimized={inspectorMinimized}
             activeTab={rightPanelTab}
             onTabChange={setRightPanelTab}
             onToggleMinimized={() => setInspectorMinimized(!inspectorMinimized)}

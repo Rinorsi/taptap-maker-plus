@@ -4,23 +4,13 @@ import { Trash2, AlertCircle, Play, Activity, ImagePlus, Film } from "lucide-rea
 import { getPresetById, NODE_PRESETS } from "./nodeRegistry";
 import { cn } from "../../lib/utils";
 import { assetPreviewUrl } from "../../api";
-import { Label } from "../../components/ui/Label";
-import { SelectField } from "../../components/ui/SelectField";
 import { Button } from "../../components/ui/Button";
+import { StudioSelectField } from "../../components/studio/StudioKit";
 import { readAssetDragPath } from "./dragData";
 
-function Field({ label, value, onChange, options }: any) {
-  return (
-    <div className="flex flex-col gap-1.5 w-full">
-      <Label className="text-[10px] font-bold text-text-muted">{label}</Label>
-      <SelectField id={`field-${label}`} value={value} onChange={onChange} options={options} />
-    </div>
-  );
-}
-
 const DeleteButton = ({ onDelete, id }: { onDelete?: (id: string) => void, id: string }) => (
-  <button 
-    onClick={() => onDelete?.(id)} 
+  <button
+    onClick={() => onDelete?.(id)}
     className="absolute -top-2 -right-2 w-6 h-6 bg-surface-panel border border-border-soft rounded-full flex items-center justify-center text-text-muted hover:text-red-500 hover:border-red-500/50 shadow-sm opacity-0 group-hover:opacity-100 transition-all z-50"
   >
     <Trash2 className="w-3.5 h-3.5" />
@@ -39,8 +29,8 @@ export function GenericTextNode({ data, id }: any) {
           <span className="text-xs font-bold text-text">{preset?.label || '文本节点'}</span>
         </div>
         <div className="p-4 flex flex-col gap-3">
-          <textarea 
-            className="w-full h-[60px] text-[13px] bg-surface-app/50 rounded-lg border border-border-soft p-2 text-text resize-none focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand transition-all shadow-inner" 
+          <textarea
+            className="w-full h-[60px] text-[13px] bg-surface-app/50 rounded-lg border border-border-soft p-2 text-text resize-none focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand transition-all shadow-inner"
             placeholder={`${preset?.label || '输入内容'}...`}
             value={data.text || ""}
             onChange={(e) => data.onChange(id, "text", e.target.value)}
@@ -67,7 +57,7 @@ export function GenericMediaNode({ data, id }: any) {
         isAudio ? "hover:border-blue-500/40" : isVideo ? "hover:border-purple-500/40" : "hover:border-brand/40"
       )}>
         <div className="relative">
-          <div 
+          <div
              className={`h-[120px] w-full flex items-center justify-center bg-surface-app/50 overflow-hidden ${isAudio ? 'bg-gradient-to-br from-blue-500/10 to-transparent flex-col gap-2' : ''}`}
              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy'; }}
              onDrop={(e) => {
@@ -111,10 +101,11 @@ export function GenericMediaNode({ data, id }: any) {
           )}
         </div>
         <div className="p-3 border-t border-border-soft bg-surface-panel flex flex-col gap-2">
-           <Field 
-             label="参考类型" 
-             value={data.presetId} 
-             onChange={(val: string) => data.onChange(id, "presetId", val)} 
+           <StudioSelectField
+             id={`field-${id}-preset`}
+             label="参考类型"
+             value={data.presetId}
+             onChange={(val: string) => data.onChange(id, "presetId", val)}
              options={NODE_PRESETS.filter(p => p.category === preset?.category).map(p => ({ value: p.id, label: p.label }))}
            />
         </div>
@@ -130,17 +121,17 @@ export function GenericSettingsNode({ data, id }: any) {
   const Icon = preset?.icon;
 
   const renderInput = () => {
-    if (data.type === "ratio") return <Field label="比例 (Ratio)" value={data.value} onChange={(val: string) => data.onChange(id, "value", val)} options={[{value: "16:9", label: "16:9"}, {value: "9:16", label: "9:16"}, {value: "1:1", label: "1:1"}]} />;
-    if (data.type === "resolution") return <Field label="分辨率 (Resolution)" value={data.value} onChange={(val: string) => data.onChange(id, "value", val)} options={[{value: "720p", label: "720p"}, {value: "480p", label: "480p"}]} />;
-    if (data.type === "duration") return <Field label="时长 (Duration)" value={String(data.value)} onChange={(val: string) => data.onChange(id, "value", val)} options={[{value: "5", label: "5s"}, {value: "10", label: "10s"}]} />;
-    if (data.type === "model") return <Field label="模型 (Model)" value={data.value} onChange={(val: string) => data.onChange(id, "value", val)} options={[{value: "default", label: "默认"}, {value: "fast", label: "极速"}]} />;
-    if (data.type === "generate_audio") return <Field label="生成音频 (GenAudio)" value={String(data.value)} onChange={(val: string) => data.onChange(id, "value", val)} options={[{value: "false", label: "否"}, {value: "true", label: "是"}]} />;
-    if (data.type === "return_last_frame") return <Field label="返回尾帧 (LastFrame)" value={String(data.value)} onChange={(val: string) => data.onChange(id, "value", val)} options={[{value: "false", label: "否"}, {value: "true", label: "是"}]} />;
-    
+    if (data.type === "ratio") return <StudioSelectField id={`field-${id}-ratio`} label="比例 (Ratio)" value={data.value} onChange={(val: string) => data.onChange(id, "value", val)} options={[{value: "16:9", label: "16:9"}, {value: "9:16", label: "9:16"}, {value: "1:1", label: "1:1"}]} />;
+    if (data.type === "resolution") return <StudioSelectField id={`field-${id}-resolution`} label="分辨率 (Resolution)" value={data.value} onChange={(val: string) => data.onChange(id, "value", val)} options={[{value: "720p", label: "720p"}, {value: "480p", label: "480p"}]} />;
+    if (data.type === "duration") return <StudioSelectField id={`field-${id}-duration`} label="时长 (Duration)" value={String(data.value)} onChange={(val: string) => data.onChange(id, "value", val)} options={[{value: "5", label: "5s"}, {value: "10", label: "10s"}]} />;
+    if (data.type === "model") return <StudioSelectField id={`field-${id}-model`} label="模型 (Model)" value={data.value} onChange={(val: string) => data.onChange(id, "value", val)} options={[{value: "default", label: "默认"}, {value: "fast", label: "极速"}]} />;
+    if (data.type === "generate_audio") return <StudioSelectField id={`field-${id}-generate-audio`} label="生成音频 (GenAudio)" value={String(data.value)} onChange={(val: string) => data.onChange(id, "value", val)} options={[{value: "false", label: "否"}, {value: "true", label: "是"}]} />;
+    if (data.type === "return_last_frame") return <StudioSelectField id={`field-${id}-return-last-frame`} label="返回尾帧 (LastFrame)" value={String(data.value)} onChange={(val: string) => data.onChange(id, "value", val)} options={[{value: "false", label: "否"}, {value: "true", label: "是"}]} />;
+
     return (
-      <input 
-        type="text" 
-        className="w-full h-8 px-2 text-[12px] bg-surface-app rounded-md border border-border-soft text-text focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand transition-all" 
+      <input
+        type="text"
+        className="w-full h-8 px-2 text-[12px] bg-surface-app rounded-md border border-border-soft text-text focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand transition-all"
         placeholder="值..."
         value={data.value || ""}
         onChange={(e) => data.onChange(id, "value", e.target.value)}
@@ -229,7 +220,7 @@ export function GenericExecutorNode({ data, id }: any) {
       <Handle type="target" position={Position.Left} className="!w-4 !h-4 !bg-surface-app !border-2 !border-brand transition-transform group-hover:scale-125 z-50 !-left-2" />
       <div className="bg-surface-panel/80 backdrop-blur-2xl border-2 border-brand/50 rounded-2xl shadow-[0_0_40px_rgba(0,217,197,0.15)] overflow-hidden relative group-hover:shadow-[0_0_60px_rgba(0,217,197,0.25)] group-hover:border-brand">
         <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-brand/50" />
-        
+
         <div className="bg-gradient-to-br from-brand/20 to-transparent p-6 flex flex-col items-center gap-3">
           <div className="w-14 h-14 rounded-full bg-surface-panel shadow-lg flex items-center justify-center relative">
             <div className="absolute inset-0 rounded-full border border-brand/30 animate-[spin_4s_linear_infinite]" />
@@ -238,8 +229,8 @@ export function GenericExecutorNode({ data, id }: any) {
           <span className="text-[15px] font-black text-text text-center tracking-wide">{preset?.label || "运行节点"}</span>
         </div>
         <div className="p-5 pt-2 nodrag">
-          <Button 
-            className="w-full font-black text-[13px] h-11 rounded-xl shadow-lg shadow-brand/20 transition-all hover:shadow-brand/40 bg-gradient-to-r from-brand to-brand-strong text-[#04202a]" 
+          <Button
+            className="w-full font-black text-[13px] h-11 rounded-xl shadow-lg shadow-brand/20 transition-all hover:shadow-brand/40 bg-gradient-to-r from-brand to-brand-strong text-[#04202a]"
             onClick={(e) => { e.stopPropagation(); data.onRun(); }}
             disabled={data.busy}
           >
@@ -258,10 +249,10 @@ export function GenericExecutorNode({ data, id }: any) {
 
 export function GenericResultNode({ data, id }: any) {
   const preset = getPresetById(data.presetId);
-  
+
   // Get latest video asset from project
-  const latestVideo = data.allAssets?.find((a: any) => 
-    a.relativePath.toLowerCase().endsWith('.mp4') || 
+  const latestVideo = data.allAssets?.find((a: any) =>
+    a.relativePath.toLowerCase().endsWith('.mp4') ||
     a.relativePath.toLowerCase().endsWith('.webm') ||
     a.relativePath.toLowerCase().endsWith('.mov')
   );
@@ -274,13 +265,13 @@ export function GenericResultNode({ data, id }: any) {
           {preset?.icon && React.createElement(preset.icon, { className: "w-4 h-4 text-brand" })}
           <span className="text-xs font-bold text-text">{preset?.label || "生成结果"}</span>
         </div>
-        
+
         <div className="p-3">
           {latestVideo ? (
             <div className="flex flex-col gap-2">
               <div className="relative aspect-video rounded-lg overflow-hidden bg-black border border-border-soft group-hover:border-brand/30 transition-colors">
-                <video 
-                  src={assetPreviewUrl(data.project?.id || '', latestVideo.relativePath)} 
+                <video
+                  src={assetPreviewUrl(data.project?.id || '', latestVideo.relativePath)}
                   className="w-full h-full object-contain"
                   controls
                   controlsList="nodownload"

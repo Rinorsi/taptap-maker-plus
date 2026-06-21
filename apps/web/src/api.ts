@@ -47,6 +47,95 @@ export type AssetSummary = {
   provenance?: AssetProvenanceSummary[];
 };
 
+export type AssetDirectoryNode = {
+  name: string;
+  path: string;
+  parentPath: string;
+  depth: number;
+  assetCount: number;
+  totalAssetCount: number;
+  children: AssetDirectoryNode[];
+};
+
+export type ModelPackageSummary = {
+  id: string;
+  projectId: string;
+  displayName: string;
+  category: string;
+  purpose: string;
+  sourceGlb?: string;
+  previewImage?: string;
+  multiviewImages: string[];
+  runtimeMdl?: string;
+  materialXmls: string[];
+  textureFiles: string[];
+  prefabFiles: string[];
+  resourceEntries: string[];
+  fileTypes: { type: "GLB" | "GBM" | "MDL" | "MAT" | "TEX" | "PREVIEW" | "MULTIVIEW" | "PREFAB" | "META" | "MANIFEST" | "RES" | "LUA" | "FLOW"; count: number }[];
+  missingParts: string[];
+  sourceState: "linked" | "missing" | "draft" | "orphan" | "discarded";
+  sourceNotes: string[];
+  inResourceTable: boolean;
+  isOrganized: boolean;
+  canPreview: boolean;
+  canRun: boolean;
+  isDiscarded: boolean;
+  governanceState: "in_use" | "adopted" | "draft" | "source_orphan" | "runtime_orphan" | "discarded" | "broken" | "packaged_unused";
+  referencedByScripts: string[];
+  referencedByFlows: string[];
+  referencedByResources: string[];
+  issues: { severity: "warning" | "error" | "info"; message: string; }[];
+  suggestedActions: ("organize" | "discard" | "restore" | "delete_package" | "bind_mdl" | "add_to_resource" | "remove_from_resource" | "copy_lua")[];
+  files: { relativePath: string; role: string; exists?: boolean; size?: number; updatedAt?: string; }[];
+  sourceTaskId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MdlModelInfo = {
+  fileId: string;
+  vertexBuffers: {
+    vertexCount: number;
+    vertexSize: number;
+    morphRangeStart: number;
+    morphRangeCount: number;
+    elements: {
+      type: string;
+      semantic: string;
+      index: number;
+      offset: number;
+      size: number;
+      raw: { type: number; semantic: number; index: number };
+    }[];
+  }[];
+  indexBuffers: { indexCount: number; indexSize: number }[];
+  geometries: {
+    boneMappingCount: number;
+    lodLevels: {
+      distance: number;
+      primitiveType: string;
+      vertexBuffer: number;
+      indexBuffer: number;
+      indexStart: number;
+      indexCount: number;
+    }[];
+  }[];
+  morphCount: number;
+  boneCount: number;
+  bones: { name: string; parentIndex: number }[];
+  boundingBox: { min: [number, number, number]; max: [number, number, number] };
+  geometryCenters: [number, number, number][];
+};
+
+export type MdlToGltfResult = {
+  ok: true;
+  gltfRelativePath: string;
+  binRelativePath: string;
+  info: MdlModelInfo;
+  stats: { meshes: number; primitives: number; vertices: number; triangles: number; skippedGeometries: number };
+  assetsIndexed: number;
+};
+
 export type AssetProvenanceSourceType = "task" | "generation" | "workflow_run";
 
 export type AssetProvenanceSummary = {
@@ -283,6 +372,12 @@ export async function listAssets(projectId: string, options?: ListAssetsOptions)
   return data.assets;
 }
 
+export async function getAssetTree(projectId: string, rootPath = "assets"): Promise<AssetDirectoryNode> {
+  const query = new URLSearchParams({ rootPath });
+  const data = await json<{ tree: AssetDirectoryNode }>(await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/tree?${query.toString()}`));
+  return data.tree;
+}
+
 export async function scanAssets(projectId: string): Promise<AssetSummary[]> {
   const data = await json<{ assets: AssetSummary[] }>(
     await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/scan`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
@@ -295,6 +390,76 @@ export async function rebuildAssetProvenance(projectId: string): Promise<AssetSu
     await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/provenance/rebuild`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
   );
   return data.assets;
+}
+
+export async function listModelPackages(projectId: string): Promise<{ packages: ModelPackageSummary[] }> {
+  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages`));
+}
+
+export async function organizeModelPackage(projectId: string, packageId: string): Promise<{ packages: ModelPackageSummary[] }> {
+  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages/${encodeURIComponent(packageId)}/organize`, {
+    method: "POST"
+  }));
+}
+
+export async function bindModelPackage(projectId: string, packageId: string, mdlPath: string): Promise<{ packages: ModelPackageSummary[] }> {
+  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages/${encodeURIComponent(packageId)}/bind`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mdlPath })
+  }));
+}
+
+export async function discardModelPackage(projectId: string, packageId: string): Promise<{ packages: ModelPackageSummary[] }> {
+  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages/${encodeURIComponent(packageId)}/discard`, {
+    method: "POST"
+  }));
+}
+
+export async function restoreModelPackage(projectId: string, packageId: string): Promise<{ packages: ModelPackageSummary[] }> {
+  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages/${encodeURIComponent(packageId)}/restore`, {
+    method: "POST"
+  }));
+}
+
+export async function updateModelPackageResource(projectId: string, packageId: string, action: "add" | "remove"): Promise<{ packages: ModelPackageSummary[] }> {
+  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages/${encodeURIComponent(packageId)}/resource`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action })
+  }));
+}
+
+export async function batchModelPackageAction(
+  projectId: string,
+  packageIds: string[],
+  action: "organize" | "discard" | "restore" | "add_to_resource" | "remove_from_resource"
+): Promise<{ ok: boolean; results: { id: string; ok: boolean; error?: string }[]; packages: ModelPackageSummary[] }> {
+  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages/batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ packageIds, action })
+  }));
+}
+
+export async function convertMdlToGltf(projectId: string, relativePath: string): Promise<MdlToGltfResult> {
+  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/model-convert/mdl-to-gltf`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ relativePath })
+  }));
+}
+
+export async function inspectMdl(projectId: string, relativePath: string): Promise<{ ok: true; info: MdlModelInfo }> {
+  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/model-convert/mdl-info`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ relativePath })
+  }));
+}
+
+export async function listGenerations(projectId: string): Promise<{ generations: GenerationRecord[] }> {
+  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/generations`));
 }
 
 export async function deleteAssets(projectId: string, relativePaths: string[]): Promise<AssetSummary[]> {

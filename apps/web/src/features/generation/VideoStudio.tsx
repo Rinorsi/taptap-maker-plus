@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, ChevronUp, ChevronLeft, PanelRightClose, FileVideo, FileImage, FolderOpen, ImagePlus, Maximize2, MoveRight, RefreshCw, Search, Settings2, Trash2, Upload, Wand2, Play, Activity, LayoutGrid, List, X, Copy, Loader2, Clock, Boxes } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronLeft, PanelRightClose, FileVideo, RefreshCw, Settings2, Trash2, Wand2, Play, Activity, Loader2, Clock, Boxes } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { VideoFlowCanvas } from "./VideoFlowCanvas";
 import { writeAssetDragData } from "./dragData";
@@ -7,8 +7,10 @@ import { assetPreviewUrl, type AssetSummary, type ProjectSummary, type TaskRecor
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Label } from "../../components/ui/Label";
-import { SelectField } from "../../components/ui/SelectField";
-import { cn, formatBytes } from "../../lib/utils";
+import { StudioHeader, StudioMediaDropzone, StudioModeButton, StudioPromptField, StudioSelectField } from "../../components/studio/StudioKit";
+import { AssetManagerPanel } from "../assets/AssetManagerPanel";
+import { defaultAssetImportFolders, managedAssetRoots } from "../assets/assetGovernance";
+import { cn } from "../../lib/utils";
 
 type Props = {
   project?: ProjectSummary;
@@ -16,7 +18,7 @@ type Props = {
   assets: AssetSummary[];
   tasks: TaskRecord[];
   busy: boolean;
-  onCallTool: (toolName: string, args: Record<string, unknown>) => Promise<void>;
+  onCallTool: (toolName: string, args: Record<string, unknown>) => Promise<unknown>;
   onSelectTool: (tool: ToolSummary) => void;
   onSelectAsset?: (asset: AssetSummary) => void;
   onScanAssets: () => void;
@@ -24,24 +26,12 @@ type Props = {
   onDeleteAssets: (relativePaths: string[]) => Promise<void>;
   onMoveAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
   onRenameAsset: (relativePath: string, newName: string) => Promise<void>;
-  onImportImages: (files: File[], targetFolder: string) => Promise<void>;
+  onImportAssets: (files: File[], targetFolder: string) => Promise<void>;
   onCollapseSidebar?: () => void;
   onShowError?: () => void;
 };
 
-type ImageMode = "generate" | "edit";
-type FolderKey = "__all__" | "__root__" | string;
 type ResourceType = "video" | "image";
-
-type FolderBucket = {
-  key: FolderKey;
-  label: string;
-  path: string;
-  count: number;
-};
-
-const VIDEO_ROOT = "assets/video";
-const IMAGE_ROOT = "assets/image";
 
 const videoModeOptions = [
   { value: "text_to_video", label: "纯文本生视频" },
@@ -76,15 +66,6 @@ const modelOptions = [
   { value: "default", label: "标准模式 (Default)" },
   { value: "fast", label: "极速模式 (Fast)" }
 ];
-
-function Field({ label, value, onChange, options }: { label: string, value: string, onChange: (val: string) => void, options: {value: string, label: string}[] }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <Label className="text-xs font-bold text-text-muted">{label}</Label>
-      <SelectField id={label} value={value} options={options} onChange={onChange} ariaLabel={label} />
-    </div>
-  );
-}
 
 function isVideoTaskStatusRunning(rawResultJson: string) {
   const runningStatuses = new Set(["running", "queued", "processing", "starting"]);
@@ -141,7 +122,7 @@ function defaultVideoName() {
 }
 
 export function VideoStudio({
-  project, tools, assets, tasks, busy, onCallTool, onSelectTool, onSelectAsset, onScanAssets, onDeleteAssets, onMoveAssets, onRenameAsset, onImportImages, onCollapseSidebar, onShowError
+  project, tools, assets, tasks, busy, onCallTool, onSelectAsset, onScanAssets, onRebuildAssetProvenance, onDeleteAssets, onMoveAssets, onImportAssets, onCollapseSidebar, onShowError
 }: Props) {
   const [videoMode, setVideoMode] = useState("text_to_video");
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -160,24 +141,15 @@ export function VideoStudio({
   const [lastFrame, setLastFrame] = useState("");
 
   const [resourceType, setResourceType] = useState<ResourceType>("video");
-  const [search, setSearch] = useState("");
-  const [flattenAll, setFlattenAll] = useState(false);
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [viewTab, setViewTab] = useState<"preview" | "manage">("preview");
   const [studioMode, setStudioMode] = useState<"standard" | "flow">("standard");
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
-  const [selectedFolderKey, setSelectedFolderKey] = useState<FolderKey>("__all__");
-  const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
-  const [moveTargetFolder, setMoveTargetFolder] = useState<string>("");
-  const [editingAssetPath, setEditingAssetPath] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState("");
   const [previewAsset, setPreviewAsset] = useState<AssetSummary | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const generateTool = useMemo(() => tools.find((tool) => tool.category === "video" && (tool.name.includes("generate") || tool.name.includes("create_video"))), [tools]);
-  const editTool = useMemo(() => tools.find((tool) => tool.category === "video" && tool.name.includes("edit")), [tools]) ?? generateTool;
 
-  const currentRoot = resourceType === "video" ? VIDEO_ROOT : IMAGE_ROOT;
+  const currentRoot = resourceType === "video" ? managedAssetRoots.video : managedAssetRoots.image;
+  const currentImportFolder = resourceType === "video" ? defaultAssetImportFolders.video : defaultAssetImportFolders.image;
 
   const projectAssets = useMemo(() => {
     if (!project) return [];
@@ -192,61 +164,13 @@ export function VideoStudio({
     });
   }, [projectAssets, resourceType, currentRoot]);
 
-
-
-  function getFolderKey(relativePath: string) {
-    const normalized = relativePath.replace(/\\/g, "/");
-    if (!normalized.startsWith(`${currentRoot}/`)) return "__root__";
-    const parts = normalized.slice(`${currentRoot}/`.length).split("/");
-    if (parts.length <= 1) return "__root__";
-    return parts[0] || "__root__";
-  }
-
-  const folders = useMemo<FolderBucket[]>(() => {
-    const counts = new Map<string, number>();
-    let rootCount = 0;
-    for (const asset of currentAssets) {
-      const key = getFolderKey(asset.relativePath);
-      if (key === "__root__") rootCount += 1;
-      else counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    return [
-      { key: "__all__", label: resourceType === "video" ? "全部视频" : "全部图片", path: currentRoot, count: currentAssets.length },
-      { key: "__root__", label: "未分类", path: currentRoot, count: rootCount },
-      ...Array.from(counts.entries()).sort(([a], [b]) => a.localeCompare(b, "zh-Hans-CN")).map(([key, count]) => ({ key, label: key, path: `${currentRoot}/${key}`, count }))
-    ];
-  }, [currentAssets, resourceType, currentRoot]);
-
-  useEffect(() => {
-    if (selectedFolderKey === "__all__") {
-      setMoveTargetFolder(currentRoot);
-      return;
-    }
-    if (selectedFolderKey === "__root__") {
-      setMoveTargetFolder(currentRoot);
-      return;
-    }
-    setMoveTargetFolder(`${currentRoot}/${selectedFolderKey}`);
-  }, [selectedFolderKey, currentRoot]);
-
-  useEffect(() => {
-    if (!folders.some((folder) => folder.key === selectedFolderKey)) {
-      setSelectedFolderKey("__all__");
-    }
-  }, [folders, selectedFolderKey, resourceType]);
-
-  const visibleAssets = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    return currentAssets.filter((asset) => {
-      const key = getFolderKey(asset.relativePath);
-      if (!flattenAll) {
-         if (selectedFolderKey === "__all__" && key !== "__root__") return false;
-         if (selectedFolderKey !== "__all__" && key !== selectedFolderKey) return false;
-      }
-      if (!needle) return true;
-      return asset.fileName.toLowerCase().includes(needle) || asset.relativePath.toLowerCase().includes(needle);
+  const videoAssets = useMemo(() => {
+    return projectAssets.filter((asset) => {
+      if (asset.assetType !== "video") return false;
+      const normalized = asset.relativePath.replace(/\\/g, "/");
+      return normalized.startsWith(`${managedAssetRoots.video}/`);
     });
-  }, [currentAssets, search, selectedFolderKey, flattenAll]);
+  }, [projectAssets]);
 
   const activeGenerationTask = useMemo(() => {
     return tasks.find(t => t.projectId === project?.id && t.status === "running" && t.toolName.includes("video"));
@@ -276,7 +200,7 @@ export function VideoStudio({
     return isVideoTaskStatusRunning(latestCompleted.rawResultJson);
   }, [project, tasks]);
 
-  const displayAsset = previewAsset || (currentAssets && currentAssets.length > 0 ? currentAssets[0] : null);
+  const displayAsset = previewAsset?.assetType === "video" ? previewAsset : (videoAssets.length > 0 ? videoAssets[0] : null);
   const isLastGenerated = !previewAsset && displayAsset !== null;
 
   const previewMetadata = useMemo(() => {
@@ -350,94 +274,39 @@ export function VideoStudio({
     void handleCallTool(tool.name, payload);
   }
 
-  const handleRenameSubmit = async () => {
-    if (!editingAssetPath || !editingName.trim()) {
-      setEditingAssetPath(null);
-      return;
-    }
-    const asset = assets.find(a => a.relativePath === editingAssetPath);
-    if (!asset || asset.fileName === editingName.trim()) {
-      setEditingAssetPath(null);
-      return;
-    }
-    await onRenameAsset(editingAssetPath, editingName.trim());
-    setEditingAssetPath(null);
-  };
-
-  const currentFolderPath = selectedFolderKey === "__all__" ? currentRoot : selectedFolderKey === "__root__" ? currentRoot : `${currentRoot}/${selectedFolderKey}`;
-
-  const selectedCount = selectedPaths.length;
-
-  async function handleImport(files: File[] | FileList, targetFolder: string) {
-    const list = Array.from(files);
-    if (!list.length || !project) return;
-    await onImportImages(list, targetFolder);
-    setSelectedFolderKey(targetFolder === currentRoot ? "__all__" : targetFolder.split("/").pop() || "__root__");
-  }
-
-  async function deleteSelection(paths = selectedPaths) {
+  async function deleteAssetsAndClearPreview(paths: string[]) {
     if (!paths.length) return;
     await onDeleteAssets(paths);
-    setSelectedPaths([]);
     setPreviewAsset(null);
-  }
-
-  async function moveSelection(paths = selectedPaths, targetFolder = moveTargetFolder) {
-    if (!paths.length) return;
-    // Call move API if exists, currently we might not have onMoveAssets prop? Wait, VideoStudio DOES NOT have onMoveAssets prop defined? Let's check props.
-  }
-
-  function openPicker() {
-    fileInputRef.current?.click();
-  }
-
-  function toggleSelected(relativePath: string) {
-    setSelectedPaths((current) => current.includes(relativePath) ? current.filter((item) => item !== relativePath) : [...current, relativePath]);
   }
 
   function openPreview(asset: AssetSummary) {
     setPreviewAsset(asset);
   }
-
-  async function copyText(text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch (e) {
-      console.error("Failed to copy text", e);
-    }
-  }
   return (
     <div className="flex flex-col gap-5 p-6 h-full min-h-0 w-full max-w-[1600px] mx-auto overflow-hidden">
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shrink-0">
-        <div>
-          <span className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-subtle font-semibold mb-1">
-            <FileVideo className="w-3.5 h-3.5" />
-            Video Studio
-          </span>
-          <h1 className="text-xl md:text-2xl font-extrabold text-text m-0">视频生成工作室</h1>
-          <p className="text-xs text-text-muted mt-1 max-w-xl">
-            {project ? `当前项目：${project.name}` : "请先选择项目"}
-          </p>
-        </div>
-        
-        <div className="flex items-center p-1 bg-surface-muted rounded-pill border border-border-soft">
-          <button 
-            onClick={() => setStudioMode("standard")} 
-            className={cn("px-4 py-1.5 text-xs font-bold rounded-full transition-all", studioMode === "standard" ? "bg-surface-raised shadow-sm text-text" : "text-text-subtle hover:text-text")}
-          >标准生成</button>
-          <button 
-            onClick={() => {
-              setStudioMode("flow");
-              setIsRightPanelOpen(false);
-              onCollapseSidebar?.();
-            }} 
-            className={cn("px-4 py-1.5 text-xs font-bold rounded-full transition-all flex items-center gap-1.5", studioMode === "flow" ? "bg-surface-raised shadow-sm text-brand" : "text-text-subtle hover:text-text")}
-          >
-            <Boxes className="w-3.5 h-3.5" />
-            多模态参考画布
-          </button>
-        </div>
-      </div>
+      <StudioHeader
+        icon={<FileVideo className="w-3.5 h-3.5" />}
+        eyebrow="Video Studio"
+        title="视频生成工作室"
+        projectName={project?.name}
+        actions={
+          <div className="flex items-center p-1 bg-surface-muted rounded-pill border border-border-soft">
+            <StudioModeButton active={studioMode === "standard"} onClick={() => setStudioMode("standard")} icon={<FileVideo className="w-4 h-4" />}>标准生成</StudioModeButton>
+            <StudioModeButton
+              active={studioMode === "flow"}
+              onClick={() => {
+                setStudioMode("flow");
+                setIsRightPanelOpen(false);
+                onCollapseSidebar?.();
+              }}
+              icon={<Boxes className="w-4 h-4" />}
+            >
+              多模态参考画布
+            </StudioModeButton>
+          </div>
+        }
+      />
 
       <div className="flex-1 flex gap-5 min-h-0 overflow-hidden">
         
@@ -455,74 +324,30 @@ export function VideoStudio({
             </div>
             
             <div className="grid gap-4">
-              <Field label="生成模式" value={videoMode} onChange={setVideoMode} options={videoModeOptions} />
+              <StudioSelectField label="生成模式" value={videoMode} onChange={setVideoMode} options={videoModeOptions} />
             </div>
 
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="prompt" className="text-xs font-bold text-text-muted flex items-center justify-between">
-                <span>画面提示词 (Prompt)</span>
-                <span className="text-[10px] text-brand font-bold bg-brand/10 px-1.5 py-0.5 rounded">必填</span>
-              </Label>
-              <textarea 
+            <StudioPromptField
                 id="prompt"
                 value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
+                onChange={setPrompt}
+                label="画面提示词 (Prompt)"
                 placeholder={"描述视频画面、运镜及动作，越详细越好...\n例如：镜头缓缓向前推进，清晨的阳光穿透树林..."}
-                className="w-full min-h-[120px] rounded-2xl border-2 border-transparent bg-surface-panel px-4 py-3 text-[13px] placeholder:text-text-subtle focus:outline-none focus:border-brand focus:ring-4 focus:ring-brand/10 transition-all resize-y shadow-sm"
+                required
+                minHeightClass="min-h-[120px]"
               />
-            </div>
 
             {(videoMode === "first_frame" || videoMode === "first_last_frame" || videoMode === "multi_modal_reference") && (
               <div className="flex gap-3">
                 <div className="flex-1 flex flex-col gap-2">
                   <Label className="text-[11px] font-bold text-text-muted">参考首帧</Label>
-                  <div 
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => {
-                       e.preventDefault();
-                       const text = e.dataTransfer.getData("text/plain");
-                       if (text) setFirstFrame(text);
-                    }}
-                    className={cn("h-28 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-2 text-xs transition-all duration-300 relative overflow-hidden group", firstFrame ? "border-brand/50 bg-brand/5" : "border-border-strong hover:border-brand/50 hover:bg-brand/5 cursor-pointer text-text-muted")}
-                  >
-                    {firstFrame ? (
-                       <div className="absolute inset-0 flex items-center justify-center p-1 bg-black/40 backdrop-blur-sm group-hover:opacity-80 transition-opacity" onClick={() => setFirstFrame("")}>
-                          <img src={assetPreviewUrl(project?.id ?? "", firstFrame)} className="h-full object-contain rounded-xl shadow-lg" />
-                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 text-white font-bold text-xs"><Trash2 className="w-4 h-4 mr-1" /> 移除</div>
-                       </div>
-                    ) : (
-                      <>
-                        <ImagePlus className="w-6 h-6 text-brand/70 group-hover:scale-110 transition-transform duration-300" />
-                        <span className="font-medium text-text-subtle text-[10px]">拖拽图片至此</span>
-                      </>
-                    )}
-                  </div>
+                  <StudioMediaDropzone image={firstFrame ? assetPreviewUrl(project?.id ?? "", firstFrame) : ""} onChange={setFirstFrame} height="h-28" emptyLabel="拖拽图片至此" emptySubLabel="作为首帧参考" />
                 </div>
 
                 {(videoMode === "first_last_frame" || videoMode === "multi_modal_reference") && (
                   <div className="flex-1 flex flex-col gap-2">
                     <Label className="text-[11px] font-bold text-text-muted">参考尾帧 (可选)</Label>
-                    <div 
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                         e.preventDefault();
-                         const text = e.dataTransfer.getData("text/plain");
-                         if (text) setLastFrame(text);
-                      }}
-                      className={cn("h-28 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-2 text-xs transition-all duration-300 relative overflow-hidden group", lastFrame ? "border-brand/50 bg-brand/5" : "border-border-strong hover:border-brand/50 hover:bg-brand/5 cursor-pointer text-text-muted")}
-                    >
-                      {lastFrame ? (
-                         <div className="absolute inset-0 flex items-center justify-center p-1 bg-black/40 backdrop-blur-sm group-hover:opacity-80 transition-opacity" onClick={() => setLastFrame("")}>
-                            <img src={assetPreviewUrl(project?.id ?? "", lastFrame)} className="h-full object-contain rounded-xl shadow-lg" />
-                            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 text-white font-bold text-xs"><Trash2 className="w-4 h-4 mr-1" /> 移除</div>
-                         </div>
-                      ) : (
-                        <>
-                          <ImagePlus className="w-6 h-6 text-brand/70 group-hover:scale-110 transition-transform duration-300" />
-                          <span className="font-medium text-text-subtle text-[10px]">拖拽图片至此</span>
-                        </>
-                      )}
-                    </div>
+                    <StudioMediaDropzone image={lastFrame ? assetPreviewUrl(project?.id ?? "", lastFrame) : ""} onChange={setLastFrame} height="h-28" emptyLabel="拖拽图片至此" emptySubLabel="作为尾帧参考" />
                   </div>
                 )}
               </div>
@@ -530,10 +355,10 @@ export function VideoStudio({
 
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-1">
-                <Field label="视频比例" value={ratio} onChange={setRatio} options={ratioOptions} />
+                <StudioSelectField label="视频比例" value={ratio} onChange={setRatio} options={ratioOptions} />
               </div>
               <div className="col-span-1">
-                <Field label="视频时长" value={duration} onChange={setDuration} options={durationOptions} />
+                <StudioSelectField label="视频时长" value={duration} onChange={setDuration} options={durationOptions} />
               </div>
             </div>
 
@@ -617,10 +442,10 @@ export function VideoStudio({
           <div className="flex flex-col gap-4 p-6 pt-5 border-t border-white/5 bg-surface-panel/40 backdrop-blur-md shrink-0 relative z-10">
             <div className="flex items-end justify-between gap-4">
                <div className="flex-1">
-                 <Field label="模型 (Model)" value={model} onChange={setModel} options={modelOptions} />
+                 <StudioSelectField label="模型 (Model)" value={model} onChange={setModel} options={modelOptions} />
                </div>
                <div className="flex-1">
-                 <Field label="分辨率" value={resolution} onChange={setResolution} options={resolutionOptions} />
+                 <StudioSelectField label="分辨率" value={resolution} onChange={setResolution} options={resolutionOptions} />
                </div>
             </div>
             <Button 
@@ -664,43 +489,9 @@ export function VideoStudio({
                   <button onClick={() => { setViewTab("manage"); setResourceType("image"); }} className={cn("px-3 py-1 text-[11px] font-bold rounded transition-all", viewTab === "manage" && resourceType === "image" ? "bg-surface-raised shadow-sm text-text border border-border-soft" : "text-text-subtle hover:text-text")}>图片库</button>
                 </div>
 
-                {viewTab === "manage" && selectedFolderKey !== "__all__" && (
-                  <>
-                    <div className="h-4 w-[1px] bg-border hidden md:block" />
-                    <div className="flex items-center gap-2 min-w-0">
-                      <button onClick={() => setSelectedFolderKey("__all__")} className="p-1.5 hover:bg-surface-app border border-transparent hover:border-border rounded-md transition-all text-text-subtle hover:text-text shrink-0 bg-surface-panel shadow-sm" title="返回根目录">
-                        <MoveRight className="w-4 h-4 rotate-180" />
-                      </button>
-                      <div className="flex flex-col min-w-0 justify-center">
-                        <span className="text-sm font-bold text-text truncate leading-tight">{selectedFolderKey === "__root__" ? "未分类" : selectedFolderKey}</span>
-                        <span className="text-[10px] text-text-subtle truncate leading-tight mt-0.5" dir="rtl">{currentFolderPath}</span>
-                      </div>
-                    </div>
-                  </>
-                )}
               </div>
 
-              {/* Right: Search & Actions */}
               <div className="flex flex-wrap items-center gap-3 shrink-0">
-                <div className="relative w-[140px] md:w-[180px] lg:w-[220px]">
-                  <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-subtle" />
-                  <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索文件..." className="h-8 pl-8 text-xs bg-surface-app rounded-full border-border-soft focus:border-brand/50 transition-all" />
-                </div>
-
-                <div className="h-4 w-[1px] bg-border hidden sm:block" />
-
-                <label className="flex items-center gap-1.5 text-xs text-text-subtle hover:text-text cursor-pointer select-none">
-                  <input type="checkbox" checked={flattenAll} onChange={(e) => setFlattenAll(e.target.checked)} className="rounded border-border bg-surface-app text-brand focus:ring-brand/30 w-3.5 h-3.5" />
-                  平铺
-                </label>
-
-                {viewTab === "manage" && selectedFolderKey !== "__all__" && (
-                  <>
-                    <div className="h-4 w-[1px] bg-border hidden sm:block" />
-                    <Button variant="outline" size="sm" onClick={openPicker} disabled={!project} className="gap-1.5 h-8 text-xs bg-surface-app"><Upload className="h-3.5 w-3.5" />上传</Button>
-                  </>
-                )}
-
                 {studioMode !== "standard" && (
                   <button onClick={() => setIsRightPanelOpen(false)} className="ml-2 p-1.5 rounded-full hover:bg-surface-app text-text-subtle hover:text-text transition-colors" title="收起素材库">
                     <PanelRightClose className="w-4 h-4" />
@@ -709,15 +500,6 @@ export function VideoStudio({
               </div>
             </div>
             
-            <div className="px-4 py-2 border-b border-border flex items-center justify-between bg-surface-panel shrink-0">
-                <div className="flex bg-surface-muted p-0.5 rounded-control shrink-0">
-                  <button onClick={() => setViewMode("grid")} className={cn("p-1.5 rounded-sm transition-colors", viewMode === "grid" ? "bg-surface-panel shadow-sm text-brand" : "text-text-subtle hover:text-text")} title="小图模式"><LayoutGrid className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => setViewMode("list")} className={cn("p-1.5 rounded-sm transition-colors", viewMode === "list" ? "bg-surface-panel shadow-sm text-brand" : "text-text-subtle hover:text-text")} title="列表模式"><List className="w-3.5 h-3.5" /></button>
-                </div>
-
-                <Button variant="outline" size="icon" onClick={onScanAssets} disabled={!project} className="h-8 w-8 shrink-0 rounded-full bg-surface-app" title="刷新目录"><RefreshCw className="h-3.5 w-3.5" /></Button>
-            </div>
-          
           <div className="flex min-h-0 flex-1 gap-0 overflow-hidden">
             {viewTab === "preview" ? (
               <div className="flex min-h-0 flex-1 flex-col items-center justify-center bg-surface-panel p-6 overflow-y-auto relative">
@@ -798,7 +580,7 @@ export function VideoStudio({
                            size="sm" 
                            className="text-red-400 hover:bg-red-500/10 hover:border-red-500/50 hover:text-red-500 text-[11px] h-7 px-3 rounded-lg"
                            onClick={() => {
-                             void deleteSelection([displayAsset.relativePath]);
+                             void deleteAssetsAndClearPreview([displayAsset.relativePath]);
                              setPreviewAsset(null);
                            }}
                          >
@@ -817,206 +599,30 @@ export function VideoStudio({
                  )}
               </div>
             ) : (
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface-panel relative">
-              {selectedCount > 0 && (
-                <div className="shrink-0 flex flex-nowrap items-center justify-between gap-3 border-b border-border bg-surface-raised px-4 py-2 text-xs shadow-sm z-10 relative">
-                  <div className="flex items-center gap-2 text-text min-w-0">
-                    <span className="shrink-0 font-bold text-brand-strong bg-brand/10 px-2 py-0.5 rounded">已选 {selectedCount} 项</span>
-                  </div>
-                  <div className="flex flex-nowrap items-center gap-2 shrink-0">
-                    <Button variant="outline" size="sm" onClick={() => void deleteSelection()} disabled={!selectedCount || busy} className="gap-1.5 text-red-400 hover:bg-red-500/10 hover:border-red-500/50 hover:text-red-500 shrink-0"><Trash2 className="h-3.5 w-3.5" />删除</Button>
-                    <Button variant="ghost" size="sm" onClick={() => setSelectedPaths([])} className="gap-1.5 shrink-0"><X className="h-3.5 w-3.5" />取消</Button>
-                  </div>
-                </div>
-              )}
-
-              <div 
-                className={cn("min-h-0 flex-1 overflow-y-auto p-5 scrollbar-thin transition-colors")}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  if (!e.dataTransfer.types.includes("text/plain")) {
-                    e.currentTarget.classList.add("bg-brand/5");
-                  }
-                }}
-                onDragLeave={(e) => e.currentTarget.classList.remove("bg-brand/5")}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  e.currentTarget.classList.remove("bg-brand/5");
-                  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                    void handleImport(e.dataTransfer.files, currentFolderPath);
-                  }
-                }}
-              >
-                {selectedFolderKey === "__all__" && !flattenAll && folders.filter(f => f.key !== "__all__" && f.key !== "__root__").length > 0 && (
-                   <div className="grid gap-4 mb-6 pb-6 border-b border-border-soft" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(70px, 1fr))" }}>
-                      {folders.filter(f => f.key !== "__all__" && f.key !== "__root__").map(folder => (
-                         <div 
-                           key={folder.key} 
-                           className="cursor-pointer group flex flex-col items-center gap-2 p-3 hover:bg-surface-raised rounded-large border border-transparent hover:border-border transition-all text-center relative" 
-                           title={folder.path}
-                           onClick={() => setSelectedFolderKey(folder.key)}
-                           onDragOver={(e) => {
-                             e.preventDefault();
-                             e.stopPropagation();
-                             e.currentTarget.classList.add("bg-brand/10", "border-brand/50");
-                           }}
-                           onDragLeave={(e) => {
-                             e.currentTarget.classList.remove("bg-brand/10", "border-brand/50");
-                           }}
-                           onDrop={(e) => {
-                             e.preventDefault();
-                             e.stopPropagation();
-                             e.currentTarget.classList.remove("bg-brand/10", "border-brand/50");
-                             const targetPath = `${currentRoot}/${folder.key}`;
-                             if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                                void handleImport(e.dataTransfer.files, targetPath);
-                             } else {
-                                const draggedRelativePath = e.dataTransfer.getData("text/plain");
-                                if (draggedRelativePath) {
-                                   const pathsToMove = selectedPaths.includes(draggedRelativePath) ? selectedPaths : [draggedRelativePath];
-                                   void moveSelection(pathsToMove, targetPath);
-                                }
-                             }
-                           }}
-                         >
-                            <FolderOpen className="w-12 h-12 text-brand/80 group-hover:text-brand group-hover:scale-105 transition-transform" />
-                            <span className="text-xs font-bold text-text truncate w-full">{folder.label}</span>
-                            <span className="text-[10px] text-text-subtle">{folder.count} 项</span>
-                            <div className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 hidden -translate-x-1/2 whitespace-nowrap rounded-control border border-border bg-surface-panel px-2 py-1 text-[10px] font-semibold text-text shadow-lg group-hover:block">
-                              {folder.label}
-                            </div>
-                         </div>
-                      ))}
-                   </div>
-                )}
-
-                {visibleAssets.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center text-text-muted mt-20">
-                    {resourceType === "video" ? <FileVideo className="w-12 h-12 mb-3 opacity-20" /> : <FileImage className="w-12 h-12 mb-3 opacity-20" />}
-                    <p className="text-sm font-medium">当前目录为空</p>
-                    <Button variant="ghost" size="sm" onClick={() => fileInputRef.current?.click()} className="mt-2 text-xs">从本地导入</Button>
-                  </div>
-                ) : viewMode === "list" ? (
-                    <div className="flex flex-col gap-2">
-                      {activeGenerationTask && (
-                         <div className="flex items-center gap-4 p-3 bg-surface-muted/30 border border-brand/40 rounded-card animate-pulse shadow-sm">
-                           <div className="w-12 h-12 shrink-0 bg-surface-app rounded flex items-center justify-center"><RefreshCw className="w-5 h-5 text-brand animate-spin" /></div>
-                           <div className="flex flex-col gap-2 flex-1"><div className="h-3 bg-brand/20 rounded w-1/4" /><div className="h-2 bg-border-soft rounded w-1/6" /></div>
-                         </div>
-                      )}
-                      {visibleAssets.map((asset) => {
-                        const selected = selectedPaths.includes(asset.relativePath);
-                        return (
-                          <div key={asset.id} draggable onDragStart={(event) => writeAssetDragData(event, asset)} className={cn("flex items-center gap-4 p-2 rounded-card border transition-all cursor-pointer group", selected ? "border-brand bg-brand/5 shadow-sm" : "border-border hover:border-brand/50 bg-surface-panel hover:bg-surface-raised")} onClick={() => toggleSelected(asset.relativePath)}>
-                            <div className="relative w-12 h-12 shrink-0 bg-black/20 rounded overflow-hidden" onClick={(e) => { e.stopPropagation(); openPreview(asset); }}>
-                              {asset.assetType === "video" ? (
-                                <video draggable={false} src={assetPreviewUrl(asset.projectId, asset.relativePath)} className="w-full h-full object-cover" muted />
-                              ) : (
-                                <img draggable={false} src={assetPreviewUrl(asset.projectId, asset.relativePath)} alt={asset.fileName} className="w-full h-full object-cover" loading="lazy" />
-                              )}
-                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"><Maximize2 className="w-4 h-4 text-white" /></div>
-                            </div>
-                            <div className="flex-1 min-w-0 flex flex-col justify-center">
-                              <strong className="text-[12px] font-bold text-text truncate w-full">{asset.fileName}</strong>
-                              <div className="flex items-center gap-3 mt-1">
-                                <span className="text-[11px] text-text-subtle truncate">{asset.relativePath}</span>
-                                <span className="text-[10px] text-text-subtle bg-surface-app px-1.5 py-0.5 rounded uppercase">{asset.extension.replace(".", "")}</span>
-                                <span className="text-[10px] text-text-subtle">{formatBytes(asset.sizeBytes)}</span>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity px-2">
-                              <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-brand hover:text-[#04202a]" onClick={(event) => { event.stopPropagation(); void copyText(asset.relativePath); }} title="复制路径"><Copy className="h-4 w-4" /></Button>
-                              <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-red-500 hover:text-white text-red-400" onClick={async (event) => { event.stopPropagation(); await onDeleteAssets([asset.relativePath]); }} title="删除"><Trash2 className="h-4 w-4" /></Button>
-                            </div>
-                            <div className="shrink-0 px-2 flex items-center">
-                              <label className="flex h-5 w-5 items-center justify-center rounded border border-border-strong bg-surface-app text-brand-strong cursor-pointer hover:bg-brand hover:border-brand hover:text-[#04202a]" onClick={(e) => e.stopPropagation()}>
-                                <input type="checkbox" className="sr-only" checked={selected} onChange={(event) => { event.stopPropagation(); toggleSelected(asset.relativePath); }} />
-                                {selected ? <Check className="h-3.5 w-3.5" /> : null}
-                              </label>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                ) : (
-                  <div className="gap-3 space-y-3 pb-8" style={{ columnWidth: "120px" }}>
-                    {activeGenerationTask && (
-                      <div className="break-inside-avoid flex flex-col bg-surface-muted/30 border border-brand/40 rounded-card overflow-hidden animate-pulse shadow-sm">
-                         <div className="aspect-square w-full relative bg-surface-app flex flex-col items-center justify-center gap-3">
-                           <RefreshCw className="w-8 h-8 text-brand animate-spin" />
-                         </div>
-                         <div className="p-3 bg-surface-panel flex flex-col gap-2">
-                           <div className="h-3 bg-brand/20 rounded w-2/3" />
-                           <div className="h-2 bg-border-soft rounded w-1/2" />
-                         </div>
-                      </div>
-                    )}
-                    
-                    {visibleAssets.map((asset) => {
-                      const selected = selectedPaths.includes(asset.relativePath);
-                      return (
-                        <div
-                          key={asset.id}
-                          draggable
-                          onDragStart={(event) => writeAssetDragData(event, asset)}
-                          className={cn("break-inside-avoid relative group flex flex-col overflow-hidden rounded-card border transition-all cursor-pointer", selected ? "border-brand shadow-sm" : "border-border hover:border-brand/50")}
-                          onClick={() => openPreview(asset)}
-                        >
-                          {asset.assetType === "video" ? (
-                            <div className="w-full aspect-video bg-black relative">
-                              <video draggable={false} src={assetPreviewUrl(asset.projectId, asset.relativePath)} className="w-full h-full object-cover" muted loop onMouseEnter={(e) => e.currentTarget.play()} onMouseLeave={(e) => { e.currentTarget.pause(); e.currentTarget.currentTime = 0; }} />
-                              <div className="absolute bottom-2 right-2 bg-black/60 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px] text-white font-bold flex items-center gap-1">
-                                <Play className="w-3 h-3" />
-                              </div>
-                            </div>
-                          ) : (
-                            <img draggable={false} src={assetPreviewUrl(asset.projectId, asset.relativePath)} alt={asset.fileName} className="w-full h-auto object-cover bg-surface-panel" loading="lazy" />
-                          )}
-                          
-                          <div className={cn("absolute top-2 right-2 flex justify-end z-10", selected ? "opacity-100" : "opacity-0 group-hover:opacity-100 transition-opacity")}>
-                             <label className={cn("flex h-5 w-5 items-center justify-center rounded border cursor-pointer shadow-sm", selected ? "border-brand bg-brand text-[#04202a]" : "border-border-strong bg-surface-app text-brand-strong hover:bg-brand hover:border-brand hover:text-[#04202a]")} onClick={(e) => e.stopPropagation()}>
-                                <input type="checkbox" className="sr-only" checked={selected} onChange={(event) => { event.stopPropagation(); toggleSelected(asset.relativePath); }} />
-                                {selected ? <Check className="h-3.5 w-3.5 stroke-[3]" /> : null}
-                             </label>
-                          </div>
-                          
-                          <div className="p-2 bg-surface-panel flex flex-col border-t border-border-soft relative z-10" onClick={(e) => {
-                             if (editingAssetPath === asset.relativePath) e.stopPropagation();
-                          }}>
-                             {editingAssetPath === asset.relativePath ? (
-                                <input 
-                                  autoFocus
-                                  className="text-[11px] font-bold text-text w-full bg-surface-app border border-brand px-1 py-0.5 rounded outline-none"
-                                  value={editingName}
-                                  onChange={e => setEditingName(e.target.value)}
-                                  onBlur={handleRenameSubmit}
-                                  onKeyDown={e => {
-                                    if (e.key === 'Enter') handleRenameSubmit();
-                                    if (e.key === 'Escape') setEditingAssetPath(null);
-                                  }}
-                                />
-                             ) : (
-                                <strong className="text-[11px] font-bold text-text truncate w-full cursor-text hover:text-brand transition-colors" title="双击重命名" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => { e.stopPropagation(); setEditingAssetPath(asset.relativePath); setEditingName(asset.fileName); }}>{asset.fileName}</strong>
-                             )}
-                             <div className="flex items-center gap-2 mt-0.5">
-                               <span className="text-[10px] text-text-subtle truncate">{formatBytes(asset.sizeBytes)}</span>
-                               <span className="text-[9px] text-text-subtle uppercase px-1 bg-surface-app rounded">{asset.extension.replace(".", "")}</span>
-                             </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-              
-              <div className="absolute bottom-5 right-5 z-20 pointer-events-none">
-                <div className="bg-surface-app/90 backdrop-blur-md border border-border-soft px-3.5 py-1.5 rounded-pill shadow-lg flex items-center">
-                  <span className="text-[12px] font-extrabold text-text-subtle">共 <span className="text-text">{visibleAssets.length}</span> 项</span>
-                </div>
-              </div>
-              
-            </div>
+            <AssetManagerPanel
+              assets={currentAssets}
+              disabled={!project}
+              rootPath={currentRoot}
+              title={resourceType === "video" ? "视频管理" : "图片管理"}
+              defaultTargetFolder={currentImportFolder}
+              assetTypeFilter={resourceType}
+              showTypeFilter={false}
+              showDirectoryTree={false}
+              importAccept={resourceType === "video" ? "video/*" : "image/*"}
+              onScanAssets={onScanAssets}
+              onRebuildAssetProvenance={onRebuildAssetProvenance}
+              onImportAssets={onImportAssets}
+              onDeleteAssets={async (paths) => {
+                await onDeleteAssets(paths);
+                if (previewAsset && paths.includes(previewAsset.relativePath)) setPreviewAsset(null);
+              }}
+              onMoveAssets={onMoveAssets}
+              onSelectAsset={(asset) => {
+                onSelectAsset?.(asset);
+                openPreview(asset);
+              }}
+              onAssetDragStart={writeAssetDragData}
+            />
             )}
             </div>
           </motion.div>
@@ -1053,21 +659,6 @@ export function VideoStudio({
         </motion.div>
       )}
       </AnimatePresence>
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept={resourceType === "video" ? "video/*" : "image/*"}
-        multiple
-        className="hidden"
-        onChange={async (event) => {
-          const files = event.target.files;
-          if (files && files.length) {
-            await onImportImages(Array.from(files), currentFolderPath);
-          }
-          event.currentTarget.value = "";
-        }}
-      />
     </div>
   );
 }

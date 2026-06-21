@@ -12,7 +12,8 @@
     "dev:server": "npm run dev --workspace @taptap/server",
     "build": "npm run build --workspace @taptap/server && npm run build --workspace @taptap/web",
     "typecheck": "npm run typecheck --workspace @taptap/server && npm run typecheck --workspace @taptap/web",
-    "lint": "npm run lint --workspace @taptap/server && npm run lint --workspace @taptap/web"
+    "lint": "npm run lint --workspace @taptap/server && npm run lint --workspace @taptap/web",
+    "verify:assets": "tsx scripts/verify-asset-governance.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.0",

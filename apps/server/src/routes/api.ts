@@ -35,9 +35,12 @@ import {
 } from "../lib/db.js";
 import { scanMakerProjects } from "../services/projectDiscovery.js";
 import { scanProjectAssets } from "../services/assetScanner.js";
+import { buildAssetDirectoryTree } from "../services/assetTree.js";
 import { rebuildAssetProvenance } from "../services/assetProvenance.js";
 import { runtimeManager } from "../services/mcpRuntime.js";
 import { getProjectBuildLogs } from "../services/projectLogs.js";
+import { scanModelPackages, organizeModelPackage, bindModelPackage, discardModelPackage, restoreModelPackage, updateResourceTable, runModelPackageBatchAction } from "../services/modelPackage.js";
+import { convertMdlToGltf, inspectMdlFile } from "../services/urhoMdl.js";
 import type { MakerWorkflowGraph, ProjectSummary, TaskRecord, ToolSummary, WorkflowNodeRunResult, WorkflowRunStatus } from "../types.js";
 
 const callToolSchema = z.object({
@@ -60,6 +63,10 @@ const assetImportSchema = z.object({
   fileName: z.string().min(1),
   targetFolder: z.string().min(1),
   dataUrl: z.string().min(1)
+});
+
+const modelConvertSchema = z.object({
+  relativePath: z.string().min(1)
 });
 
 const assetListQuerySchema = z.object({
@@ -351,7 +358,10 @@ function sendAssetFile(reply: FastifyReply, filePath: string) {
     : ext === ".jpg" || ext === ".jpeg" ? "image/jpeg"
       : ext === ".webp" ? "image/webp"
         : ext === ".gif" ? "image/gif"
-          : "application/octet-stream";
+          : ext === ".gltf" ? "model/gltf+json"
+            : ext === ".glb" ? "model/gltf-binary"
+              : ext === ".bin" ? "application/octet-stream"
+                : "application/octet-stream";
   reply.header("Content-Type", contentType);
   return reply.send(fs.createReadStream(filePath));
 }
@@ -510,11 +520,39 @@ export async function registerApiRoutes(app: FastifyInstance) {
     return { ok: true, assets, count: assets.length };
   });
 
+  app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/assets/rename", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    const parsed = assetRenameSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+
+    const asset = getAssetByRelativePath(project.id, parsed.data.relativePath);
+    if (!asset) return reply.code(404).send({ error: "Asset not found" });
+
+    const newName = sanitizeFileName(parsed.data.newName);
+    if (!newName) return reply.code(400).send({ error: "newName is required" });
+
+    const from = resolveProjectPath(project.rootPath, asset.relativePath);
+    const targetPath = path.join(path.dirname(from), newName);
+    if (!isSafeProjectPath(project.rootPath, targetPath)) throw new Error(`Unsafe target path: ${newName}`);
+    if (fs.existsSync(targetPath)) return reply.code(409).send({ error: "Target file already exists" });
+    if (fs.existsSync(from)) fs.renameSync(from, targetPath);
+
+    const assets = await scanProjectAssets(project);
+    return { ok: true, assets, count: assets.length };
+  });
+
   app.get<{ Params: { projectId: string }; Querystring: unknown }>("/api/projects/:projectId/assets", async (request, reply) => {
     requireProject(request.params.projectId);
     const parsed = assetListQuerySchema.safeParse(request.query ?? {});
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
     return { assets: listAssets(request.params.projectId, parsed.data) };
+  });
+
+  app.get<{ Params: { projectId: string }; Querystring: { rootPath?: string } }>("/api/projects/:projectId/assets/tree", async (request) => {
+    requireProject(request.params.projectId);
+    const rootPath = request.query.rootPath?.trim() || "assets";
+    const assets = listAssets(request.params.projectId, { rootPrefix: rootPath, limit: 10000 });
+    return { tree: buildAssetDirectoryTree(assets, rootPath) };
   });
 
   app.post<{ Params: { projectId: string } }>("/api/projects/:projectId/assets/provenance/rebuild", async (request) => {
@@ -540,6 +578,109 @@ export async function registerApiRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: "Asset file unavailable" });
     }
     return sendAssetFile(reply, asset.absolutePath);
+  });
+
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/model-packages", async (request) => {
+    const project = requireProject(request.params.projectId);
+    await scanProjectAssets(project);
+    return { packages: scanModelPackages(request.params.projectId) };
+  });
+
+  app.post<{ Params: { projectId: string; id: string } }>("/api/projects/:projectId/model-packages/:id/organize", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    try {
+      organizeModelPackage(request.params.projectId, request.params.id);
+      await scanProjectAssets(project);
+      return { ok: true, packages: scanModelPackages(request.params.projectId) };
+    } catch (e: any) {
+      return reply.code(400).send({ error: e.message });
+    }
+  });
+
+  app.post<{ Params: { projectId: string; id: string }; Body: { mdlPath: string } }>("/api/projects/:projectId/model-packages/:id/bind", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    if (!request.body?.mdlPath) return reply.code(400).send({ error: "mdlPath is required" });
+    try {
+      bindModelPackage(request.params.projectId, request.params.id, request.body.mdlPath);
+      await scanProjectAssets(project);
+      return { ok: true, packages: scanModelPackages(request.params.projectId) };
+    } catch (e: any) {
+      return reply.code(400).send({ error: e.message });
+    }
+  });
+
+  app.post<{ Params: { projectId: string; id: string } }>("/api/projects/:projectId/model-packages/:id/discard", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    try {
+      discardModelPackage(request.params.projectId, request.params.id);
+      await scanProjectAssets(project);
+      return { ok: true, packages: scanModelPackages(request.params.projectId) };
+    } catch (e: any) {
+      return reply.code(400).send({ error: e.message });
+    }
+  });
+
+  app.post<{ Params: { projectId: string; id: string } }>("/api/projects/:projectId/model-packages/:id/restore", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    try {
+      restoreModelPackage(request.params.projectId, request.params.id);
+      await scanProjectAssets(project);
+      return { ok: true, packages: scanModelPackages(request.params.projectId) };
+    } catch (e: any) {
+      return reply.code(400).send({ error: e.message });
+    }
+  });
+
+  app.post<{ Params: { projectId: string; id: string }; Body: { action: "add" | "remove" } }>("/api/projects/:projectId/model-packages/:id/resource", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    if (!request.body?.action) return reply.code(400).send({ error: "action is required" });
+    try {
+      updateResourceTable(request.params.projectId, request.params.id, request.body.action);
+      await scanProjectAssets(project);
+      return { ok: true, packages: scanModelPackages(request.params.projectId) };
+    } catch (e: any) {
+      return reply.code(400).send({ error: e.message });
+    }
+  });
+
+  app.post<{ Params: { projectId: string }; Body: { packageIds?: string[]; action?: "organize" | "discard" | "restore" | "add_to_resource" | "remove_from_resource" } }>("/api/projects/:projectId/model-packages/batch", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    const packageIds = request.body?.packageIds;
+    const action = request.body?.action;
+    if (!Array.isArray(packageIds) || packageIds.length === 0) return reply.code(400).send({ error: "packageIds is required" });
+    if (!action) return reply.code(400).send({ error: "action is required" });
+    try {
+      const results = runModelPackageBatchAction(request.params.projectId, packageIds, action);
+      await scanProjectAssets(project);
+      return { ok: results.every((result) => result.ok), results, packages: scanModelPackages(request.params.projectId) };
+    } catch (e: any) {
+      return reply.code(400).send({ error: e.message });
+    }
+  });
+
+  app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/model-convert/mdl-to-gltf", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    const parsed = modelConvertSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
+      const result = convertMdlToGltf(project.rootPath, parsed.data.relativePath);
+      const assets = await scanProjectAssets(project);
+      return { ok: true, ...result, assetsIndexed: assets.length };
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/model-convert/mdl-info", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    const parsed = modelConvertSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
+      const fullPath = resolveProjectPath(project.rootPath, parsed.data.relativePath);
+      return { ok: true, info: inspectMdlFile(fullPath) };
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
   });
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/generations", async (request) => {

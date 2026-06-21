@@ -46,6 +46,77 @@ export type AssetSummary = {
   provenance?: AssetProvenanceSummary[];
 };
 
+export type AssetDirectoryNode = {
+  name: string;
+  path: string;
+  parentPath: string;
+  depth: number;
+  assetCount: number;
+  totalAssetCount: number;
+  children: AssetDirectoryNode[];
+};
+
+export type ModelPackageGovernanceState = "in_use" | "adopted" | "packaged_unused" | "draft" | "source_orphan" | "runtime_orphan" | "discarded" | "broken";
+
+export type ModelPackageIssue = {
+  severity: "error" | "warning" | "info";
+  message: string;
+};
+
+export type ModelPackageSourceState = "linked" | "missing" | "draft" | "orphan" | "discarded";
+
+export type ModelPackageAction = "preview" | "adopt" | "discard" | "restore" | "organize" | "bind_mdl" | "add_to_resource" | "remove_from_resource" | "copy_lua" | "delete_package";
+
+export type ModelPackageFile = {
+  role: "source_glb" | "source_gbm" | "source_meta" | "preview" | "preview_meta" | "multiview" | "multiview_meta" | "runtime_mdl" | "runtime_meta" | "material" | "material_meta" | "texture" | "texture_meta" | "prefab" | "prefab_meta" | "manifest" | "other";
+  relativePath: string;
+  exists: boolean;
+};
+
+export type ModelPackageFileType = {
+  type: "GLB" | "GBM" | "MDL" | "MAT" | "TEX" | "PREVIEW" | "MULTIVIEW" | "PREFAB" | "META" | "MANIFEST" | "RES" | "LUA" | "FLOW";
+  count: number;
+};
+
+export type ModelPackageSummary = {
+  id: string;
+  projectId: string;
+  displayName: string;
+  category: string;
+  purpose: string;
+  sourceGlb?: string;
+  previewImage?: string;
+  multiviewImages: string[];
+  runtimeMdl?: string;
+  materialXmls: string[];
+  textureFiles: string[];
+  prefabFiles: string[];
+  resourceEntries: string[];
+  fileTypes: ModelPackageFileType[];
+  missingParts: string[];
+  sourceState: ModelPackageSourceState;
+  sourceNotes: string[];
+  inResourceTable: boolean;
+  isOrganized: boolean;
+  canPreview: boolean;
+  canRun: boolean;
+  sourceTaskId?: string;
+
+  // New fields for governance
+  isDiscarded: boolean;
+  referencedByScripts: string[];
+  referencedByFlows: string[];
+  referencedByResources: string[];
+  isReferenced: boolean;
+  governanceState: ModelPackageGovernanceState;
+  issues: ModelPackageIssue[];
+  suggestedActions: ModelPackageAction[];
+  files: ModelPackageFile[];
+
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type AssetProvenanceSourceType = "task" | "generation" | "workflow_run";
 
 export type AssetProvenanceSummary = {

@@ -4,8 +4,6 @@ import {
   Background, 
   Controls,
   addEdge, 
-  applyNodeChanges, 
-  applyEdgeChanges,
   type Node, 
   type Edge, 
   type Connection,
@@ -20,11 +18,9 @@ import {
   MiniMap
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { MessageSquare, Settings2, Image as ImageIcon, Trash2, WandSparkles, X, Play, Activity, AlertCircle, Boxes, Film, Music, LibrarySquare } from "lucide-react";
+import { X, Activity, AlertCircle, Boxes, LibrarySquare } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { assetPreviewUrl, type AssetSummary, type ProjectSummary, type TaskRecord, type ToolSummary, getFlow, autoSaveFlow } from "../../api";
-import { Label } from "../../components/ui/Label";
-import { SelectField } from "../../components/ui/SelectField";
 import { Button } from "../../components/ui/Button";
 import { NodeLibraryDrawer } from "./NodeLibraryDrawer";
 import { getPresetById } from "./nodeRegistry";
@@ -38,43 +34,6 @@ import {
   GenericExecutorNode,
   GenericResultNode
 } from "./VideoFlowNodes";
-
-const resolutionOptions = [
-  { value: "720p", label: "720p (推荐)" },
-  { value: "480p", label: "480p (省流)" }
-];
-
-const ratioOptions = [
-  { value: "16:9", label: "横屏 16:9" },
-  { value: "9:16", label: "竖屏 9:16" },
-  { value: "1:1", label: "方图 1:1" },
-  { value: "4:3", label: "横屏 4:3" },
-  { value: "3:4", label: "竖屏 3:4" },
-  { value: "21:9", label: "超宽屏 21:9" },
-  { value: "adaptive", label: "自适应 (Adaptive)" }
-];
-
-const durationOptions = [
-  { value: "4", label: "4 秒" },
-  { value: "5", label: "5 秒" },
-  { value: "10", label: "10 秒" },
-  { value: "15", label: "15 秒" },
-  { value: "-1", label: "自动检测" }
-];
-
-const modelOptions = [
-  { value: "default", label: "标准模式 (Default)" },
-  { value: "fast", label: "极速模式 (Fast)" }
-];
-
-function Field({ label, value, onChange, options }: { label: string, value: string, onChange: (val: string) => void, options: {value: string, label: string}[] }) {
-  return (
-    <div className="flex flex-col gap-1.5 w-full">
-      <Label className="text-[10px] font-bold text-text-muted">{label}</Label>
-      <SelectField id={`field-${label}`} value={value} onChange={onChange} options={options} />
-    </div>
-  );
-}
 
 // Custom Edge 
 function CustomEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style, markerEnd, data }: any) {
@@ -134,7 +93,7 @@ type VideoFlowCanvasProps = {
   activeGenerationTask?: TaskRecord;
   isCloudVideoRunning?: boolean;
   generateTool?: ToolSummary;
-  onCallTool: (toolName: string, args: Record<string, unknown>) => Promise<void>;
+  onCallTool: (toolName: string, args: Record<string, unknown>) => Promise<unknown>;
   onShowError?: () => void;
 };
 

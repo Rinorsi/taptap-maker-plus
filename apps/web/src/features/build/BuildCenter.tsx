@@ -3,7 +3,7 @@ import { Activity, AlertTriangle, Clipboard, FileClock, Hammer, Loader2, Play, R
 import { getBuildLogs, type ProjectBuildLogEntry, type ProjectBuildLogsSummary, type ProjectLogFileSummary, type ProjectSummary, type RuntimeSummary, type TaskRecord, type ToolSummary } from "../../api";
 import { ToolStudio } from "../generation/ToolStudio";
 import { Button } from "../../components/ui/Button";
-import { cn } from "../../lib/utils";
+import { cn, formatBytes } from "../../lib/utils";
 
 type Props = {
   project?: ProjectSummary;
@@ -11,7 +11,7 @@ type Props = {
   tools: ToolSummary[];
   tasks: TaskRecord[];
   busy: boolean;
-  onCallTool: (toolName: string, args: Record<string, unknown>) => Promise<void>;
+  onCallTool: (toolName: string, args: Record<string, unknown>) => Promise<unknown>;
   onSelectTool: (tool: ToolSummary) => void;
 };
 
@@ -251,10 +251,4 @@ function formatValue(value: unknown) {
   if (value === null) return "null";
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
   return JSON.stringify(value);
-}
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }

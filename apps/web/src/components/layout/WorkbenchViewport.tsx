@@ -13,6 +13,7 @@ import { SettingsView } from "../../features/settings/SettingsView";
 import { BuildCenter } from "../../features/build/BuildCenter";
 import { WorkflowCanvas } from "../../features/workflow/WorkflowCanvas";
 import { MusicStudio } from "../../features/generation/MusicStudio";
+import { Model3DStudio } from "../../features/generation/Model3DStudio";
 
 type Props = {
   activeModule: WorkbenchModule;
@@ -29,9 +30,9 @@ type Props = {
   onDeleteAssets: (relativePaths: string[]) => Promise<void>;
   onMoveAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
   onRenameAsset: (relativePath: string, newName: string) => Promise<void>;
-  onImportImages: (files: File[], targetFolder: string) => Promise<void>;
+  onImportAssets: (files: File[], targetFolder: string) => Promise<void>;
   onCallStatusLite: () => void;
-  onCallTool: (toolName: string, args: Record<string, unknown>) => Promise<void>;
+  onCallTool: (toolName: string, args: Record<string, unknown>) => Promise<unknown>;
   onSelect: (selection: InspectorSelection) => void;
   projects: ProjectSummary[];
   onSelectProject: (projectId: string) => void;
@@ -54,77 +55,88 @@ export function WorkbenchViewport(props: Props) {
           className="absolute inset-0 overflow-auto"
         >
           {props.activeModule === "home" ? (
-            <WelcomeView 
-              projects={props.projects} 
-              onSelectProject={props.onSelectProject} 
-              onScanProjects={props.onScanProjects} 
+            <WelcomeView
+              projects={props.projects}
+              onSelectProject={props.onSelectProject}
+              onScanProjects={props.onScanProjects}
               onOpenModule={props.onOpenModule}
-              busy={props.busy} 
+              busy={props.busy}
             />
           ) : null}
           {props.activeModule === "assets" ? <AssetHub project={props.project} assets={props.assets} onScanAssets={props.onScanAssets} onRebuildAssetProvenance={props.onRebuildAssetProvenance} onDeleteAssets={props.onDeleteAssets} onMoveAssets={props.onMoveAssets}
               onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })} /> : null}
           {props.activeModule === "studio-image" ? (
-            <ImageStudio 
-              project={props.project} 
-              tools={props.tools} 
+            <ImageStudio
+              project={props.project}
+              tools={props.tools}
               assets={props.assets}
               tasks={props.tasks}
-              busy={props.busy} 
-              onCallTool={props.onCallTool} 
-              onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })} 
+              busy={props.busy}
+              onCallTool={props.onCallTool}
+              onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })}
               onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })}
               onScanAssets={props.onScanAssets}
               onRebuildAssetProvenance={props.onRebuildAssetProvenance}
               onDeleteAssets={props.onDeleteAssets}
               onMoveAssets={props.onMoveAssets}
-              onRenameAsset={props.onRenameAsset}
-              onImportImages={props.onImportImages}
+              onImportAssets={props.onImportAssets}
             />
           ) : null}
           {props.activeModule === "studio-video" ? (
-            <VideoStudio 
-              project={props.project} 
-              tools={props.tools} 
+            <VideoStudio
+              project={props.project}
+              tools={props.tools}
               assets={props.assets}
               tasks={props.tasks}
-              busy={props.busy} 
-              onCallTool={props.onCallTool} 
-              onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })} 
+              busy={props.busy}
+              onCallTool={props.onCallTool}
+              onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })}
               onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })}
               onScanAssets={props.onScanAssets}
               onRebuildAssetProvenance={props.onRebuildAssetProvenance}
               onDeleteAssets={props.onDeleteAssets}
               onMoveAssets={props.onMoveAssets}
               onRenameAsset={props.onRenameAsset}
-              onImportImages={props.onImportImages}
+              onImportAssets={props.onImportAssets}
               onCollapseSidebar={props.onCollapseSidebar}
               onShowError={props.onShowError}
             />
           ) : null}
           {props.activeModule === "studio-music" ? (
-            <MusicStudio 
-              project={props.project} 
-              tools={props.tools} 
-              assets={props.assets} 
-              tasks={props.tasks} 
-              busy={props.busy} 
-              onCallTool={props.onCallTool} 
-              onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })} 
+            <MusicStudio
+              project={props.project}
+              tools={props.tools}
+              assets={props.assets}
+              tasks={props.tasks}
+              busy={props.busy}
+              onCallTool={props.onCallTool}
+              onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })}
               onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })}
               onScanAssets={props.onScanAssets}
               onRebuildAssetProvenance={props.onRebuildAssetProvenance}
               onDeleteAssets={props.onDeleteAssets}
               onMoveAssets={props.onMoveAssets}
               onRenameAsset={props.onRenameAsset}
-              onImportImages={props.onImportImages}
+              onImportAssets={props.onImportAssets}
             />
           ) : null}
           {props.activeModule === "studio-3d" ? (
-            <ToolStudio category="model3d" title="3D 工作室" project={props.project} tools={props.tools} assets={props.assets} tasks={props.tasks} busy={props.busy} onCallTool={props.onCallTool} onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })} onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })} />
+            <Model3DStudio
+              project={props.project}
+              tools={props.tools}
+              assets={props.assets}
+              tasks={props.tasks}
+              busy={props.busy}
+              onCallTool={props.onCallTool}
+              onDeleteAssets={props.onDeleteAssets}
+              onMoveAssets={props.onMoveAssets}
+              onRenameAsset={props.onRenameAsset}
+              onImportAssets={props.onImportAssets}
+              onScanAssets={props.onScanAssets}
+            />
           ) : null}
           {props.activeModule === "workflow" ? <WorkflowCanvas project={props.project} tools={props.tools} tasks={props.tasks} onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })} /> : null}
-          
+
           {props.activeModule === "build" ? (
             <BuildCenter
               project={props.project}

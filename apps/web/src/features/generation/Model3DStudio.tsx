@@ -42,7 +42,6 @@ type Props = {
   onSelectTool?: (tool: ToolSummary) => void;
   onSelectAsset?: (asset: AssetSummary) => void;
   onScanAssets: () => void;
-  onRebuildAssetProvenance?: () => void;
   onDeleteAssets: (relativePaths: string[]) => Promise<void>;
   onMoveAssets?: (relativePaths: string[], targetFolder: string) => Promise<void>;
   onRenameAsset?: (relativePath: string, newName: string) => Promise<void>;
@@ -120,7 +119,7 @@ function extractConfirmedImagePaths(toolResponse: unknown): ConfirmedImagePaths 
   return { front, right, back, ...(left ? { left } : {}) };
 }
 
-export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool, onSelectTool, onSelectAsset, onScanAssets, onRebuildAssetProvenance, onDeleteAssets, onMoveAssets, onRenameAsset, onImportAssets }: Props) {
+export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool, onSelectTool, onSelectAsset, onScanAssets, onDeleteAssets, onMoveAssets, onRenameAsset, onImportAssets }: Props) {
   const [mode, setMode] = useState<Mode>("text_to_model");
   const [stage, setStage] = useState<Stage>("input");
   const [rightOpen, setRightOpen] = useState(false);

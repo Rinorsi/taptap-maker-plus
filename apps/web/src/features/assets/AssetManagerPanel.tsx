@@ -1,11 +1,11 @@
 import { useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
-import { CheckCircle2, ChevronRight, Copy, File, FileAudio, FileBox, FileImage, FileVideo, FolderOpen, GitBranch, LayoutGrid, List, RefreshCw, Upload, X } from "lucide-react";
+import { Activity, CheckCircle2, ChevronRight, Copy, File, FileAudio, FileBox, FileImage, FileVideo, FolderOpen, LayoutGrid, List, Play, RefreshCw, Upload, X } from "lucide-react";
 import { assetPreviewUrl, type AssetSummary } from "../../api";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
-import { StudioBulkActionBar, StudioSearchInput } from "../../components/studio/StudioKit";
+import { SelectionBox, StudioBulkActionBar, StudioSearchInput } from "../../components/studio/StudioKit";
 import { cn, formatBytes } from "../../lib/utils";
 import { ordinaryAssetTypeLabels, ordinaryAssetTypeOrder } from "./assetGovernance";
 import { buildAssetDirectoryTree, filterAssetsForDirectory, flattenDirectoryTree, getAssetDirectory, getDirectoryBreadcrumbs, type AssetDirectoryNode } from "./assetTree";
@@ -21,7 +21,6 @@ type AssetManagerPanelProps = {
   showDirectoryTree?: boolean;
   importAccept?: string;
   onScanAssets: () => void;
-  onRebuildAssetProvenance?: () => void;
   onImportAssets?: (files: File[], targetFolder: string) => Promise<void>;
   onDeleteAssets: (relativePaths: string[]) => Promise<void>;
   onMoveAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
@@ -48,7 +47,6 @@ export function AssetManagerPanel({
   showDirectoryTree = true,
   importAccept,
   onScanAssets,
-  onRebuildAssetProvenance,
   onImportAssets,
   onDeleteAssets,
   onMoveAssets,
@@ -57,9 +55,9 @@ export function AssetManagerPanel({
 }: AssetManagerPanelProps) {
   const [view, setView] = useState<"grid" | "table">("grid");
   const [type, setType] = useState("all");
-  const [sourceFilter, setSourceFilter] = useState<"all" | "linked" | "unlinked">("all");
   const [query, setQuery] = useState("");
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
+  const [playingAsset, setPlayingAsset] = useState<AssetSummary | null>(null);
   const [targetFolder, setTargetFolder] = useState(defaultTargetFolder);
   const [activeDirectory, setActiveDirectory] = useState(rootPath);
   const [recursive, setRecursive] = useState(true);
@@ -69,19 +67,16 @@ export function AssetManagerPanel({
   const tree = useMemo(() => buildAssetDirectoryTree(scopedAssets, rootPath), [rootPath, scopedAssets]);
   const directories = useMemo(() => flattenDirectoryTree(tree), [tree]);
   const activeNode = directories.find((directory) => directory.path === activeDirectory) ?? tree;
-  const linkedCount = scopedAssets.filter((asset) => (asset.provenance?.length ?? 0) > 0).length;
   const selectedSet = useMemo(() => new Set(selectedPaths), [selectedPaths]);
 
   const filteredAssets = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return filterAssetsForDirectory(scopedAssets, activeNode.path, recursive).filter((asset) => {
       if (type !== "all" && asset.assetType !== type) return false;
-      if (sourceFilter === "linked" && (asset.provenance?.length ?? 0) === 0) return false;
-      if (sourceFilter === "unlinked" && (asset.provenance?.length ?? 0) > 0) return false;
       if (!needle) return true;
       return asset.fileName.toLowerCase().includes(needle) || asset.relativePath.toLowerCase().includes(needle);
     });
-  }, [activeNode.path, query, recursive, scopedAssets, sourceFilter, type]);
+  }, [activeNode.path, query, recursive, scopedAssets, type]);
 
   const counts = ordinaryAssetTypeOrder.reduce<Record<string, number>>((acc, next) => {
     const directoryAssets = filterAssetsForDirectory(scopedAssets, activeNode.path, true);
@@ -163,7 +158,7 @@ export function AssetManagerPanel({
         </div>
       </aside> : null}
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden relative">
         <div className="shrink-0 border-b border-border bg-surface-panel p-2">
           <AnimatePresence mode="wait">
             {selectedPaths.length > 0 ? (
@@ -210,16 +205,35 @@ export function AssetManagerPanel({
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
                 transition={{ duration: 0.15 }}
-                className="flex flex-col gap-2"
+                className="flex flex-col gap-1 w-full pb-1"
               >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <Breadcrumb path={activeNode.path} onSelectPath={(path) => selectDirectory(directories.find((directory) => directory.path === path) ?? tree)} />
-                  <div className="flex items-center gap-2">
-                    <label className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-text-subtle">
-                      <input type="checkbox" checked={recursive} onChange={(event) => setRecursive(event.target.checked)} className="h-3.5 w-3.5 rounded border-border bg-surface-app text-brand focus:ring-brand/30" />
-                      包含子目录
+                <div className="flex items-center justify-between gap-2 w-full">
+                  <div className="flex items-center gap-2.5">
+                    <label className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] font-semibold text-text-subtle hover:text-text" title="包含子目录">
+                      <input type="checkbox" checked={recursive} onChange={(event) => setRecursive(event.target.checked)} className="h-3.5 w-3.5 cursor-pointer rounded border-border bg-surface-app text-brand focus:ring-brand/30" />
+                      <span className="hidden xl:inline">包含</span>子目录
                     </label>
-                    <StudioSearchInput value={query} onChange={setQuery} className="w-44 xl:w-56" />
+                    {!showTypeFilter && <span className="hidden lg:inline shrink-0 text-[10px] font-semibold text-text-subtle opacity-70">共{counts.all}项</span>}
+                  </div>
+
+                  {showTypeFilter && (
+                    <div className="flex items-center gap-1">
+                      {ordinaryAssetTypeOrder.map((nextType) => (
+                        <button
+                          key={nextType}
+                          type="button"
+                          className={cn("flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors", type === nextType ? "bg-brand/10 text-brand-strong" : "text-text-muted hover:bg-surface-raised hover:text-text")}
+                          onClick={() => setType(nextType)}
+                        >
+                          <span>{ordinaryAssetTypeLabels[nextType] ?? nextType}</span>
+                          <span className={cn("rounded px-1.5 py-0.5 text-[9px] font-mono", type === nextType ? "bg-brand/20" : "bg-surface-muted text-text-subtle")}>{counts[nextType]}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                    <StudioSearchInput value={query} onChange={setQuery} className="w-24 md:w-32 xl:w-40" />
                     <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border-soft bg-surface-muted p-0.5">
                       <button type="button" title="网格视图" className={cn("rounded-[4px] p-1.5 transition-colors", view === "grid" ? "bg-surface-panel text-text shadow-sm" : "text-text-muted hover:text-text")} onClick={() => setView("grid")}>
                         <LayoutGrid className="h-3.5 w-3.5" />
@@ -228,13 +242,13 @@ export function AssetManagerPanel({
                         <List className="h-3.5 w-3.5" />
                       </button>
                     </div>
-                    <Button variant="ghost" size="icon" onClick={onScanAssets} disabled={disabled} className="h-8 w-8 rounded-md hover:bg-surface-raised" title="刷新资产">
-                      <RefreshCw className="h-4 w-4 text-text-muted" />
+                    <Button variant="ghost" size="icon" onClick={onScanAssets} disabled={disabled} className="h-7 w-7 rounded-md hover:bg-surface-raised" title="刷新资产">
+                      <RefreshCw className="h-3.5 w-3.5 text-text-muted" />
                     </Button>
                     {onImportAssets ? (
                       <>
-                        <Button variant="ghost" size="icon" disabled={disabled} className="h-8 w-8 rounded-md hover:bg-surface-raised" title="导入到当前目录" onClick={() => importInputRef.current?.click()}>
-                          <Upload className="h-4 w-4 text-text-muted" />
+                        <Button variant="ghost" size="icon" disabled={disabled} className="h-7 w-7 rounded-md hover:bg-surface-raised" title="导入到当前目录" onClick={() => importInputRef.current?.click()}>
+                          <Upload className="h-3.5 w-3.5 text-text-muted" />
                         </Button>
                         <input
                           ref={importInputRef}
@@ -250,34 +264,11 @@ export function AssetManagerPanel({
                         />
                       </>
                     ) : null}
-                    {onRebuildAssetProvenance ? (
-                      <Button variant="ghost" size="icon" onClick={onRebuildAssetProvenance} disabled={disabled} className="h-8 w-8 rounded-md hover:bg-surface-raised" title="重建来源索引">
-                        <GitBranch className="h-4 w-4 text-text-muted" />
-                      </Button>
-                    ) : null}
                   </div>
                 </div>
-                <div className="flex items-center justify-between gap-2 overflow-x-auto scrollbar-none">
-                  {showTypeFilter ? <div className="flex items-center gap-1">
-                    {ordinaryAssetTypeOrder.map((nextType) => (
-                      <button
-                        key={nextType}
-                        type="button"
-                        className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors", type === nextType ? "bg-brand/10 text-brand-strong" : "text-text-muted hover:bg-surface-raised hover:text-text")}
-                        onClick={() => setType(nextType)}
-                      >
-                        <span>{ordinaryAssetTypeLabels[nextType] ?? nextType}</span>
-                        <span className={cn("rounded px-1.5 py-0.5 text-[9px] font-mono", type === nextType ? "bg-brand/20" : "bg-surface-muted text-text-subtle")}>{counts[nextType]}</span>
-                      </button>
-                    ))}
-                  </div> : <div className="text-[11px] font-semibold text-text-subtle">当前目录 {counts.all} 项</div>}
-                  <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border-soft bg-surface-muted p-0.5">
-                    {["all", "linked", "unlinked"].map((option) => (
-                      <button key={option} type="button" className={cn("rounded-[4px] px-2 py-1 text-[10px] font-bold transition-colors", sourceFilter === option ? "bg-surface-panel text-text shadow-sm" : "text-text-muted hover:text-text")} onClick={() => setSourceFilter(option as typeof sourceFilter)}>
-                        {option === "all" ? "全部来源" : option === "linked" ? `已关联 ${linkedCount}` : "未关联"}
-                      </button>
-                    ))}
-                  </div>
+                
+                <div className="flex w-full items-center text-[10px] text-text-subtle px-1">
+                  <Breadcrumb path={activeNode.path} onSelectPath={(path) => selectDirectory(directories.find((directory) => directory.path === path) ?? tree)} />
                 </div>
               </motion.div>
             )}
@@ -286,11 +277,38 @@ export function AssetManagerPanel({
 
         <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
           {view === "grid" ? (
-            <AssetGrid assets={filteredAssets} selectedSet={selectedSet} onToggleAsset={toggleAsset} onSelectAsset={onSelectAsset} onCopyPath={copyPath} onAssetDragStart={onAssetDragStart} />
+            <AssetGrid assets={filteredAssets} selectedSet={selectedSet} onToggleAsset={toggleAsset} onSelectAsset={onSelectAsset} onCopyPath={copyPath} onAssetDragStart={onAssetDragStart} onPlayAudio={setPlayingAsset} playingAssetPath={playingAsset?.relativePath} />
           ) : (
-            <AssetTable assets={filteredAssets} selectedSet={selectedSet} onToggleAsset={toggleAsset} onSelectAsset={onSelectAsset} onCopyPath={copyPath} onAssetDragStart={onAssetDragStart} />
+            <AssetTable assets={filteredAssets} selectedSet={selectedSet} onToggleAsset={toggleAsset} onSelectAsset={onSelectAsset} onCopyPath={copyPath} onAssetDragStart={onAssetDragStart} onPlayAudio={setPlayingAsset} playingAssetPath={playingAsset?.relativePath} />
           )}
         </div>
+
+        <AnimatePresence>
+          {playingAsset && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="sticky bottom-0 left-0 right-0 z-20 flex h-14 shrink-0 items-center justify-between border-t border-border-soft bg-surface-panel/95 px-4 shadow-[0_-8px_30px_rgba(0,0,0,0.12)] backdrop-blur-md"
+            >
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-brand/10">
+                  <FileAudio className="h-4 w-4 text-brand" />
+                </div>
+                <div className="flex min-w-0 flex-col">
+                  <span className="truncate text-[12px] font-semibold text-text">{playingAsset.fileName}</span>
+                  <span className="truncate text-[9px] text-text-subtle">{getAssetDirectory(playingAsset.relativePath) || "/"}</span>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <audio controls autoPlay src={assetPreviewUrl(playingAsset.projectId, playingAsset.relativePath)} className="h-8 w-[200px] xl:w-[260px] opacity-90" />
+                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full hover:bg-surface-raised ml-1" onClick={() => setPlayingAsset(null)} title="关闭播放器">
+                  <X className="h-4 w-4 text-text-muted" />
+                </Button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -330,31 +348,39 @@ function Breadcrumb({ path, onSelectPath }: { path: string; onSelectPath: (path:
   );
 }
 
-function AssetGrid({ assets, selectedSet, onToggleAsset, onSelectAsset, onCopyPath, onAssetDragStart }: { assets: AssetSummary[]; selectedSet: Set<string>; onToggleAsset: (asset: AssetSummary) => void; onSelectAsset: (asset: AssetSummary) => void; onCopyPath: (relativePath: string) => void; onAssetDragStart?: (event: React.DragEvent, asset: AssetSummary) => void }) {
+function AssetGrid({ assets, selectedSet, onToggleAsset, onSelectAsset, onCopyPath, onAssetDragStart, onPlayAudio, playingAssetPath }: { assets: AssetSummary[]; selectedSet: Set<string>; onToggleAsset: (asset: AssetSummary) => void; onSelectAsset: (asset: AssetSummary) => void; onCopyPath: (relativePath: string) => void; onAssetDragStart?: (event: React.DragEvent, asset: AssetSummary) => void; onPlayAudio?: (asset: AssetSummary | null) => void; playingAssetPath?: string }) {
   if (assets.length === 0) return <EmptyState />;
+
+  function handleAssetDragStart(event: React.DragEvent, asset: AssetSummary) {
+    if (onAssetDragStart) {
+      onAssetDragStart(event, asset);
+      return;
+    }
+    event.dataTransfer.setData("text/plain", asset.relativePath);
+    event.dataTransfer.effectAllowed = "move";
+  }
 
   return (
     <div className="grid content-start gap-3 p-4 [grid-template-columns:repeat(auto-fill,minmax(112px,1fr))]">
       {assets.map((asset) => {
         const isSelected = selectedSet.has(asset.relativePath);
         const Icon = typeIcons[asset.assetType] || File;
+        const isAudio = asset.assetType === "audio";
+        const isPlaying = playingAssetPath === asset.relativePath;
         return (
           <div
             key={asset.id}
             draggable
-            onDragStart={(event) => {
-              if (onAssetDragStart) {
-                onAssetDragStart(event, asset);
-                return;
-              }
-              event.dataTransfer.setData("text/plain", asset.relativePath);
-              event.dataTransfer.effectAllowed = "move";
-            }}
-            className={cn("group relative flex cursor-pointer flex-col overflow-hidden rounded-lg border bg-surface-panel transition-all duration-200", isSelected ? "border-brand shadow-[0_2px_8px_rgba(0,217,197,0.15)] ring-1 ring-brand/50" : "border-border hover:border-border-strong hover:shadow-sm")}
+            onDragStart={(event) => handleAssetDragStart(event, asset)}
+            className={cn(
+              "group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border transition-all hover:shadow-md hover:ring-1 hover:ring-brand/30",
+              isPlaying ? "border-brand bg-brand/5 ring-1 ring-brand shadow-[0_0_15px_rgba(0,0,0,0.1)]" : isSelected ? "border-brand ring-1 ring-brand bg-surface-app" : "border-border-soft bg-surface-app"
+            )}
+            onClick={() => onSelectAsset(asset)}
           >
             <label className={cn("absolute left-1.5 top-1.5 z-10 flex h-5 w-5 cursor-pointer items-center justify-center rounded border bg-surface-panel/90 shadow-sm backdrop-blur-sm transition-opacity", isSelected ? "border-brand opacity-100" : "border-border opacity-0 hover:border-brand group-hover:opacity-100")}>
               {isSelected && <CheckCircle2 className="h-3.5 w-3.5 text-brand" />}
-              <input type="checkbox" className="sr-only" checked={isSelected} onChange={() => onToggleAsset(asset)} />
+              <input type="checkbox" className="sr-only" checked={isSelected} onChange={(e) => { e.stopPropagation(); onToggleAsset(asset); }} />
             </label>
             <div
               role="button"
@@ -367,10 +393,11 @@ function AssetGrid({ assets, selectedSet, onToggleAsset, onSelectAsset, onCopyPa
             >
               <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden border-b border-border-soft bg-surface-muted">
                 {asset.assetType === "image" ? (
-                  <img src={assetPreviewUrl(asset.projectId, asset.relativePath)} alt={asset.fileName} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" />
+                  <img draggable={false} src={assetPreviewUrl(asset.projectId, asset.relativePath)} alt={asset.fileName} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" />
                 ) : asset.assetType === "video" ? (
                   <div className="h-full w-full bg-black/10">
                     <video
+                      draggable={false}
                       src={assetPreviewUrl(asset.projectId, asset.relativePath)}
                       className="h-full w-full object-cover"
                       muted
@@ -383,14 +410,14 @@ function AssetGrid({ assets, selectedSet, onToggleAsset, onSelectAsset, onCopyPa
                       }}
                     />
                   </div>
-                ) : asset.assetType === "audio" ? (
-                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-surface-raised to-surface-muted px-2">
-                    <FileAudio className="h-8 w-8 text-brand opacity-80" />
-                    <span className="max-w-full truncate text-[9px] font-bold uppercase tracking-widest text-text-subtle">{asset.extension.replace(".", "") || "audio"}</span>
-                    <div className="w-full" onClick={(event) => event.stopPropagation()}>
-                      <audio controls preload="none" className="h-7 w-full">
-                        <source src={assetPreviewUrl(asset.projectId, asset.relativePath)} />
-                      </audio>
+                ) : isAudio ? (
+                  <div className={cn("group/preview relative flex h-full w-full flex-col items-center justify-center gap-1.5 transition-all", isPlaying ? "bg-brand/10" : "bg-gradient-to-br from-surface-raised to-surface-muted group-hover:to-surface-panel")}>
+                    <FileAudio className={cn("h-8 w-8 transition-all", isPlaying ? "text-brand opacity-100" : "text-text-muted opacity-40 group-hover/preview:text-brand group-hover/preview:opacity-80")} />
+                    <span className={cn("text-[9px] font-bold uppercase tracking-widest transition-opacity", isPlaying ? "text-brand opacity-100" : "text-text-subtle opacity-40 group-hover/preview:opacity-100")}>{asset.extension.replace(".", "") || "audio"}</span>
+                    <div className={cn("absolute inset-0 flex items-center justify-center backdrop-blur-[2px] transition-opacity", isPlaying ? "bg-brand/10 opacity-100" : "bg-black/40 opacity-0 group-hover/preview:opacity-100")}>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); isPlaying ? onPlayAudio?.(null) : onPlayAudio?.(asset); }} className={cn("flex h-10 w-10 items-center justify-center rounded-full text-white shadow-lg transition-all hover:scale-110 active:scale-95", isPlaying ? "bg-surface-panel ring-2 ring-brand animate-pulse" : "bg-brand")} title={isPlaying ? "正在播放 (点击关闭)" : "播放音频"}>
+                        {isPlaying ? <Activity className="h-5 w-5 text-brand" /> : <Play className="h-4 w-4 ml-0.5 fill-current" />}
+                      </button>
                     </div>
                   </div>
                 ) : (
@@ -415,7 +442,6 @@ function AssetGrid({ assets, selectedSet, onToggleAsset, onSelectAsset, onCopyPa
                   <Copy className="h-2.5 w-2.5 shrink-0" />
                 </button>
                 <div className="mt-1 flex items-center gap-1.5">
-                  <SourceBadge count={asset.provenance?.length ?? 0} />
                   <span className="text-[9px] text-text-subtle">{formatBytes(asset.sizeBytes)}</span>
                 </div>
               </div>
@@ -427,8 +453,9 @@ function AssetGrid({ assets, selectedSet, onToggleAsset, onSelectAsset, onCopyPa
   );
 }
 
-function AssetTable({ assets, selectedSet, onToggleAsset, onSelectAsset, onCopyPath, onAssetDragStart }: { assets: AssetSummary[]; selectedSet: Set<string>; onToggleAsset: (asset: AssetSummary) => void; onSelectAsset: (asset: AssetSummary) => void; onCopyPath: (relativePath: string) => void; onAssetDragStart?: (event: React.DragEvent, asset: AssetSummary) => void }) {
+function AssetTable({ assets, selectedSet, onToggleAsset, onSelectAsset, onCopyPath, onAssetDragStart, onPlayAudio, playingAssetPath }: { assets: AssetSummary[]; selectedSet: Set<string>; onToggleAsset: (asset: AssetSummary) => void; onSelectAsset: (asset: AssetSummary) => void; onCopyPath: (relativePath: string) => void; onAssetDragStart?: (event: React.DragEvent, asset: AssetSummary) => void; onPlayAudio?: (asset: AssetSummary | null) => void; playingAssetPath?: string }) {
   const columnHelper = createColumnHelper<AssetSummary>();
+
   const columns = useMemo(() => [
     columnHelper.display({
       id: "select",
@@ -437,76 +464,78 @@ function AssetTable({ assets, selectedSet, onToggleAsset, onSelectAsset, onCopyP
         const asset = row.original;
         const isSelected = selectedSet.has(asset.relativePath);
         return (
-          <label className="flex cursor-pointer items-center">
-            <div className={cn("flex h-4 w-4 items-center justify-center rounded border transition-colors", isSelected ? "border-brand bg-brand text-surface-app" : "border-border-soft bg-surface-panel group-hover:border-brand/50")}>
-              {isSelected && <CheckCircle2 className="h-3 w-3" />}
-            </div>
-            <input type="checkbox" className="sr-only" checked={isSelected} onChange={() => onToggleAsset(asset)} />
-          </label>
+          <div className="flex items-center justify-center h-full pt-1">
+             <SelectionBox selected={isSelected} onClick={(e) => { e.stopPropagation(); onToggleAsset(asset); }} />
+          </div>
         );
       }
     }),
     columnHelper.accessor("fileName", {
-      header: "文件",
+      header: "文件与路径",
       cell: ({ row, getValue }) => {
         const asset = row.original;
         const Icon = typeIcons[asset.assetType] || File;
         const isSelected = selectedSet.has(asset.relativePath);
+        const isImage = asset.assetType === "image";
+        const isAudio = asset.assetType === "audio";
+        const isPlaying = playingAssetPath === asset.relativePath;
         return (
-          <button type="button" className="flex w-full items-center gap-2.5 text-left" onClick={() => onSelectAsset(asset)}>
-            <Icon className={cn("h-4 w-4 shrink-0", isSelected ? "text-brand" : "text-text-muted")} />
-            <span className={cn("truncate text-[12px]", isSelected ? "font-semibold text-brand-strong" : "font-medium text-text")}>{getValue()}</span>
-          </button>
+          <div className="flex min-w-0 w-full items-start gap-2.5 text-left py-1" onClick={() => onSelectAsset(asset)}>
+            {isImage ? (
+              <img draggable onDragStart={(event) => { if (onAssetDragStart) { onAssetDragStart(event, asset); return; } event.dataTransfer.setData("text/plain", asset.relativePath); event.dataTransfer.effectAllowed = "move"; }} src={assetPreviewUrl(asset.projectId, asset.relativePath)} className={cn("h-7 w-7 shrink-0 rounded-[4px] object-cover ring-1 mt-0.5", isSelected ? "ring-brand" : "ring-border-soft")} alt="" loading="lazy" />
+            ) : isAudio ? (
+              <button type="button" onClick={(e) => { e.stopPropagation(); isPlaying ? onPlayAudio?.(null) : onPlayAudio?.(asset); }} className={cn("group/play flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] ring-1 mt-0.5 transition-all hover:bg-brand hover:ring-brand", isPlaying ? "ring-brand bg-brand/20 animate-pulse" : isSelected ? "ring-border-soft bg-brand/10" : "ring-border-soft bg-surface-raised")} title={isPlaying ? "正在播放" : "播放音频"}>
+                {isPlaying ? <Activity className="h-4 w-4 text-brand" /> : (
+                  <>
+                    <Icon className="h-4 w-4 text-text-muted group-hover/play:hidden" />
+                    <Play className="h-3.5 w-3.5 text-white hidden group-hover/play:block fill-current" />
+                  </>
+                )}
+              </button>
+            ) : (
+              <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] ring-1 ring-border-soft mt-0.5", isSelected ? "bg-brand/10" : "bg-surface-raised")}>
+                <Icon className={cn("h-4 w-4", isSelected ? "text-brand" : "text-text-muted")} />
+              </div>
+            )}
+            <div className="flex min-w-0 flex-1 flex-col justify-center">
+              <span className={cn("truncate text-[12px] leading-tight transition-colors", isPlaying ? "font-bold text-brand" : isSelected ? "font-semibold text-brand-strong" : "font-medium text-text")}>{getValue()}</span>
+              <div className="flex items-center gap-1 mt-0.5">
+                <span className="truncate text-[9px] text-text-subtle opacity-70" title={asset.relativePath}>{getAssetDirectory(asset.relativePath) || "/"}</span>
+                <button type="button" title="复制路径" onClick={(event) => { event.stopPropagation(); onCopyPath(asset.relativePath); }} className="opacity-0 transition-opacity group-hover:opacity-100 flex items-center justify-center">
+                  <Copy className="h-2.5 w-2.5 shrink-0 text-text-subtle hover:text-brand" />
+                </button>
+              </div>
+            </div>
+          </div>
         );
       }
     }),
-    columnHelper.accessor("relativePath", {
-      header: "路径",
-      cell: ({ getValue }) => (
-        <button
-          type="button"
-          className="flex w-full min-w-0 items-center gap-1 text-left text-[11px] text-text-subtle opacity-70 hover:text-brand hover:opacity-100"
-          title={`${getValue()}，点击复制`}
-          onClick={(event) => {
-            event.stopPropagation();
-            onCopyPath(getValue());
-          }}
-        >
-          <span className="min-w-0 flex-1 truncate">{getValue()}</span>
-          <Copy className="h-3 w-3 shrink-0" />
-        </button>
-      )
-    }),
     columnHelper.accessor("assetType", {
       header: "类型",
-      cell: ({ row, getValue }) => <span className="text-[10px] font-mono uppercase text-text-muted">{row.original.extension.replace(".", "") || getValue()}</span>
+      cell: ({ row, getValue }) => <span className="text-[10px] font-mono uppercase font-bold text-text-subtle">{row.original.extension.replace(".", "") || getValue()}</span>
     }),
     columnHelper.accessor("sizeBytes", {
       header: "大小",
-      cell: ({ getValue }) => <span className="block text-right font-mono text-[10px] text-text-muted">{formatBytes(getValue())}</span>
-    }),
-    columnHelper.display({
-      id: "provenance",
-      header: "来源",
-      cell: ({ row }) => <SourceBadge count={row.original.provenance?.length ?? 0} />
+      cell: ({ getValue }) => <span className="block text-right font-mono text-[10px] text-text-subtle">{formatBytes(getValue())}</span>
     })
-  ], [columnHelper, onCopyPath, onSelectAsset, onToggleAsset, selectedSet]);
+  ], [columnHelper, onAssetDragStart, onCopyPath, onSelectAsset, onToggleAsset, selectedSet]);
   const table = useReactTable({ data: assets, columns, getCoreRowModel: getCoreRowModel() });
   if (assets.length === 0) return <EmptyState />;
 
   return (
-    <div className="flex w-full flex-col bg-surface-panel text-left">
-      <div className="sticky top-0 z-10 flex items-center border-b border-border bg-surface-muted/30 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-text-subtle backdrop-blur-md">
+    <div className="flex w-full flex-col bg-surface-panel text-left overflow-x-auto scrollbar-thin">
+      <div className="sticky top-0 z-10 flex h-9 min-w-[400px] items-center border-b border-border bg-surface-panel/90 px-4 text-[10px] font-bold uppercase tracking-widest text-text-subtle backdrop-blur-md">
         {table.getHeaderGroups()[0]?.headers.map((header) => (
-          <div key={header.id} className={cn(header.id === "select" ? "w-8 shrink-0" : header.id === "relativePath" ? "w-56 xl:w-80 shrink-0 px-2" : header.id === "assetType" ? "w-24 shrink-0 px-2" : header.id === "sizeBytes" || header.id === "provenance" ? "w-28 shrink-0 px-2 text-right" : "min-w-0 flex-1 pr-4")}>
+          <div key={header.id} className={cn(header.id === "select" ? "w-8 shrink-0" : header.id === "assetType" ? "w-16 shrink-0 px-3" : header.id === "sizeBytes" ? "w-20 shrink-0 px-3 text-right" : "min-w-[140px] flex-1 pr-4")}>
             {flexRender(header.column.columnDef.header, header.getContext())}
           </div>
         ))}
       </div>
-      <div className="flex flex-col">
+      <div className="flex min-w-[400px] flex-col">
         {table.getRowModel().rows.map((row) => {
           const asset = row.original;
           const isSelected = selectedSet.has(asset.relativePath);
+          const isPlaying = playingAssetPath === asset.relativePath;
           return (
             <div
               key={asset.id}
@@ -519,10 +548,14 @@ function AssetTable({ assets, selectedSet, onToggleAsset, onSelectAsset, onCopyP
                 event.dataTransfer.setData("text/plain", asset.relativePath);
                 event.dataTransfer.effectAllowed = "move";
               }}
-              className={cn("group flex items-center border-b border-border-soft px-4 py-1.5 text-left transition-colors hover:bg-surface-raised", isSelected ? "border-brand/20 bg-brand/5" : "bg-transparent")}
+              className={cn(
+                "group flex min-h-[48px] py-2 items-center border-b px-4 text-left transition-colors hover:bg-surface-raised cursor-pointer",
+                isPlaying ? "bg-brand/5 border-brand/30" : isSelected ? "border-brand/20 bg-brand/5 hover:bg-brand/10" : "border-border-soft bg-transparent"
+              )}
+              onClick={() => onSelectAsset(asset)}
             >
               {row.getVisibleCells().map((cell) => (
-                <div key={cell.id} className={cn(cell.column.id === "select" ? "w-8 shrink-0" : cell.column.id === "relativePath" ? "w-56 xl:w-80 shrink-0 px-2" : cell.column.id === "assetType" ? "w-24 shrink-0 px-2" : cell.column.id === "sizeBytes" || cell.column.id === "provenance" ? "w-28 shrink-0 px-2" : "min-w-0 flex-1 pr-4")}>
+                <div key={cell.id} className={cn(cell.column.id === "select" ? "w-8 shrink-0" : cell.column.id === "assetType" ? "w-16 shrink-0 px-3" : cell.column.id === "sizeBytes" ? "w-20 shrink-0 px-3" : "min-w-[140px] flex-1 pr-4")} onClick={(e) => { if (cell.column.id === "select") e.stopPropagation(); }}>
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </div>
               ))}
@@ -545,13 +578,5 @@ function EmptyState() {
         <p className="m-0 mt-1.5 text-xs text-text-subtle">没有找到匹配资产。</p>
       </div>
     </div>
-  );
-}
-
-function SourceBadge({ count }: { count: number }) {
-  return (
-    <span className={cn("inline-flex items-center rounded-pill px-1.5 py-0.5 text-[9px] font-bold", count > 0 ? "bg-brand/10 text-brand-strong" : "bg-surface-muted text-text-subtle")}>
-      {count > 0 ? `已关联 ${count}` : "未关联"}
-    </span>
   );
 }

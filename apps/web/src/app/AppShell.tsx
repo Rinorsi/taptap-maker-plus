@@ -10,7 +10,6 @@ import {
   listTasks,
   listTools,
   moveAssets,
-  rebuildAssetProvenance,
   refreshTools,
   scanAssets,
   scanProjects,
@@ -220,21 +219,6 @@ export function AppShell() {
       const nextAssets = await scanAssets(selectedProject.id);
       setAssets(nextAssets);
       setNotice(`资产索引完成：${nextAssets.length} 个文件`);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleRebuildAssetProvenance() {
-    if (!selectedProject) return;
-    setBusy(true);
-    try {
-      const nextAssets = await rebuildAssetProvenance(selectedProject.id);
-      setAssets(nextAssets);
-      const provenanceCount = nextAssets.reduce((total, asset) => total + (asset.provenance?.length ?? 0), 0);
-      setNotice(`资产来源索引完成：${provenanceCount} 条`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
@@ -482,7 +466,6 @@ export function AppShell() {
             busy={busy}
             onStartRuntime={handleStartRuntime}
             onScanAssets={handleScanAssets}
-            onRebuildAssetProvenance={handleRebuildAssetProvenance}
             onDeleteAssets={handleDeleteAssets}
             onMoveAssets={handleMoveAssets}
             onRenameAsset={handleRenameAsset}

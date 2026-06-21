@@ -6,13 +6,12 @@ type Props = {
   project?: ProjectSummary;
   assets: AssetSummary[];
   onScanAssets: () => void;
-  onRebuildAssetProvenance: () => void;
   onDeleteAssets: (relativePaths: string[]) => Promise<void>;
   onMoveAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
   onSelectAsset: (asset: AssetSummary) => void;
 };
 
-export function AssetHub({ project, assets, onScanAssets, onRebuildAssetProvenance, onDeleteAssets, onMoveAssets, onSelectAsset }: Props) {
+export function AssetHub({ project, assets, onScanAssets, onDeleteAssets, onMoveAssets, onSelectAsset }: Props) {
   return (
     <section className="mx-auto flex h-full min-h-0 w-full max-w-[1600px] flex-col gap-4 bg-surface-app p-4 text-text md:p-6">
       <div className="flex shrink-0 items-center justify-between">
@@ -32,7 +31,6 @@ export function AssetHub({ project, assets, onScanAssets, onRebuildAssetProvenan
         title="项目资产"
         defaultTargetFolder="assets"
         onScanAssets={onScanAssets}
-        onRebuildAssetProvenance={onRebuildAssetProvenance}
         onDeleteAssets={onDeleteAssets}
         onMoveAssets={onMoveAssets}
         onSelectAsset={onSelectAsset}

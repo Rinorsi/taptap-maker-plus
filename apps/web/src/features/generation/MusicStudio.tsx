@@ -20,7 +20,6 @@ type Props = {
   onSelectTool?: (tool: ToolSummary) => void;
   onSelectAsset?: (asset: AssetSummary) => void;
   onScanAssets: () => void;
-  onRebuildAssetProvenance: () => void;
   onDeleteAssets: (relativePaths: string[]) => Promise<void>;
   onMoveAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
   onRenameAsset: (relativePath: string, newName: string) => Promise<void>;
@@ -61,7 +60,6 @@ export function MusicStudio({
   onCallTool,
   onSelectAsset,
   onScanAssets,
-  onRebuildAssetProvenance,
   onDeleteAssets,
   onMoveAssets,
   onImportAssets
@@ -402,7 +400,6 @@ export function MusicStudio({
             onScanAssets();
             void refreshAudioLibrary();
           }}
-          onRebuildAssetProvenance={onRebuildAssetProvenance}
           onImportAssets={(files, targetFolder) => handleImport(files, targetFolder)}
           onDeleteAssets={async (paths) => {
             await onDeleteAssets(paths);

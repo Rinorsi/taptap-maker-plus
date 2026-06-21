@@ -26,7 +26,6 @@ type Props = {
   busy: boolean;
   onStartRuntime: () => void;
   onScanAssets: () => void;
-  onRebuildAssetProvenance: () => void;
   onDeleteAssets: (relativePaths: string[]) => Promise<void>;
   onMoveAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
   onRenameAsset: (relativePath: string, newName: string) => Promise<void>;
@@ -63,7 +62,7 @@ export function WorkbenchViewport(props: Props) {
               busy={props.busy}
             />
           ) : null}
-          {props.activeModule === "assets" ? <AssetHub project={props.project} assets={props.assets} onScanAssets={props.onScanAssets} onRebuildAssetProvenance={props.onRebuildAssetProvenance} onDeleteAssets={props.onDeleteAssets} onMoveAssets={props.onMoveAssets}
+          {props.activeModule === "assets" ? <AssetHub project={props.project} assets={props.assets} onScanAssets={props.onScanAssets} onDeleteAssets={props.onDeleteAssets} onMoveAssets={props.onMoveAssets}
               onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })} /> : null}
           {props.activeModule === "studio-image" ? (
             <ImageStudio
@@ -76,7 +75,6 @@ export function WorkbenchViewport(props: Props) {
               onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })}
               onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })}
               onScanAssets={props.onScanAssets}
-              onRebuildAssetProvenance={props.onRebuildAssetProvenance}
               onDeleteAssets={props.onDeleteAssets}
               onMoveAssets={props.onMoveAssets}
               onImportAssets={props.onImportAssets}
@@ -93,7 +91,6 @@ export function WorkbenchViewport(props: Props) {
               onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })}
               onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })}
               onScanAssets={props.onScanAssets}
-              onRebuildAssetProvenance={props.onRebuildAssetProvenance}
               onDeleteAssets={props.onDeleteAssets}
               onMoveAssets={props.onMoveAssets}
               onRenameAsset={props.onRenameAsset}
@@ -113,7 +110,6 @@ export function WorkbenchViewport(props: Props) {
               onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })}
               onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })}
               onScanAssets={props.onScanAssets}
-              onRebuildAssetProvenance={props.onRebuildAssetProvenance}
               onDeleteAssets={props.onDeleteAssets}
               onMoveAssets={props.onMoveAssets}
               onRenameAsset={props.onRenameAsset}

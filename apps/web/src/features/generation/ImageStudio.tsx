@@ -20,7 +20,6 @@ type Props = {
   onSelectTool: (tool: ToolSummary) => void;
   onSelectAsset?: (asset: AssetSummary) => void;
   onScanAssets: () => void;
-  onRebuildAssetProvenance: () => void;
   onDeleteAssets: (relativePaths: string[]) => Promise<void>;
   onMoveAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
   onImportAssets: (files: File[], targetFolder: string) => Promise<void>;
@@ -80,7 +79,6 @@ export function ImageStudio({
   onSelectTool,
   onSelectAsset,
   onScanAssets,
-  onRebuildAssetProvenance,
   onDeleteAssets,
   onMoveAssets,
   onImportAssets

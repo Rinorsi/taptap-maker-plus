@@ -404,7 +404,7 @@ function AssetInspector({ asset, projectId }: { asset: AssetSummary; projectId?:
           <span className="rounded-pill bg-brand/10 px-2 py-0.5 text-[9px] font-bold text-brand-strong">{asset.provenance?.length ?? 0}</span>
         </div>
         {!asset.provenance?.length ? (
-          <p className="m-0 text-[11px] leading-relaxed text-text-muted">暂无来源索引。可在资产库点击来源重建。</p>
+          <p className="m-0 text-[11px] leading-relaxed text-text-muted">暂无来源记录。</p>
         ) : (
           <div className="grid gap-2">
             {asset.provenance.slice(0, 5).map((item) => (

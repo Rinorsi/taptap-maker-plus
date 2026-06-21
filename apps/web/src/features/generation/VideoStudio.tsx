@@ -22,7 +22,6 @@ type Props = {
   onSelectTool: (tool: ToolSummary) => void;
   onSelectAsset?: (asset: AssetSummary) => void;
   onScanAssets: () => void;
-  onRebuildAssetProvenance: () => void;
   onDeleteAssets: (relativePaths: string[]) => Promise<void>;
   onMoveAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
   onRenameAsset: (relativePath: string, newName: string) => Promise<void>;
@@ -122,7 +121,7 @@ function defaultVideoName() {
 }
 
 export function VideoStudio({
-  project, tools, assets, tasks, busy, onCallTool, onSelectAsset, onScanAssets, onRebuildAssetProvenance, onDeleteAssets, onMoveAssets, onImportAssets, onCollapseSidebar, onShowError
+  project, tools, assets, tasks, busy, onCallTool, onSelectAsset, onScanAssets, onDeleteAssets, onMoveAssets, onImportAssets, onCollapseSidebar, onShowError
 }: Props) {
   const [videoMode, setVideoMode] = useState("text_to_video");
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -610,7 +609,6 @@ export function VideoStudio({
               showDirectoryTree={false}
               importAccept={resourceType === "video" ? "video/*" : "image/*"}
               onScanAssets={onScanAssets}
-              onRebuildAssetProvenance={onRebuildAssetProvenance}
               onImportAssets={onImportAssets}
               onDeleteAssets={async (paths) => {
                 await onDeleteAssets(paths);

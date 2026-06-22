@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
-import { Activity, CheckCircle2, ChevronRight, Copy, File, FileAudio, FileBox, FileImage, FileVideo, FolderOpen, LayoutGrid, List, Play, RefreshCw, Upload, X } from "lucide-react";
+import { Activity, CheckCircle2, ChevronDown, ChevronRight, Copy, File, FileAudio, FileBox, FileImage, FileVideo, Folder, FolderOpen, LayoutGrid, List, PanelLeft, Play, RefreshCw, Upload, X } from "lucide-react";
 import { assetPreviewUrl, type AssetSummary } from "../../api";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
@@ -60,14 +60,30 @@ export function AssetManagerPanel({
   const [playingAsset, setPlayingAsset] = useState<AssetSummary | null>(null);
   const [targetFolder, setTargetFolder] = useState(defaultTargetFolder);
   const [activeDirectory, setActiveDirectory] = useState(rootPath);
-  const [recursive, setRecursive] = useState(true);
+  const [recursive, setRecursive] = useState(false);
+  const [treeOpen, setTreeOpen] = useState(false);
+  const [collapsedDirectories, setCollapsedDirectories] = useState<string[]>([]);
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const scopedAssets = useMemo(() => assetTypeFilter ? assets.filter((asset) => asset.assetType === assetTypeFilter) : assets, [assetTypeFilter, assets]);
   const tree = useMemo(() => buildAssetDirectoryTree(scopedAssets, rootPath), [rootPath, scopedAssets]);
   const directories = useMemo(() => flattenDirectoryTree(tree), [tree]);
   const activeNode = directories.find((directory) => directory.path === activeDirectory) ?? tree;
+  const childDirectories = activeNode.children;
   const selectedSet = useMemo(() => new Set(selectedPaths), [selectedPaths]);
+  const visibleDirectories = useMemo(() => {
+    const collapsed = new Set(collapsedDirectories);
+    return directories.filter((directory) => {
+      if (directory.depth === 0) return true;
+      let parentPath = directory.parentPath;
+      while (parentPath) {
+        if (collapsed.has(parentPath)) return false;
+        const parent = directories.find((item) => item.path === parentPath);
+        parentPath = parent?.parentPath ?? "";
+      }
+      return true;
+    });
+  }, [collapsedDirectories, directories]);
 
   const filteredAssets = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -106,7 +122,23 @@ export function AssetManagerPanel({
     setActiveDirectory(directory.path);
     setTargetFolder(directory.path);
     setSelectedPaths([]);
+    setTreeOpen(false);
   }
+
+  function toggleDirectoryCollapse(directory: AssetDirectoryNode) {
+    if (directory.children.length === 0) return;
+    setCollapsedDirectories((current) => current.includes(directory.path) ? current.filter((path) => path !== directory.path) : [...current, directory.path]);
+  }
+
+  function collapseAllDirectories() {
+    setCollapsedDirectories(directories.filter((directory) => directory.children.length > 0).map((directory) => directory.path));
+  }
+
+  function expandAllDirectories() {
+    setCollapsedDirectories([]);
+  }
+
+  const hasCollapsedDirectories = collapsedDirectories.length > 0;
 
   function handleDropOnDirectory(event: React.DragEvent, directoryPath: string) {
     event.preventDefault();
@@ -140,24 +172,6 @@ export function AssetManagerPanel({
       }}
       onDrop={handleDropOnPanel}
     >
-      {showDirectoryTree ? <aside className="hidden w-64 shrink-0 flex-col border-r border-border bg-surface-muted/20 md:flex">
-        <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
-          <span className="truncate text-xs font-extrabold text-text">{title}</span>
-          <span className="rounded bg-surface-panel px-1.5 py-0.5 text-[10px] font-bold text-text-subtle">{tree.totalAssetCount}</span>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-2 scrollbar-thin">
-          {directories.map((directory) => (
-            <DirectoryRow
-              key={directory.path}
-              directory={directory}
-              active={directory.path === activeNode.path}
-              onClick={() => selectDirectory(directory)}
-              onDrop={(event) => handleDropOnDirectory(event, directory.path)}
-            />
-          ))}
-        </div>
-      </aside> : null}
-
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden relative">
         <div className="shrink-0 border-b border-border bg-surface-panel p-2">
           <AnimatePresence mode="wait">
@@ -209,6 +223,18 @@ export function AssetManagerPanel({
               >
                 <div className="flex items-center justify-between gap-2 w-full">
                   <div className="flex items-center gap-2.5">
+                    {showDirectoryTree ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setTreeOpen(true)}
+                        className="h-7 shrink-0 gap-1.5 rounded-md px-2 text-[11px] font-semibold"
+                      >
+                        <PanelLeft className="h-3.5 w-3.5" />
+                        目录
+                        <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[9px] font-bold text-text-subtle">{tree.totalAssetCount}</span>
+                      </Button>
+                    ) : null}
                     <label className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] font-semibold text-text-subtle hover:text-text" title="包含子目录">
                       <input type="checkbox" checked={recursive} onChange={(event) => setRecursive(event.target.checked)} className="h-3.5 w-3.5 cursor-pointer rounded border-border bg-surface-app text-brand focus:ring-brand/30" />
                       <span className="hidden xl:inline">包含</span>子目录
@@ -217,12 +243,12 @@ export function AssetManagerPanel({
                   </div>
 
                   {showTypeFilter && (
-                    <div className="flex items-center gap-1">
+                    <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap px-1 scrollbar-thin">
                       {ordinaryAssetTypeOrder.map((nextType) => (
                         <button
                           key={nextType}
                           type="button"
-                          className={cn("flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors", type === nextType ? "bg-brand/10 text-brand-strong" : "text-text-muted hover:bg-surface-raised hover:text-text")}
+                          className={cn("flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold transition-colors", type === nextType ? "bg-brand/10 text-brand-strong" : "text-text-muted hover:bg-surface-raised hover:text-text")}
                           onClick={() => setType(nextType)}
                         >
                           <span>{ordinaryAssetTypeLabels[nextType] ?? nextType}</span>
@@ -275,11 +301,93 @@ export function AssetManagerPanel({
           </AnimatePresence>
         </div>
 
+        <AnimatePresence>
+          {showDirectoryTree && treeOpen ? (
+            <>
+              <motion.button
+                type="button"
+                aria-label="关闭目录抽屉"
+                className="absolute inset-0 z-30 bg-black/30 backdrop-blur-[1px]"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setTreeOpen(false)}
+              />
+              <motion.aside
+                initial={{ x: -280, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: -280, opacity: 0 }}
+                transition={{ duration: 0.16 }}
+                className="absolute bottom-0 left-0 top-0 z-40 flex w-[280px] max-w-[82%] flex-col border-r border-border bg-surface-panel shadow-2xl"
+              >
+                <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
+                  <div className="min-w-0">
+                    <span className="block truncate text-xs font-extrabold text-text">{title}</span>
+                    <span className="block truncate text-[10px] text-text-subtle">{activeNode.path}</span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[10px] font-bold text-text-subtle">{tree.totalAssetCount}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 rounded-md px-2 text-[11px]"
+                      onClick={hasCollapsedDirectories ? expandAllDirectories : collapseAllDirectories}
+                      title={hasCollapsedDirectories ? "展开全部目录" : "折叠全部目录"}
+                    >
+                      {hasCollapsedDirectories ? "展开全部" : "收起全部"}
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md" onClick={() => setTreeOpen(false)} title="关闭目录">
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto p-2 scrollbar-thin">
+                  {visibleDirectories.map((directory) => (
+                    <DirectoryRow
+                      key={directory.path}
+                      directory={directory}
+                      active={directory.path === activeNode.path}
+                      collapsed={collapsedDirectories.includes(directory.path)}
+                      onClick={() => selectDirectory(directory)}
+                      onToggleCollapse={() => toggleDirectoryCollapse(directory)}
+                      onDrop={(event) => handleDropOnDirectory(event, directory.path)}
+                    />
+                  ))}
+                </div>
+              </motion.aside>
+            </>
+          ) : null}
+        </AnimatePresence>
+
         <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
           {view === "grid" ? (
-            <AssetGrid assets={filteredAssets} selectedSet={selectedSet} onToggleAsset={toggleAsset} onSelectAsset={onSelectAsset} onCopyPath={copyPath} onAssetDragStart={onAssetDragStart} onPlayAudio={setPlayingAsset} playingAssetPath={playingAsset?.relativePath} />
+            <AssetGrid
+              assets={filteredAssets}
+              directories={childDirectories}
+              selectedSet={selectedSet}
+              onSelectDirectory={selectDirectory}
+              onDropOnDirectory={handleDropOnDirectory}
+              onToggleAsset={toggleAsset}
+              onSelectAsset={onSelectAsset}
+              onCopyPath={copyPath}
+              onAssetDragStart={onAssetDragStart}
+              onPlayAudio={setPlayingAsset}
+              playingAssetPath={playingAsset?.relativePath}
+            />
           ) : (
-            <AssetTable assets={filteredAssets} selectedSet={selectedSet} onToggleAsset={toggleAsset} onSelectAsset={onSelectAsset} onCopyPath={copyPath} onAssetDragStart={onAssetDragStart} onPlayAudio={setPlayingAsset} playingAssetPath={playingAsset?.relativePath} />
+            <AssetTable
+              assets={filteredAssets}
+              directories={childDirectories}
+              selectedSet={selectedSet}
+              onSelectDirectory={selectDirectory}
+              onDropOnDirectory={handleDropOnDirectory}
+              onToggleAsset={toggleAsset}
+              onSelectAsset={onSelectAsset}
+              onCopyPath={copyPath}
+              onAssetDragStart={onAssetDragStart}
+              onPlayAudio={setPlayingAsset}
+              playingAssetPath={playingAsset?.relativePath}
+            />
           )}
         </div>
 
@@ -314,7 +422,22 @@ export function AssetManagerPanel({
   );
 }
 
-function DirectoryRow({ directory, active, onClick, onDrop }: { directory: AssetDirectoryNode; active: boolean; onClick: () => void; onDrop: (event: React.DragEvent) => void }) {
+function DirectoryRow({
+  directory,
+  active,
+  collapsed,
+  onClick,
+  onToggleCollapse,
+  onDrop
+}: {
+  directory: AssetDirectoryNode;
+  active: boolean;
+  collapsed: boolean;
+  onClick: () => void;
+  onToggleCollapse: () => void;
+  onDrop: (event: React.DragEvent) => void;
+}) {
+  const hasChildren = directory.children.length > 0;
   return (
     <button
       type="button"
@@ -325,6 +448,24 @@ function DirectoryRow({ directory, active, onClick, onDrop }: { directory: Asset
       className={cn("flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left text-xs transition-colors", active ? "bg-brand/10 text-brand-strong" : "text-text-muted hover:bg-surface-raised hover:text-text")}
       style={{ paddingLeft: `${8 + directory.depth * 14}px` }}
     >
+      <span
+        role="button"
+        tabIndex={0}
+        className={cn("flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-text-subtle", hasChildren ? "hover:bg-surface-muted hover:text-text" : "opacity-30")}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggleCollapse();
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          event.stopPropagation();
+          onToggleCollapse();
+        }}
+        title={hasChildren ? (collapsed ? "展开目录" : "折叠目录") : undefined}
+      >
+        {hasChildren ? (collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />) : null}
+      </span>
       <FolderOpen className={cn("h-3.5 w-3.5 shrink-0", active ? "text-brand" : "text-text-subtle")} />
       <span className="min-w-0 flex-1 truncate font-semibold">{directory.depth === 0 ? directory.name : directory.name}</span>
       <span className="rounded-pill bg-surface-panel px-1.5 py-0.5 text-[10px] font-bold text-text-subtle">{directory.totalAssetCount}</span>
@@ -348,8 +489,32 @@ function Breadcrumb({ path, onSelectPath }: { path: string; onSelectPath: (path:
   );
 }
 
-function AssetGrid({ assets, selectedSet, onToggleAsset, onSelectAsset, onCopyPath, onAssetDragStart, onPlayAudio, playingAssetPath }: { assets: AssetSummary[]; selectedSet: Set<string>; onToggleAsset: (asset: AssetSummary) => void; onSelectAsset: (asset: AssetSummary) => void; onCopyPath: (relativePath: string) => void; onAssetDragStart?: (event: React.DragEvent, asset: AssetSummary) => void; onPlayAudio?: (asset: AssetSummary | null) => void; playingAssetPath?: string }) {
-  if (assets.length === 0) return <EmptyState />;
+function AssetGrid({
+  assets,
+  directories,
+  selectedSet,
+  onSelectDirectory,
+  onDropOnDirectory,
+  onToggleAsset,
+  onSelectAsset,
+  onCopyPath,
+  onAssetDragStart,
+  onPlayAudio,
+  playingAssetPath
+}: {
+  assets: AssetSummary[];
+  directories: AssetDirectoryNode[];
+  selectedSet: Set<string>;
+  onSelectDirectory: (directory: AssetDirectoryNode) => void;
+  onDropOnDirectory: (event: React.DragEvent, directoryPath: string) => void;
+  onToggleAsset: (asset: AssetSummary) => void;
+  onSelectAsset: (asset: AssetSummary) => void;
+  onCopyPath: (relativePath: string) => void;
+  onAssetDragStart?: (event: React.DragEvent, asset: AssetSummary) => void;
+  onPlayAudio?: (asset: AssetSummary | null) => void;
+  playingAssetPath?: string;
+}) {
+  if (assets.length === 0 && directories.length === 0) return <EmptyState />;
 
   function handleAssetDragStart(event: React.DragEvent, asset: AssetSummary) {
     if (onAssetDragStart) {
@@ -362,6 +527,25 @@ function AssetGrid({ assets, selectedSet, onToggleAsset, onSelectAsset, onCopyPa
 
   return (
     <div className="grid content-start gap-3 p-4 [grid-template-columns:repeat(auto-fill,minmax(112px,1fr))]">
+      {directories.map((directory) => (
+        <button
+          key={directory.path}
+          type="button"
+          title={directory.path}
+          onClick={() => onSelectDirectory(directory)}
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => onDropOnDirectory(event, directory.path)}
+          className="group flex cursor-pointer flex-col overflow-hidden rounded-xl border border-border-soft bg-surface-app text-left transition-all hover:border-brand/40 hover:bg-surface-raised hover:shadow-md"
+        >
+          <div className="flex aspect-square w-full items-center justify-center border-b border-border-soft bg-surface-muted">
+            <Folder className="h-10 w-10 text-text-subtle transition-colors group-hover:text-brand" />
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5 bg-surface-panel p-2 transition-colors group-hover:bg-surface-raised">
+            <span className="truncate text-[11px] font-semibold leading-tight text-text" title={directory.name}>{directory.name}</span>
+            <span className="truncate text-[9px] text-text-subtle">{directory.totalAssetCount} 项</span>
+          </div>
+        </button>
+      ))}
       {assets.map((asset) => {
         const isSelected = selectedSet.has(asset.relativePath);
         const Icon = typeIcons[asset.assetType] || File;
@@ -453,7 +637,31 @@ function AssetGrid({ assets, selectedSet, onToggleAsset, onSelectAsset, onCopyPa
   );
 }
 
-function AssetTable({ assets, selectedSet, onToggleAsset, onSelectAsset, onCopyPath, onAssetDragStart, onPlayAudio, playingAssetPath }: { assets: AssetSummary[]; selectedSet: Set<string>; onToggleAsset: (asset: AssetSummary) => void; onSelectAsset: (asset: AssetSummary) => void; onCopyPath: (relativePath: string) => void; onAssetDragStart?: (event: React.DragEvent, asset: AssetSummary) => void; onPlayAudio?: (asset: AssetSummary | null) => void; playingAssetPath?: string }) {
+function AssetTable({
+  assets,
+  directories,
+  selectedSet,
+  onSelectDirectory,
+  onDropOnDirectory,
+  onToggleAsset,
+  onSelectAsset,
+  onCopyPath,
+  onAssetDragStart,
+  onPlayAudio,
+  playingAssetPath
+}: {
+  assets: AssetSummary[];
+  directories: AssetDirectoryNode[];
+  selectedSet: Set<string>;
+  onSelectDirectory: (directory: AssetDirectoryNode) => void;
+  onDropOnDirectory: (event: React.DragEvent, directoryPath: string) => void;
+  onToggleAsset: (asset: AssetSummary) => void;
+  onSelectAsset: (asset: AssetSummary) => void;
+  onCopyPath: (relativePath: string) => void;
+  onAssetDragStart?: (event: React.DragEvent, asset: AssetSummary) => void;
+  onPlayAudio?: (asset: AssetSummary | null) => void;
+  playingAssetPath?: string;
+}) {
   const columnHelper = createColumnHelper<AssetSummary>();
 
   const columns = useMemo(() => [
@@ -520,7 +728,7 @@ function AssetTable({ assets, selectedSet, onToggleAsset, onSelectAsset, onCopyP
     })
   ], [columnHelper, onAssetDragStart, onCopyPath, onSelectAsset, onToggleAsset, selectedSet]);
   const table = useReactTable({ data: assets, columns, getCoreRowModel: getCoreRowModel() });
-  if (assets.length === 0) return <EmptyState />;
+  if (assets.length === 0 && directories.length === 0) return <EmptyState />;
 
   return (
     <div className="flex w-full flex-col bg-surface-panel text-left overflow-x-auto scrollbar-thin">
@@ -532,6 +740,34 @@ function AssetTable({ assets, selectedSet, onToggleAsset, onSelectAsset, onCopyP
         ))}
       </div>
       <div className="flex min-w-[400px] flex-col">
+        {directories.map((directory) => (
+          <button
+            key={directory.path}
+            type="button"
+            title={directory.path}
+            onClick={() => onSelectDirectory(directory)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => onDropOnDirectory(event, directory.path)}
+            className="group flex min-h-[48px] items-center border-b border-border-soft bg-transparent px-4 py-2 text-left transition-colors hover:bg-surface-raised"
+          >
+            <div className="w-8 shrink-0" />
+            <div className="flex min-w-[140px] flex-1 items-center gap-2.5 pr-4">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] bg-surface-raised ring-1 ring-border-soft">
+                <Folder className="h-4 w-4 text-text-subtle transition-colors group-hover:text-brand" />
+              </div>
+              <div className="min-w-0">
+                <span className="block truncate text-[12px] font-semibold text-text">{directory.name}</span>
+                <span className="block truncate text-[9px] text-text-subtle">{directory.path}</span>
+              </div>
+            </div>
+            <div className="w-16 shrink-0 px-3">
+              <span className="text-[10px] font-mono font-bold uppercase text-text-subtle">folder</span>
+            </div>
+            <div className="w-20 shrink-0 px-3 text-right">
+              <span className="font-mono text-[10px] text-text-subtle">{directory.totalAssetCount} 项</span>
+            </div>
+          </button>
+        ))}
         {table.getRowModel().rows.map((row) => {
           const asset = row.original;
           const isSelected = selectedSet.has(asset.relativePath);

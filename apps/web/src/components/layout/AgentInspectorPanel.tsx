@@ -1,13 +1,16 @@
 import { useState, useMemo, useEffect } from "react";
-import { 
-  Info, Cpu, Terminal, MessageSquare, Play, RefreshCw, Activity, 
-  Search, ChevronDown, ChevronRight, CheckCircle2, XCircle, Loader2, PlayCircle,
-  FileJson, Hash, PanelRightClose, Copy, CircleAlert, Check, Trash2, AlertCircle
+import {
+  ArrowLeft,
+  Info, Cpu, Terminal, Play, RefreshCw, Activity, 
+  Search, Loader2,
+  FileJson, PanelRightClose, Copy, CircleAlert, Check, Trash2, AlertCircle
 } from "lucide-react";
 import { assetPreviewUrl, type AssetSummary, type ProjectSummary, type TaskRecord, type ToolSummary } from "../../api";
 import { Button } from "../ui/Button";
+import { CodeEditorPanel } from "../ui/CodeEditorPanel";
 import { Input } from "../ui/Input";
 import { cn } from "../../lib/utils";
+import { getToolCategoryLabel, getToolDisplay } from "../../features/tools/toolDisplay";
 
 export type InspectorSelection =
   | { type: "project"; item: ProjectSummary }
@@ -21,6 +24,8 @@ type Props = {
   tools: ToolSummary[];
   tasks: TaskRecord[];
   selection: InspectorSelection;
+  busy: boolean;
+  notice: string;
   minimized: boolean;
   activeTab: "status" | "tools" | "logs" | "errors";
   onTabChange: (tab: "status" | "tools" | "logs" | "errors") => void;
@@ -42,6 +47,8 @@ export function AgentInspectorPanel({
   tools, 
   tasks, 
   selection, 
+  busy,
+  notice,
   minimized, 
   activeTab, 
   onTabChange, 
@@ -57,6 +64,11 @@ export function AgentInspectorPanel({
   recoveringVideoTaskId,
   videoRecoveryCooldowns = {}
 }: Props) {
+  const [selectedTool, setSelectedTool] = useState<ToolSummary | undefined>(selection?.type === "tool" ? selection.item : undefined);
+
+  useEffect(() => {
+    if (selection?.type === "tool") setSelectedTool(selection.item);
+  }, [selection]);
 
   const handleTabClick = (tab: "status" | "tools" | "logs" | "errors") => {
     if (minimized) {
@@ -107,12 +119,17 @@ export function AgentInspectorPanel({
           {/* Header */}
           <div className="flex items-center justify-between gap-3 shrink-0">
             <div className="min-w-0 flex items-center gap-3 flex-1">
+              {activeTab === "tools" && selectedTool ? (
+                <Button variant="ghost" size="icon" onClick={() => setSelectedTool(undefined)} className="h-7 w-7 shrink-0 rounded-control" title="返回工具列表">
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+              ) : null}
               <div className="min-w-0">
                 <span className="block text-[10px] uppercase tracking-wider text-text-subtle font-semibold mb-0.5 leading-none">
                   {activeTab.toUpperCase()} PANEL
                 </span>
                 <h2 className="text-sm font-bold text-text truncate m-0 leading-tight">
-                  {activeTab === "status" && (selection ? titleForSelection(selection) : "MCP 状态 / 上下文")}
+                  {activeTab === "status" && "MCP 状态 / 上下文"}
                   {activeTab === "tools" && "MCP 工具箱"}
                   {activeTab === "logs" && "任务日志"}
                   {activeTab === "errors" && "错误详情"}
@@ -134,6 +151,13 @@ export function AgentInspectorPanel({
                   </button>
                 </div>
               )}
+              {activeTab === "tools" && selectedTool ? (
+                <div className="ml-auto mr-1 flex min-w-0 items-center gap-2">
+                  <span className="max-w-[190px] truncate rounded-pill bg-surface-muted px-2 py-0.5 font-mono text-[10px] text-text-subtle" title={selectedTool.name}>
+                    {selectedTool.name}
+                  </span>
+                </div>
+              ) : null}
             </div>
             <Button variant="ghost" size="icon" className="w-7 h-7 shrink-0 rounded-control" onClick={onToggleMinimized} title="收起面板">
               <PanelRightClose className="w-4 h-4" />
@@ -144,41 +168,38 @@ export function AgentInspectorPanel({
           <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
             {activeTab === "status" && (
               <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-3.5 scrollbar-thin">
-                {!selection ? (
-                  <DefaultInspector 
-                    project={project} 
-                    tools={tools} 
-                    tasks={tasks} 
-                    onStartRuntime={onStartRuntime} 
-                    onRefreshTools={onRefreshTools} 
-                    onStatusLite={onStatusLite} 
-                  />
-                ) : selection.type === "project" ? (
-                  <ProjectInspector project={selection.item} />
-                ) : selection.type === "tool" ? (
-                  <ToolInspector tool={selection.item} />
-                ) : selection.type === "task" ? (
+                {selection?.type === "task" ? (
                   <TaskInspector
                     task={selection.item}
                     onRecoverVideoTask={onRecoverVideoTask}
                     recoveringVideoTaskId={recoveringVideoTaskId}
                     videoRecoveryCooldowns={videoRecoveryCooldowns}
                   />
-                ) : (
+                ) : selection?.type === "asset" ? (
                   <AssetInspector asset={selection.item} projectId={project?.id} />
+                ) : (
+                  <DefaultInspector
+                    project={project}
+                    tools={tools}
+                    tasks={tasks} 
+                    busy={busy}
+                    notice={notice}
+                    onStartRuntime={onStartRuntime} 
+                    onRefreshTools={onRefreshTools}
+                    onStatusLite={onStatusLite}
+                  />
                 )}
               </div>
             )}
 
             {activeTab === "tools" && (
-              <ToolsTab tools={tools} onSelectTool={(t) => onSelectSelection({ type: "tool", item: t })} />
+              <ToolsTab tools={tools} selectedTool={selectedTool} onSelectTool={setSelectedTool} />
             )}
 
             {activeTab === "logs" && (
-              <ConsoleTab 
-                tasks={tasks} 
-                projects={project ? [project] : []} 
-                onSelectTask={(t) => onSelectSelection({ type: "task", item: t })} 
+              <ConsoleTab
+                tasks={tasks}
+                onSelectTask={(t) => onSelectSelection({ type: "task", item: t })}
                 onDeleteTask={onDeleteTask}
               />
             )}
@@ -221,34 +242,52 @@ function TabIconButton({ active, onClick, icon, label, badgeCount }: { active: b
   );
 }
 
-function titleForSelection(selection: NonNullable<InspectorSelection>) {
-  if (selection.type === "project") return selection.item.name;
-  if (selection.type === "tool") return selection.item.name;
-  if (selection.type === "task") return selection.item.toolName;
-  return selection.item.fileName;
-}
-
-function DefaultInspector({ project, tools, tasks, onStartRuntime, onRefreshTools, onStatusLite }: Pick<Props, "project" | "tools" | "tasks" | "onStartRuntime" | "onRefreshTools" | "onStatusLite">) {
+function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime, onRefreshTools, onStatusLite }: Pick<Props, "project" | "tools" | "tasks" | "busy" | "notice" | "onStartRuntime" | "onRefreshTools" | "onStatusLite">) {
   const runtime = project?.runtime;
   const recent = tasks[0];
+  const runtimeStatus = runtime?.status ?? "idle";
+  const ready = runtimeStatus === "ready";
+  const starting = runtimeStatus === "starting";
   return (
     <div className="flex flex-col gap-2.5">
-      <InfoRow label="当前项目" value={project?.name ?? "-"} />
-      <InfoRow label="项目路径" value={project?.rootPath ?? "-"} />
-      <InfoRow label="MCP runtime" value={runtime?.status ?? "idle"} />
-      <InfoRow label="工具数量" value={String(tools.length)} />
+      <div className={cn("rounded-panel border p-3", ready ? "border-brand/25 bg-brand/5" : runtimeStatus === "error" ? "border-[#b03939]/25 bg-[#b03939]/5" : "border-border-soft bg-surface-raised")}>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <strong className="block truncate text-sm text-text">{project?.name ?? "未选择项目"}</strong>
+            <span className="mt-0.5 block truncate text-[10px] text-text-subtle">{project?.rootPath ?? "请先选择一个 Maker 项目"}</span>
+          </div>
+          <span className={cn("shrink-0 rounded-pill px-2 py-0.5 text-[10px] font-bold uppercase", ready ? "bg-brand/15 text-brand-strong" : runtimeStatus === "error" ? "bg-[#b03939]/10 text-[#b03939]" : "bg-surface-muted text-text-muted")}>
+            {runtimeStatus}
+          </span>
+        </div>
+        <div className="grid gap-1.5">
+          <InfoRowCompact label="本地 API" value="http://127.0.0.1:8787" />
+          <InfoRowCompact label="Vite 代理" value="/api -> 127.0.0.1:8787" />
+          <InfoRowCompact label="MCP cwd" value={runtime?.cwd ?? project?.rootPath ?? "-"} />
+          <InfoRowCompact label="进程 PID" value={runtime?.processId ? String(runtime.processId) : "-"} />
+          <InfoRowCompact label="tools/list" value={runtime?.toolsListUpdatedAt ?? "-"} />
+        </div>
+      </div>
+
+      <InfoRow label="工具数量" value={`${tools.length} 个`} />
       <InfoRow label="最近任务" value={recent ? `${recent.toolName} / ${recent.status}` : "-"} />
+      <InfoRow label="启动接口" value={project ? `/api/projects/${project.id}/mcp/start` : "-"} />
+      <InfoRow label="状态接口" value={project ? `/api/projects/${project.id}/mcp/status` : "-"} />
+      <InfoRow label="当前动作" value={busy ? notice || "执行中..." : notice || "空闲"} />
+      {runtime?.lastError ? (
+        <CodeEditorPanel title="MCP runtime 错误" language="stderr" value={runtime.lastError} maxHeight="180px" />
+      ) : null}
       
       <div className="grid gap-2 mt-3.5">
-        <Button onClick={onStartRuntime} disabled={!project} className="w-full gap-2 text-xs h-9 shadow-sm">
-          <Play className="w-4 h-4 fill-current" />
-          启动 MCP
+        <Button onClick={onStartRuntime} disabled={!project || starting || busy} className="w-full gap-2 text-xs h-9 shadow-sm">
+          {starting || busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-current" />}
+          {starting || busy ? "正在执行..." : ready ? "重启 / 刷新 MCP" : "启动 MCP"}
         </Button>
         <div className="grid grid-cols-2 gap-2">
-          <Button variant="outline" onClick={onRefreshTools} disabled={!project} className="gap-1.5 text-xs h-8 shadow-sm">
+          <Button variant="outline" onClick={onRefreshTools} disabled={!project || busy} className="gap-1.5 text-xs h-8 shadow-sm">
             <RefreshCw className="w-3.5 h-3.5" /> 刷新工具
           </Button>
-          <Button variant="outline" onClick={onStatusLite} disabled={!project} className="gap-1.5 text-xs h-8 shadow-sm">
+          <Button variant="outline" onClick={onStatusLite} disabled={!project || busy} className="gap-1.5 text-xs h-8 shadow-sm">
             <Activity className="w-3.5 h-3.5" /> 状态检查
           </Button>
         </div>
@@ -257,41 +296,171 @@ function DefaultInspector({ project, tools, tasks, onStartRuntime, onRefreshTool
   );
 }
 
-function ProjectInspector({ project }: { project: ProjectSummary }) {
+function InfoRowCompact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex flex-col gap-2.5">
-      <InfoRow label="项目路径" value={project.rootPath} />
-      <InfoRow label="project_id" value={project.makerProjectId} />
-      <InfoRow label="配置文件" value={project.configPath} />
-      <InfoRow label="MCP runtime" value={project.runtime?.status ?? "idle"} />
-      <InfoRow label="cwd" value={project.runtime?.cwd ?? project.rootPath} />
-      {project.runtime?.lastError && (
-        <pre className="mt-1 p-3 bg-[#b03939]/10 text-[#b03939] border border-[#b03939]/20 rounded-panel text-[11px] font-mono whitespace-pre-wrap break-words max-h-60 overflow-y-auto scrollbar-thin">
-          {project.runtime.lastError}
-        </pre>
-      )}
+    <div className="flex items-center justify-between gap-2 text-[10px]">
+      <span className="shrink-0 text-text-subtle">{label}</span>
+      <strong className="truncate text-right font-mono font-semibold text-text-muted" title={value}>{value}</strong>
     </div>
   );
 }
 
 function ToolInspector({ tool }: { tool: ToolSummary }) {
+  const display = getToolDisplay(tool);
+  const [descriptionMode, setDescriptionMode] = useState<"translated" | "original">("translated");
   return (
-    <div className="flex flex-col gap-2.5 h-full">
-      <InfoRow label="工具名" value={tool.name} />
-      <InfoRow label="类别" value={tool.category} />
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto pr-1 scrollbar-thin">
+      <div className="rounded-panel border border-border-soft bg-surface-raised p-3">
+        <strong className="block truncate text-sm text-text">{display.title}</strong>
+        <span className="mt-1 block truncate font-mono text-[10px] text-text-subtle">{tool.name}</span>
+        <p className="m-0 mt-2 text-[11px] leading-relaxed text-text-muted">{display.summary}</p>
+      </div>
+      <InfoRow label="类别" value={getToolCategoryLabel(tool.category)} />
       <InfoRow label="必填字段" value={tool.required.length ? tool.required.join(", ") : "-"} />
-      {tool.description && <p className="text-xs text-text-muted m-0 mt-1 leading-relaxed bg-surface-raised p-3 border border-border-soft rounded-panel">{tool.description}</p>}
-      <div className="mt-2 flex-1 flex flex-col min-h-0">
+      {tool.description && (
+        <section className="rounded-panel border border-border-soft bg-surface-raised p-3">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-text-subtle">工具描述</span>
+            <div className="flex shrink-0 rounded-control border border-border-soft bg-surface-muted p-0.5">
+              <button
+                type="button"
+                onClick={() => setDescriptionMode("translated")}
+                className={cn("rounded-[4px] px-2 py-1 text-[10px] font-bold transition-colors", descriptionMode === "translated" ? "bg-surface-panel text-text shadow-sm" : "text-text-subtle hover:text-text")}
+              >
+                中文
+              </button>
+              <button
+                type="button"
+                onClick={() => setDescriptionMode("original")}
+                className={cn("rounded-[4px] px-2 py-1 text-[10px] font-bold transition-colors", descriptionMode === "original" ? "bg-surface-panel text-text shadow-sm" : "text-text-subtle hover:text-text")}
+              >
+                原始
+              </button>
+            </div>
+          </div>
+          <MarkdownDescription value={descriptionMode === "translated" ? display.translatedDescription : tool.description} />
+        </section>
+      )}
+      <div className="mt-1 flex shrink-0 flex-col">
         <span className="flex items-center gap-1.5 text-[10px] font-bold text-text-subtle mb-2 uppercase tracking-wide">
           <FileJson className="w-3.5 h-3.5" />
-          Input Schema
+          输入 Schema
         </span>
-        <pre className="flex-1 p-3 bg-surface-muted/60 border border-border-soft rounded-panel text-[11px] font-mono text-text-muted whitespace-pre-wrap break-all overflow-y-auto scrollbar-thin">
-          {JSON.stringify(tool.inputSchema, null, 2)}
-        </pre>
+        <CodeEditorPanel
+          title="输入 Schema"
+          language="json"
+          value={JSON.stringify(tool.inputSchema, null, 2)}
+          maxHeight="520px"
+          className="shrink-0"
+        />
       </div>
     </div>
   );
+}
+
+function MarkdownDescription({ value }: { value: string }) {
+  const blocks = useMemo(() => parseMarkdownBlocks(value), [value]);
+  return (
+    <div className="grid gap-2 text-[11px] leading-relaxed text-text-muted">
+      {blocks.map((block, index) => {
+        if (block.type === "code") {
+          return (
+            <CodeEditorPanel
+              key={index}
+              title="示例代码"
+              language={block.language || "text"}
+              value={block.value}
+              maxHeight="280px"
+              copyLabel="复制"
+            />
+          );
+        }
+        return block.lines.map((line, lineIndex) => renderMarkdownLine(line, `${index}-${lineIndex}`));
+      })}
+    </div>
+  );
+}
+
+type MarkdownBlock = { type: "text"; lines: string[] } | { type: "code"; value: string; language?: string };
+
+function parseMarkdownBlocks(value: string): MarkdownBlock[] {
+  const blocks: MarkdownBlock[] = [];
+  let textLines: string[] = [];
+  let codeLines: string[] | undefined;
+  let codeLanguage = "";
+
+  function flushText() {
+    if (textLines.length === 0) return;
+    blocks.push({ type: "text", lines: textLines });
+    textLines = [];
+  }
+
+  for (const line of value.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("```")) {
+      if (codeLines) {
+        blocks.push({ type: "code", value: codeLines.join("\n"), language: codeLanguage });
+        codeLines = undefined;
+        codeLanguage = "";
+      } else {
+        flushText();
+        codeLines = [];
+        codeLanguage = trimmed.slice(3).trim();
+      }
+      continue;
+    }
+
+    if (codeLines) {
+      codeLines.push(line);
+    } else {
+      textLines.push(line);
+    }
+  }
+
+  if (codeLines) blocks.push({ type: "code", value: codeLines.join("\n"), language: codeLanguage });
+  flushText();
+  return blocks;
+}
+
+function renderMarkdownLine(line: string, key: string) {
+  const trimmed = line.trim();
+  if (!trimmed) return <div key={key} className="h-2" />;
+  const heading = trimmed.match(/^\*\*(.+?)\*\*:?$/);
+  if (heading) {
+    return <strong key={key} className="mt-2 block text-[11px] text-text">{heading[1]}</strong>;
+  }
+  if (/^\|[-\s|]+\|$/.test(trimmed)) return null;
+  if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+    const cells = trimmed.split("|").map((cell) => cell.trim()).filter(Boolean);
+    return (
+      <div key={key} className="grid gap-1 rounded-control border border-border-soft bg-surface-muted/40 p-2">
+        {cells.map((cell) => <span key={cell} className="truncate">{formatInlineMarkdown(cell)}</span>)}
+      </div>
+    );
+  }
+  if (trimmed.startsWith("- ")) {
+    return (
+      <div key={key} className="flex gap-2">
+        <span className="mt-[0.55em] h-1 w-1 shrink-0 rounded-full bg-text-subtle" />
+        <span>{formatInlineMarkdown(trimmed.slice(2))}</span>
+      </div>
+    );
+  }
+  return <p key={key} className="m-0">{formatInlineMarkdown(trimmed)}</p>;
+}
+
+function formatInlineMarkdown(value: string) {
+  const parts = value.split(/(`[^`]+`|\*\*[^*]+\*\*)/g);
+  return parts.map((part, index) => {
+    if (!part) return null;
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return <code key={index} className="rounded bg-surface-muted px-1 py-0.5 font-mono text-[10px] text-text">{part.slice(1, -1)}</code>;
+    }
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={index} className="font-bold text-text">{part.slice(2, -2)}</strong>;
+    }
+    return <span key={index}>{part}</span>;
+  });
 }
 
 function TaskInspector({
@@ -305,18 +474,11 @@ function TaskInspector({
   recoveringVideoTaskId?: string;
   videoRecoveryCooldowns?: Record<string, number>;
 }) {
-  const [copied, setCopied] = useState(false);
   const [copiedError, setCopiedError] = useState(false);
   const errorText = task.errorMessage ?? "";
   const rawText = task.rawResultJson ?? "";
   const recoveryTaskId = getVideoConcurrencyTaskId(task);
   const recoveryState = recoveryTaskId ? getRecoveryState(recoveryTaskId, recoveringVideoTaskId, videoRecoveryCooldowns) : undefined;
-
-  const handleCopy = (text = task.rawResultJson || task.inputJson || "") => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
 
   const handleCopyError = () => {
     navigator.clipboard.writeText(errorText || rawText || task.inputJson);
@@ -362,24 +524,14 @@ function TaskInspector({
           onRecoverVideoTask={onRecoverVideoTask}
         />
       )}
-      <div className="mt-2 flex-1 flex flex-col min-h-0">
-        <div className="flex items-center justify-between mb-2">
-          <span className="flex items-center gap-1.5 text-[10px] font-bold text-text-subtle uppercase tracking-wide">
-            <Hash className="w-3.5 h-3.5" />
-            请求/返回数据 (Payload)
-          </span>
-          <button 
-            onClick={() => handleCopy()}
-            className="text-text-muted hover:text-text transition-colors flex items-center justify-center p-1"
-            title="一键复制数据"
-          >
-            {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
-          </button>
-        </div>
-        <pre className="flex-1 p-3 bg-surface-muted/60 border border-border-soft rounded-panel text-[11px] font-mono text-text-muted whitespace-pre-wrap break-all overflow-y-auto scrollbar-thin">
-          {task.rawResultJson || task.inputJson}
-        </pre>
-      </div>
+      <CodeEditorPanel
+        title="请求/返回数据 (Payload)"
+        language="json"
+        value={task.rawResultJson || task.inputJson}
+        maxHeight="520px"
+        className="mt-2 flex-1"
+        bodyClassName="flex-1"
+      />
     </div>
   );
 }
@@ -434,11 +586,26 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 }
 
 // Sub Tab component: MCP Tools
-function ToolsTab({ tools, onSelectTool }: { tools: ToolSummary[]; onSelectTool: (tool: ToolSummary) => void }) {
+function ToolsTab({ tools, selectedTool, onSelectTool }: { tools: ToolSummary[]; selectedTool?: ToolSummary; onSelectTool: (tool?: ToolSummary) => void }) {
   const [query, setQuery] = useState("");
   const filteredTools = useMemo(() => {
-    return tools.filter(t => t.name.toLowerCase().includes(query.toLowerCase()) || t.category.toLowerCase().includes(query.toLowerCase()));
+    const needle = query.toLowerCase();
+    return tools.filter((tool) => {
+      const display = getToolDisplay(tool);
+      return tool.name.toLowerCase().includes(needle)
+        || tool.category.toLowerCase().includes(needle)
+        || display.title.toLowerCase().includes(needle)
+        || display.summary.toLowerCase().includes(needle);
+    });
   }, [tools, query]);
+
+  if (selectedTool) {
+    return (
+      <div className="flex-1 min-h-0">
+        <ToolInspector tool={selectedTool} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 flex flex-col min-h-0 gap-3">
@@ -455,20 +622,24 @@ function ToolsTab({ tools, onSelectTool }: { tools: ToolSummary[]; onSelectTool:
         {filteredTools.length === 0 ? (
           <div className="text-center py-8 text-xs text-text-muted">未找到工具</div>
         ) : (
-          filteredTools.map(t => (
-            <button
-              key={t.name}
-              onClick={() => onSelectTool(t)}
-              className="flex flex-col text-left p-3 bg-surface-raised border border-border-soft rounded-card hover:border-brand/40 transition-all hover:bg-surface-panel cursor-pointer shadow-sm w-full"
-              type="button"
-            >
-              <div className="flex items-center justify-between gap-2 w-full">
-                <strong className="text-[11px] font-bold text-text truncate leading-none">{t.name}</strong>
-                <span className="text-[8px] uppercase tracking-wider text-brand-strong bg-brand/10 px-1.5 py-0.5 rounded font-extrabold shrink-0 leading-none">{t.category}</span>
-              </div>
-              {t.description && <p className="text-[10px] text-text-muted mt-2 line-clamp-2 leading-relaxed">{t.description}</p>}
-            </button>
-          ))
+          filteredTools.map((tool) => {
+            const display = getToolDisplay(tool);
+            return (
+              <button
+                key={tool.name}
+                onClick={() => onSelectTool(tool)}
+                className="flex w-full cursor-pointer flex-col rounded-card border border-border-soft bg-surface-raised p-3 text-left shadow-sm transition-all hover:border-brand/40 hover:bg-surface-panel"
+                type="button"
+              >
+                <div className="flex items-center justify-between gap-2 w-full">
+                  <strong className="text-[12px] font-bold text-text truncate leading-none">{display.title}</strong>
+                  <span className="text-[8px] tracking-wider text-brand-strong bg-brand/10 px-1.5 py-0.5 rounded font-extrabold shrink-0 leading-none">{getToolCategoryLabel(tool.category)}</span>
+                </div>
+                <span className="mt-1 truncate font-mono text-[9px] text-text-subtle">{tool.name}</span>
+                <p className="m-0 mt-2 line-clamp-2 text-[10px] leading-relaxed text-text-muted">{display.summary}</p>
+              </button>
+            );
+          })
         )}
       </div>
     </div>
@@ -476,17 +647,8 @@ function ToolsTab({ tools, onSelectTool }: { tools: ToolSummary[]; onSelectTool:
 }
 
 // Sub Tab component: Console Task logs
-function ConsoleTab({ tasks, projects, onSelectTask, onDeleteTask }: { tasks: TaskRecord[]; projects: ProjectSummary[]; onSelectTask: (task: TaskRecord) => void; onDeleteTask: (taskId: string) => void; }) {
+function ConsoleTab({ tasks, onSelectTask, onDeleteTask }: { tasks: TaskRecord[]; onSelectTask: (task: TaskRecord) => void; onDeleteTask: (taskId: string) => void; }) {
   const [selectedTask, setSelectedTask] = useState<TaskRecord | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    if (activeTask?.rawResultJson || activeTask?.errorMessage) {
-      navigator.clipboard.writeText(activeTask.errorMessage || activeTask.rawResultJson || "");
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
 
   // Sync selected task with latest tasks list
   const activeTask = useMemo(() => {
@@ -558,54 +720,15 @@ function ConsoleTab({ tasks, projects, onSelectTask, onDeleteTask }: { tasks: Ta
         </div>
 
       {/* Lower part: Terminal Logs Console */}
-      <div className="flex-1 flex flex-col min-h-0 border border-border bg-[#0a0f1d] rounded-panel overflow-hidden shadow-sm">
-        <div className="px-3 py-2 border-b border-border bg-[#111827] flex items-center justify-between shrink-0 select-none">
-          <span className="text-[11px] font-bold text-gray-300 font-sans flex items-center gap-1.5 shrink-0">
-            <Terminal className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">控制台输出</span>
-          </span>
-          <div className="flex items-center gap-2 min-w-0">
-            {activeTask && (
-              <span className="text-[9px] font-mono text-gray-400 truncate max-w-[120px]" title={activeTask.toolName}>{activeTask.toolName}</span>
-            )}
-            <button 
-              onClick={handleCopy}
-              className="text-gray-400 hover:text-white transition-colors flex items-center justify-center p-1"
-              title="一键复制控制台输出"
-            >
-              {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
-            </button>
-          </div>
-        </div>
-        <div className="flex-1 p-3 overflow-auto scrollbar-thin text-[10px] font-mono leading-relaxed text-gray-300">
-          {activeTask ? (
-            <div className="flex flex-col gap-2">
-              <div>
-                <span className="text-gray-500 font-semibold">$ mcp-call {activeTask.toolName} --args</span>
-                <pre className="mt-1 text-gray-400 whitespace-pre-wrap break-all pl-2 border-l border-gray-800">
-                  {activeTask.inputJson}
-                </pre>
-              </div>
-              <div className="mt-2 pt-2 border-t border-gray-900">
-                <span className="text-gray-500 font-semibold">&gt; output_raw_result:</span>
-                {activeTask.errorMessage ? (
-                  <pre className="mt-1 text-red-400 whitespace-pre-wrap break-all font-bold">
-                    Error: {activeTask.errorMessage}
-                  </pre>
-                ) : (
-                  <pre className="mt-1 text-green-400 whitespace-pre-wrap break-all">
-                    {activeTask.rawResultJson || "{} (暂无返回数据)"}
-                  </pre>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="h-full flex items-center justify-center text-gray-500 italic select-none">
-              等待任务日志输出...
-            </div>
-          )}
-        </div>
-      </div>
+      <CodeEditorPanel
+        title="控制台输出"
+        language={activeTask?.toolName}
+        value={activeTask ? formatConsoleOutput(activeTask) : ""}
+        emptyText="等待任务日志输出..."
+        maxHeight="none"
+        className="flex-1"
+        bodyClassName="flex-1 text-[10px]"
+      />
     </div>
   );
 }
@@ -748,6 +871,16 @@ function RecoveryButton({ taskId, state, onRecoverVideoTask }: { taskId: string;
       {label}
     </Button>
   );
+}
+
+function formatConsoleOutput(task: TaskRecord) {
+  return [
+    `$ mcp-call ${task.toolName} --args`,
+    task.inputJson,
+    "",
+    "> output_raw_result:",
+    task.errorMessage ? `Error: ${task.errorMessage}` : task.rawResultJson || "{} (暂无返回数据)"
+  ].join("\n");
 }
 
 function classifyError(task: TaskRecord) {

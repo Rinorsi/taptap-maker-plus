@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { CheckCircle2, CircleAlert, Copy, Loader2, Search, Terminal } from "lucide-react";
 import type { TaskRecord } from "../../api";
+import { CodeEditorPanel } from "../../components/ui/CodeEditorPanel";
 import { Input } from "../../components/ui/Input";
 import { cn } from "../../lib/utils";
 
@@ -86,9 +87,15 @@ export function RunsView({ tasks, onSelectTask }: Props) {
               复制 raw/error
             </button>
           </div>
-          <pre className="flex-1 overflow-auto p-4 text-[11px] leading-relaxed text-text-muted">
-            {selectedTask ? formatTask(selectedTask) : "暂无任务详情"}
-          </pre>
+          <CodeEditorPanel
+            title="任务详情"
+            language={selectedTask?.toolName}
+            value={selectedTask ? formatTask(selectedTask) : ""}
+            emptyText="暂无任务详情"
+            maxHeight="none"
+            className="flex-1 rounded-none border-0"
+            bodyClassName="flex-1"
+          />
         </div>
       </div>
     </section>

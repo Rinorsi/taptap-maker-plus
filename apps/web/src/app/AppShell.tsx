@@ -182,13 +182,25 @@ export function AppShell() {
   async function handleStartRuntime() {
     if (!selectedProject) return;
     setBusy(true);
-    setNotice("启动 MCP runtime...");
+    setRightPanelTab("status");
+    setInspectorMinimized(false);
+    setSelection(undefined);
+    setRuntime((current) => ({
+      projectId: selectedProject.id,
+      status: "starting",
+      toolCount: current?.toolCount ?? tools.length,
+      cwd: selectedProject.rootPath,
+      startedAt: new Date().toISOString(),
+      toolsListUpdatedAt: current?.toolsListUpdatedAt
+    }));
+    setProjects((current) => current.map((project) => project.id === selectedProject.id ? { ...project, runtime: { projectId: selectedProject.id, status: "starting", toolCount: project.runtime?.toolCount ?? tools.length, cwd: selectedProject.rootPath, startedAt: new Date().toISOString(), toolsListUpdatedAt: project.runtime?.toolsListUpdatedAt } } : project));
+    setNotice("正在启动 MCP runtime：POST /api/projects/:projectId/mcp/start，服务端 http://127.0.0.1:8787");
     try {
       const response = await startRuntime(selectedProject.id);
       setRuntime(response.runtime);
       setTools(response.tools);
       setProjects((current) => current.map((project) => project.id === selectedProject.id ? { ...project, runtime: response.runtime } : project));
-      setNotice(response.runtime.status === "ready" ? "MCP runtime ready" : response.runtime.lastError ?? response.runtime.status);
+      setNotice(response.runtime.status === "ready" ? `MCP 已连接：PID ${response.runtime.processId ?? "-"}，tools/list ${response.tools.length} 个` : response.runtime.lastError ?? response.runtime.status);
       await refreshProject(selectedProject.id);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
@@ -307,7 +319,7 @@ export function AppShell() {
 
   function handleSelectSelection(sel: InspectorSelection) {
     setSelection(sel);
-    setRightPanelTab("status");
+    setRightPanelTab(sel?.type === "tool" ? "tools" : "status");
     setInspectorMinimized(false);
   }
 
@@ -501,6 +513,8 @@ export function AppShell() {
             tools={tools}
             tasks={tasks}
             selection={selection}
+            busy={busy}
+            notice={notice}
             minimized={inspectorMinimized}
             activeTab={rightPanelTab}
             onTabChange={setRightPanelTab}

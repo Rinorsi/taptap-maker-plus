@@ -22,6 +22,7 @@ import { X, Activity, AlertCircle, Boxes, LibrarySquare } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { assetPreviewUrl, type AssetSummary, type ProjectSummary, type TaskRecord, type ToolSummary, getFlow, autoSaveFlow } from "../../api";
 import { Button } from "../../components/ui/Button";
+import { CodeEditorPanel } from "../../components/ui/CodeEditorPanel";
 import { NodeLibraryDrawer } from "./NodeLibraryDrawer";
 import { getPresetById } from "./nodeRegistry";
 import { buildVideoPayloadFromGraph } from "./VideoFlowPayloadBuilder";
@@ -492,7 +493,7 @@ function VideoFlowCanvasInner({ project, allAssets, activeGenerationTask, isClou
           proOptions={{ hideAttribution: true }}
         >
           <Background color="#9ca3af" variant={"dots" as any} gap={24} size={1.5} className="opacity-40" />
-          <Controls className="bg-surface-panel border-border-soft fill-text-subtle" />
+          <Controls />
           <Panel position="top-left" className="flex flex-wrap items-start justify-between w-[calc(100%-16px)] pointer-events-none mt-2 ml-2 mr-2 z-50 gap-2">
             
             {/* Left Controls */}
@@ -532,10 +533,10 @@ function VideoFlowCanvasInner({ project, allAssets, activeGenerationTask, isClou
             </div>
 
             {/* Right Payload */}
-            <div className="flex flex-col items-end gap-2 pointer-events-none ml-auto">
-              <Button variant="outline" size="sm" className="h-8 text-xs bg-surface-panel/90 backdrop-blur-md shadow-lg border-border pointer-events-auto" onClick={() => setIsPayloadPanelOpen(!isPayloadPanelOpen)}>
-                <Activity className="w-4 h-4 mr-1.5 text-brand" />
-                {isPayloadPanelOpen ? "收起 Payload" : "检查 Payload"}
+            <div className="flex flex-col items-end gap-2 pointer-events-none ml-auto mr-10">
+              <Button variant="outline" size="sm" className="h-8 max-w-[150px] gap-1.5 overflow-hidden px-2.5 text-xs bg-surface-panel/90 backdrop-blur-md shadow-lg border-border pointer-events-auto" onClick={() => setIsPayloadPanelOpen(!isPayloadPanelOpen)}>
+                <Activity className="w-4 h-4 shrink-0 text-brand" />
+                <span className="truncate">{isPayloadPanelOpen ? "收起 Payload" : "检查 Payload"}</span>
                 {validationResult.errors.length > 0 && <span className="ml-1.5 w-2 h-2 rounded-full bg-[#b03939]" />}
               </Button>
               
@@ -609,25 +610,14 @@ function VideoFlowCanvasInner({ project, allAssets, activeGenerationTask, isClou
                   </div>
                 )}
                 
-                <div className="flex flex-col gap-1 mt-1">
-                  <span className="text-[10px] font-bold text-text-muted flex justify-between items-center">
-                    <span>最终 Payload (模拟)</span>
-                    <button 
-                      className="text-brand hover:text-brand-strong disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                      disabled={!validationResult.ok}
-                      onClick={() => {
-                         if (validationResult.payload) {
-                           navigator.clipboard.writeText(JSON.stringify(validationResult.payload, null, 2));
-                         }
-                      }}
-                    >
-                      复制 JSON
-                    </button>
-                  </span>
-                  <pre className="text-[9px] font-mono bg-[#0a0f1d] border border-border p-2 rounded text-white/70 overflow-x-auto whitespace-pre-wrap max-h-48 scrollbar-thin">
-                    {validationResult.payload ? JSON.stringify(validationResult.payload, null, 2) : "无法生成 Payload (请先修复错误)"}
-                  </pre>
-                </div>
+                <CodeEditorPanel
+                  title="最终 Payload (模拟)"
+                  language="json"
+                  value={validationResult.payload ? JSON.stringify(validationResult.payload, null, 2) : ""}
+                  emptyText="无法生成 Payload (请先修复错误)"
+                  maxHeight="240px"
+                  className="mt-1"
+                />
               </div>
               </div>
               )}
@@ -636,6 +626,7 @@ function VideoFlowCanvasInner({ project, allAssets, activeGenerationTask, isClou
 
           <MiniMap 
             className="bg-surface-panel border-border-soft" 
+            bgColor="var(--surface-panel)"
             nodeColor={(n) => {
               if (n.type === 'executorNode') return '#00D9C5';
               if (n.type === 'settingsNode') return 'var(--color-text-subtle)';

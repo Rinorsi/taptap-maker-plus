@@ -28,22 +28,22 @@
     color-scheme: dark;
     --color-brand: #00D9C5;
     --color-brand-strong: #00CDBA;
-    --color-text: #F2F7FA;
-    --color-text-muted: rgba(242, 247, 250, 0.66);
-    --color-text-subtle: rgba(242, 247, 250, 0.44);
-    --color-border: rgba(242, 247, 250, 0.14);
-    --color-border-soft: rgba(242, 247, 250, 0.08);
-    --surface-app: #0C1220;
-    --surface-panel: #11182A;
-    --surface-raised: #141D31;
-    --surface-muted: rgba(242, 247, 250, 0.06);
+    --color-text: #ECECF1;
+    --color-text-muted: #B4B4BC;
+    --color-text-subtle: #878A92;
+    --color-border: rgba(255, 255, 255, 0.11);
+    --color-border-soft: rgba(255, 255, 255, 0.07);
+    --surface-app: #18191B;
+    --surface-panel: #202123;
+    --surface-raised: #2B2C2F;
+    --surface-muted: rgba(255, 255, 255, 0.08);
     --radius-control: 6px;
     --radius-card: 8px;
     --radius-panel: 10px;
     --radius-large: 16px;
     --radius-pill: 999px;
-    --shadow-panel: 0 18px 40px rgba(0, 0, 0, 0.28);
-    --shadow-popover: 0 12px 32px -6px rgba(0, 0, 0, 0.36);
+    --shadow-panel: 0 18px 40px rgba(0, 0, 0, 0.32);
+    --shadow-popover: 0 12px 32px -6px rgba(0, 0, 0, 0.46);
   }
 
   * { 
@@ -205,5 +205,48 @@
     border-radius: var(--radius-card);
     overflow: hidden;
     box-shadow: var(--shadow-panel);
+  }
+
+  .react-flow__controls {
+    border: 1px solid var(--color-border-soft) !important;
+    border-radius: var(--radius-card) !important;
+    overflow: hidden;
+    background: var(--surface-panel) !important;
+    box-shadow: var(--shadow-panel) !important;
+  }
+
+  .react-flow__controls-button {
+    width: 28px !important;
+    height: 28px !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--color-border-soft) !important;
+    background: var(--surface-panel) !important;
+    color: var(--color-text-muted) !important;
+  }
+
+  .react-flow__controls-button:hover {
+    background: var(--surface-muted) !important;
+    color: var(--color-text) !important;
+  }
+
+  .react-flow__controls-button svg {
+    fill: currentColor !important;
+  }
+
+  .react-flow__controls-button:disabled {
+    color: var(--color-text-subtle) !important;
+    opacity: 0.45;
+  }
+
+  .react-flow__minimap {
+    border: 1px solid var(--color-border-soft) !important;
+    border-radius: var(--radius-card) !important;
+    overflow: hidden;
+    background: var(--surface-panel) !important;
+    box-shadow: var(--shadow-panel) !important;
+  }
+
+  .react-flow__minimap svg {
+    background: var(--surface-panel) !important;
   }
 }

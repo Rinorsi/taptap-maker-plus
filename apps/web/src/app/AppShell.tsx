@@ -319,7 +319,14 @@ export function AppShell() {
 
   function handleSelectSelection(sel: InspectorSelection) {
     setSelection(sel);
-    setRightPanelTab(sel?.type === "tool" ? "tools" : "status");
+    if (sel?.type === "tool") {
+      setRightPanelTab("tools");
+    } else if (sel?.type === "task") {
+      const hasErrorResult = sel.item.rawResultJson?.includes('"isError": true') || sel.item.rawResultJson?.includes('"isError":true');
+      setRightPanelTab(sel.item.status === "failed" || hasErrorResult ? "errors" : "logs");
+    } else {
+      setRightPanelTab("status");
+    }
     setInspectorMinimized(false);
   }
 

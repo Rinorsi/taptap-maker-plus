@@ -65,10 +65,101 @@ export function AgentInspectorPanel({
   videoRecoveryCooldowns = {}
 }: Props) {
   const [selectedTool, setSelectedTool] = useState<ToolSummary | undefined>(selection?.type === "tool" ? selection.item : undefined);
+  const [selectedStatusSelection, setSelectedStatusSelection] = useState<Extract<InspectorSelection, { type: "project" | "asset" }> | undefined>(
+    selection?.type === "project" || selection?.type === "asset" ? selection : undefined
+  );
+  const [selectedLogTask, setSelectedLogTask] = useState<TaskRecord | undefined>(selection?.type === "task" ? selection.item : undefined);
+  const [selectedErrorTask, setSelectedErrorTask] = useState<TaskRecord | undefined>(
+    selection?.type === "task" && isTaskError(selection.item) ? selection.item : undefined
+  );
 
   useEffect(() => {
-    if (selection?.type === "tool") setSelectedTool(selection.item);
+    if (!selection) {
+      setSelectedStatusSelection(undefined);
+      setSelectedLogTask(undefined);
+      setSelectedErrorTask(undefined);
+      return;
+    }
+
+    if (selection.type === "tool") {
+      setSelectedTool(selection.item);
+      return;
+    }
+
+    if (selection.type === "project" || selection.type === "asset") {
+      setSelectedStatusSelection(selection);
+      return;
+    }
+
+    if (selection.type === "task") {
+      if (isTaskError(selection.item)) {
+        setSelectedErrorTask(selection.item);
+      } else {
+        setSelectedLogTask(selection.item);
+      }
+    }
   }, [selection]);
+
+  const currentStatusSelection = useMemo(() => {
+    if (!selectedStatusSelection) return undefined;
+    if (selectedStatusSelection.type === "project") {
+      return project?.id === selectedStatusSelection.item.id
+        ? { type: "project" as const, item: project }
+        : selectedStatusSelection;
+    }
+    return selectedStatusSelection;
+  }, [project, selectedStatusSelection]);
+
+  const currentLogTask = useMemo(() => {
+    if (!selectedLogTask) return undefined;
+    return tasks.find((task) => task.taskId === selectedLogTask.taskId) ?? selectedLogTask;
+  }, [selectedLogTask, tasks]);
+
+  const currentErrorTask = useMemo(() => {
+    if (!selectedErrorTask) return undefined;
+    return tasks.find((task) => task.taskId === selectedErrorTask.taskId) ?? selectedErrorTask;
+  }, [selectedErrorTask, tasks]);
+
+  const headerDetail = useMemo(() => {
+    if (activeTab === "status" && currentStatusSelection) {
+      return {
+        label: currentStatusSelection.type === "asset" ? currentStatusSelection.item.fileName : currentStatusSelection.item.name,
+        title: "返回 MCP 状态",
+        onBack: () => {
+          setSelectedStatusSelection(undefined);
+          onSelectSelection(undefined);
+        }
+      };
+    }
+    if (activeTab === "tools" && selectedTool) {
+      return {
+        label: selectedTool.name,
+        title: "返回工具列表",
+        onBack: () => setSelectedTool(undefined)
+      };
+    }
+    if (activeTab === "logs" && currentLogTask) {
+      return {
+        label: currentLogTask.toolName,
+        title: "返回任务日志",
+        onBack: () => {
+          setSelectedLogTask(undefined);
+          onSelectSelection(undefined);
+        }
+      };
+    }
+    if (activeTab === "errors" && currentErrorTask) {
+      return {
+        label: currentErrorTask.toolName,
+        title: "返回错误列表",
+        onBack: () => {
+          setSelectedErrorTask(undefined);
+          onSelectSelection(undefined);
+        }
+      };
+    }
+    return undefined;
+  }, [activeTab, currentErrorTask, currentLogTask, currentStatusSelection, onSelectSelection, selectedTool]);
 
   const handleTabClick = (tab: "status" | "tools" | "logs" | "errors") => {
     if (minimized) {
@@ -119,8 +210,8 @@ export function AgentInspectorPanel({
           {/* Header */}
           <div className="flex items-center justify-between gap-3 shrink-0">
             <div className="min-w-0 flex items-center gap-3 flex-1">
-              {activeTab === "tools" && selectedTool ? (
-                <Button variant="ghost" size="icon" onClick={() => setSelectedTool(undefined)} className="h-7 w-7 shrink-0 rounded-control" title="返回工具列表">
+              {headerDetail ? (
+                <Button variant="ghost" size="icon" onClick={headerDetail.onBack} className="h-7 w-7 shrink-0 rounded-control" title={headerDetail.title}>
                   <ArrowLeft className="h-4 w-4" />
                 </Button>
               ) : null}
@@ -146,15 +237,27 @@ export function AgentInspectorPanel({
                   <button onClick={onRefreshTasks} className="p-1 rounded hover:bg-surface-muted text-text-muted hover:text-text transition-colors" title="刷新日志">
                     <RefreshCw className="w-3.5 h-3.5" />
                   </button>
-                  <button onClick={onClearTasks} className="p-1 rounded hover:bg-surface-muted text-text-muted hover:text-red-400 transition-colors" title="清空全部日志">
+                  <button
+                    onClick={() => {
+                      if (currentLogTask) {
+                        onDeleteTask(currentLogTask.taskId);
+                        setSelectedLogTask(undefined);
+                        onSelectSelection(undefined);
+                        return;
+                      }
+                      onClearTasks();
+                    }}
+                    className="p-1 rounded hover:bg-surface-muted text-text-muted hover:text-red-400 transition-colors"
+                    title={currentLogTask ? "清空当前日志" : "清空全部日志"}
+                  >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
               )}
-              {activeTab === "tools" && selectedTool ? (
+              {headerDetail ? (
                 <div className="ml-auto mr-1 flex min-w-0 items-center gap-2">
-                  <span className="max-w-[190px] truncate rounded-pill bg-surface-muted px-2 py-0.5 font-mono text-[10px] text-text-subtle" title={selectedTool.name}>
-                    {selectedTool.name}
+                  <span className="max-w-[190px] truncate rounded-pill bg-surface-muted px-2 py-0.5 text-[10px] text-text-subtle" title={headerDetail.label}>
+                    {headerDetail.label}
                   </span>
                 </div>
               ) : null}
@@ -168,15 +271,10 @@ export function AgentInspectorPanel({
           <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
             {activeTab === "status" && (
               <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-3.5 scrollbar-thin">
-                {selection?.type === "task" ? (
-                  <TaskInspector
-                    task={selection.item}
-                    onRecoverVideoTask={onRecoverVideoTask}
-                    recoveringVideoTaskId={recoveringVideoTaskId}
-                    videoRecoveryCooldowns={videoRecoveryCooldowns}
-                  />
-                ) : selection?.type === "asset" ? (
-                  <AssetInspector asset={selection.item} projectId={project?.id} />
+                {currentStatusSelection?.type === "asset" ? (
+                  <AssetInspector asset={currentStatusSelection.item} projectId={project?.id} />
+                ) : currentStatusSelection?.type === "project" ? (
+                  <ProjectInspector project={currentStatusSelection.item} />
                 ) : (
                   <DefaultInspector
                     project={project}
@@ -199,15 +297,20 @@ export function AgentInspectorPanel({
             {activeTab === "logs" && (
               <ConsoleTab
                 tasks={tasks}
-                onSelectTask={(t) => onSelectSelection({ type: "task", item: t })}
+                selectedTask={currentLogTask}
+                onSelectTask={(task) => setSelectedLogTask(task)}
                 onDeleteTask={onDeleteTask}
+                onRecoverVideoTask={onRecoverVideoTask}
+                recoveringVideoTaskId={recoveringVideoTaskId}
+                videoRecoveryCooldowns={videoRecoveryCooldowns}
               />
             )}
 
             {activeTab === "errors" && (
               <ErrorsTab 
                 tasks={tasks.filter((task) => task.status === "failed" || task.rawResultJson?.includes('"isError": true') || task.rawResultJson?.includes('"isError":true'))} 
-                onSelectTask={(t) => onSelectSelection({ type: "task", item: t })} 
+                selectedTask={currentErrorTask}
+                onSelectTask={(task) => setSelectedErrorTask(task)} 
                 onClearTasks={onClearTasks}
                 onRecoverVideoTask={onRecoverVideoTask}
                 recoveringVideoTaskId={recoveringVideoTaskId}
@@ -576,6 +679,24 @@ function AssetInspector({ asset, projectId }: { asset: AssetSummary; projectId?:
   );
 }
 
+function ProjectInspector({ project }: { project: ProjectSummary }) {
+  const runtime = project.runtime;
+  return (
+    <div className="flex flex-col gap-2.5">
+      <InfoRow label="项目" value={project.name} />
+      <InfoRow label="路径" value={project.rootPath} />
+      <InfoRow label="配置文件" value={project.configPath} />
+      <InfoRow label="makerProjectId" value={project.makerProjectId} />
+      <InfoRow label="MCP 状态" value={runtime?.status ?? "idle"} />
+      <InfoRow label="工具数量" value={runtime?.toolCount !== undefined ? `${runtime.toolCount} 个` : "-"} />
+      <InfoRow label="MCP cwd" value={runtime?.cwd ?? project.rootPath} />
+      {runtime?.lastError ? (
+        <CodeEditorPanel title="MCP runtime 错误" language="stderr" value={runtime.lastError} maxHeight="220px" />
+      ) : null}
+    </div>
+  );
+}
+
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-3 p-2.5 bg-surface-raised border border-border-soft rounded-card hover:border-border transition-colors">
@@ -647,24 +768,47 @@ function ToolsTab({ tools, selectedTool, onSelectTool }: { tools: ToolSummary[];
 }
 
 // Sub Tab component: Console Task logs
-function ConsoleTab({ tasks, onSelectTask, onDeleteTask }: { tasks: TaskRecord[]; onSelectTask: (task: TaskRecord) => void; onDeleteTask: (taskId: string) => void; }) {
-  const [selectedTask, setSelectedTask] = useState<TaskRecord | null>(null);
+function ConsoleTab({
+  tasks,
+  selectedTask,
+  onSelectTask,
+  onDeleteTask,
+  onRecoverVideoTask,
+  recoveringVideoTaskId,
+  videoRecoveryCooldowns = {}
+}: {
+  tasks: TaskRecord[];
+  selectedTask?: TaskRecord;
+  onSelectTask: (task: TaskRecord) => void;
+  onDeleteTask: (taskId: string) => void;
+  onRecoverVideoTask?: (taskId: string) => void;
+  recoveringVideoTaskId?: string;
+  videoRecoveryCooldowns?: Record<string, number>;
+}) {
+  const activeTask = selectedTask
+    ? tasks.find((task) => task.taskId === selectedTask.taskId) ?? selectedTask
+    : undefined;
 
-  // Sync selected task with latest tasks list
-  const activeTask = useMemo(() => {
-    if (!selectedTask) return tasks[0] || null;
-    return tasks.find(t => t.taskId === selectedTask.taskId) || tasks[0] || null;
-  }, [tasks, selectedTask]);
+  if (activeTask) {
+    return (
+      <div className="flex-1 min-h-0 overflow-y-auto pr-1 scrollbar-thin">
+        <TaskInspector
+          task={activeTask}
+          onRecoverVideoTask={onRecoverVideoTask}
+          recoveringVideoTaskId={recoveringVideoTaskId}
+          videoRecoveryCooldowns={videoRecoveryCooldowns}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 flex flex-col min-h-0 gap-3">
-      {/* Upper part: Task List */}
-      <div className="flex-[0.8] flex flex-col min-h-0 overflow-y-auto pr-1 gap-2 scrollbar-thin">
+      <div className="flex-1 flex flex-col min-h-0 overflow-y-auto pr-1 gap-2 scrollbar-thin">
           {tasks.length === 0 ? (
             <div className="text-center py-8 text-xs text-text-muted">暂无任务</div>
           ) : (
             tasks.slice(0, 50).map(t => {
-              const isSelected = activeTask?.taskId === t.taskId;
               const isRunning = t.status === "running";
               const hasErrorInResult = t.rawResultJson?.includes('"isError": true') || t.rawResultJson?.includes('"isError":true');
               const isFailed = t.status === "failed" || hasErrorInResult;
@@ -674,14 +818,11 @@ function ConsoleTab({ tasks, onSelectTask, onDeleteTask }: { tasks: TaskRecord[]
                 <div key={t.taskId} className="group relative flex w-full">
                   <button
                     onClick={() => {
-                      setSelectedTask(t);
                       onSelectTask(t);
                     }}
                     className={cn(
                       "flex items-center justify-between p-2 rounded border text-left transition-colors cursor-pointer w-full text-xs",
-                      isSelected 
-                        ? "border-brand bg-brand/5 font-semibold text-brand-strong"
-                        : isFailed ? "border-[#b03939]/20 bg-[#b03939]/5 hover:bg-[#b03939]/10" :
+                      isFailed ? "border-[#b03939]/20 bg-[#b03939]/5 hover:bg-[#b03939]/10" :
                           isSuccess ? "border-[#246b2f]/10 bg-[#246b2f]/5 hover:bg-[#246b2f]/10" :
                           isRunning ? "border-brand/30 bg-brand/5 hover:bg-brand/10" :
                           "border-border-soft bg-surface-raised hover:bg-surface-muted"
@@ -718,23 +859,13 @@ function ConsoleTab({ tasks, onSelectTask, onDeleteTask }: { tasks: TaskRecord[]
             })
           )}
         </div>
-
-      {/* Lower part: Terminal Logs Console */}
-      <CodeEditorPanel
-        title="控制台输出"
-        language={activeTask?.toolName}
-        value={activeTask ? formatConsoleOutput(activeTask) : ""}
-        emptyText="等待任务日志输出..."
-        maxHeight="none"
-        className="flex-1"
-        bodyClassName="flex-1 text-[10px]"
-      />
     </div>
   );
 }
 
 function ErrorsTab({
   tasks,
+  selectedTask,
   onSelectTask,
   onClearTasks,
   onRecoverVideoTask,
@@ -742,12 +873,30 @@ function ErrorsTab({
   videoRecoveryCooldowns = {}
 }: {
   tasks: TaskRecord[];
+  selectedTask?: TaskRecord;
   onSelectTask: (task: TaskRecord) => void;
   onClearTasks: () => void;
   onRecoverVideoTask?: (taskId: string) => void;
   recoveringVideoTaskId?: string;
   videoRecoveryCooldowns?: Record<string, number>;
 }) {
+  const activeTask = selectedTask
+    ? tasks.find((task) => task.taskId === selectedTask.taskId) ?? selectedTask
+    : undefined;
+
+  if (activeTask) {
+    return (
+      <div className="flex-1 min-h-0 overflow-y-auto pr-1 scrollbar-thin">
+        <TaskInspector
+          task={activeTask}
+          onRecoverVideoTask={onRecoverVideoTask}
+          recoveringVideoTaskId={recoveringVideoTaskId}
+          videoRecoveryCooldowns={videoRecoveryCooldowns}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-2 overflow-hidden">
       {tasks.length > 0 && (
@@ -825,6 +974,10 @@ function getVideoConcurrencyTaskId(task: TaskRecord) {
   const text = `${task.rawResultJson ?? ""}\n${task.errorMessage ?? ""}`;
   const match = text.match(/cgt-[a-zA-Z0-9-]+/);
   return match ? match[0] : undefined;
+}
+
+function isTaskError(task: TaskRecord) {
+  return task.status === "failed" || task.rawResultJson?.includes('"isError": true') || task.rawResultJson?.includes('"isError":true');
 }
 
 function getRecoveryState(taskId: string, recoveringVideoTaskId?: string, videoRecoveryCooldowns: Record<string, number> = {}): RecoveryState {

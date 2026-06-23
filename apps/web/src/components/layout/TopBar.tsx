@@ -1,12 +1,15 @@
-import { useMemo, useState } from "react";
-import { Settings, Moon, Sun, Search, Boxes, FolderOpen, Wrench, File, Activity } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Settings, Moon, Sun, Search, Boxes, FolderOpen, Wrench, File, Activity, Minus, Square, X, Copy } from "lucide-react";
 import { Button } from "../ui/Button";
-import type { AssetSummary, ProjectSummary, TaskRecord, ToolSummary } from "../../api";
+import type { AssetSummary, ProjectSummary, RuntimeSummary, TaskRecord, ToolSummary } from "../../api";
 import type { WorkbenchModule } from "../../app/routes";
 import type { InspectorSelection } from "./AgentInspectorPanel";
 import { cn } from "../../lib/utils";
 
 type Props = {
+  project?: ProjectSummary;
+  runtime?: RuntimeSummary;
+  notice: string;
   toolCount: number;
   theme: "light" | "dark";
   projects: ProjectSummary[];
@@ -18,6 +21,8 @@ type Props = {
   onSelectProject: (projectId: string) => void;
   onOpenModule: (module: WorkbenchModule) => void;
   onSelect: (selection: InspectorSelection) => void;
+  appMenu?: ReactNode;
+  searchFocusSignal?: number;
 };
 
 type SearchResult =
@@ -26,9 +31,10 @@ type SearchResult =
   | { id: string; type: "asset"; title: string; subtitle: string; asset: AssetSummary }
   | { id: string; type: "task"; title: string; subtitle: string; task: TaskRecord };
 
-export function TopBar({ toolCount, theme, projects = [], tools = [], assets = [], tasks = [], onThemeToggle, onOpenSettings, onSelectProject, onOpenModule, onSelect }: Props) {
+export function TopBar({ project, runtime, notice, toolCount, theme, projects = [], tools = [], assets = [], tasks = [], onThemeToggle, onOpenSettings, onSelectProject, onOpenModule, onSelect, appMenu, searchFocusSignal = 0 }: Props) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const searchSources = useMemo(() => ({
     projects: Array.isArray(projects) ? projects : [],
     tools: Array.isArray(tools) ? tools : [],
@@ -58,24 +64,45 @@ export function TopBar({ toolCount, theme, projects = [], tools = [], assets = [
     onOpenModule("runs");
   }
 
+  const runtimeStatus = runtime?.status?.toUpperCase() ?? "IDLE";
+
+  useEffect(() => {
+    if (!searchFocusSignal) return;
+    inputRef.current?.focus();
+    inputRef.current?.select();
+    setOpen(true);
+  }, [searchFocusSignal]);
+
   return (
-    <header className="flex items-center gap-4 px-4 h-[52px] border-b border-border bg-surface-panel z-10 shrink-0 relative">
-      <div className="flex items-center min-w-0 shrink-0 w-[240px] pl-1">
-        <div className="flex items-center gap-1.5 select-none pointer-events-none">
-          <img src="https://maker.taptap.cn/taptap-maker.svg" alt="TapTap Maker" className="h-[28px] object-contain" />
-          <span 
-            className="text-[20px] font-black tracking-widest bg-clip-text text-transparent bg-gradient-to-br from-[#6b67f5] to-[#4541b5] drop-shadow-sm ml-0.5" 
-            style={{ fontFamily: 'PingFang SC, system-ui, -apple-system, sans-serif' }}
-          >
-            ++
-          </span>
+    <header
+      className="flex items-center gap-4 px-4 h-[52px] border-b border-border bg-surface-panel z-10 shrink-0 relative select-none"
+      onMouseDown={(event) => {
+        if (event.button !== 0) return;
+        if ((event.target as HTMLElement).closest("button, input, label, a, [data-no-window-drag]")) return;
+        dragDesktopWindow().catch(() => undefined);
+      }}
+      onDoubleClick={async (event) => {
+        if ((event.target as HTMLElement).closest("[data-no-window-drag]")) return;
+        try {
+          const { getCurrentWindow } = await import("@tauri-apps/api/window");
+          await getCurrentWindow().toggleMaximize();
+        } catch {
+          // ignore
+        }
+      }}
+    >
+      <div className="flex items-center min-w-0 shrink-0 w-[520px] pl-1 gap-3" data-no-window-drag>
+        <div className="flex items-center gap-1.5 select-none pointer-events-none mr-2">
+          <img src="/files.png" alt="Plus" className="h-[28px] object-contain" />
         </div>
+        <div className="min-w-0">{appMenu}</div>
       </div>
 
-      <div className="flex-1 min-w-[220px] max-w-[560px] mx-auto relative">
+      <div className="flex-1 min-w-[220px] max-w-[560px] mx-auto relative" data-no-window-drag>
         <label className="flex items-center gap-3 px-4 h-[44px] rounded-full bg-surface-muted hover:bg-surface-muted/80 focus-within:bg-surface-panel focus-within:shadow-[0_0_0_2px_rgba(0,217,197,0.2)] transition-all cursor-text" aria-label="命令搜索">
           <Search className="w-5 h-5 text-text-muted" strokeWidth={2.5} />
           <input
+            ref={inputRef}
             value={query}
             onChange={(event) => {
               setQuery(event.target.value);
@@ -110,7 +137,7 @@ export function TopBar({ toolCount, theme, projects = [], tools = [], assets = [
         ) : null}
       </div>
 
-      <div className="flex items-center gap-2 justify-end shrink-0">
+      <div className="flex items-center gap-2 justify-end shrink-0" data-no-window-drag>
         <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-pill bg-surface-muted border border-border-soft text-xs whitespace-nowrap font-medium mr-2 text-text-subtle">
           <Boxes className="w-3.5 h-3.5" />
           <span>Tools {toolCount}</span>
@@ -123,8 +150,69 @@ export function TopBar({ toolCount, theme, projects = [], tools = [], assets = [
         <Button variant="ghost" size="icon" onClick={onOpenSettings} title="设置">
           <Settings className="w-[18px] h-[18px]" />
         </Button>
+        <DesktopWindowControls />
       </div>
     </header>
+  );
+}
+
+async function dragDesktopWindow() {
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  await getCurrentWindow().startDragging();
+}
+
+function DesktopWindowControls() {
+  const [maximized, setMaximized] = useState(false);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+      const appWindow = getCurrentWindow();
+      appWindow.isMaximized().then(setMaximized).catch(() => undefined);
+      appWindow.onResized(() => {
+        appWindow.isMaximized().then(setMaximized).catch(() => undefined);
+      }).then(u => unlisten = u).catch(() => undefined);
+    }).catch(() => undefined);
+    return () => unlisten?.();
+  }, []);
+
+  async function runWindowAction(action: "minimize" | "maximize" | "close") {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const appWindow = getCurrentWindow();
+    if (action === "minimize") {
+      await appWindow.minimize();
+      return;
+    }
+    if (action === "maximize") {
+      await appWindow.toggleMaximize();
+      return;
+    }
+    await appWindow.close();
+  }
+
+  return (
+    <div className="ml-1 flex h-9 items-center overflow-hidden rounded-control border border-border-soft bg-surface-muted" data-no-window-drag>
+      <button type="button" className="flex h-9 w-10 items-center justify-center text-text-muted hover:bg-surface-panel hover:text-text" title="最小化" onClick={() => runWindowAction("minimize").catch(() => undefined)}>
+        <Minus className="h-4 w-4" strokeWidth={2.2} />
+      </button>
+      <button type="button" className="flex h-9 w-10 items-center justify-center text-text-muted hover:bg-surface-panel hover:text-text" title={maximized ? "向下还原" : "最大化"} onClick={() => runWindowAction("maximize").catch(() => undefined)}>
+        {maximized ? <Copy className="h-3.5 w-3.5" strokeWidth={2.2} /> : <Square className="h-3.5 w-3.5" strokeWidth={2.2} />}
+      </button>
+      <button type="button" className="flex h-9 w-10 items-center justify-center text-text-muted hover:bg-red-500 hover:text-white" title="关闭" onClick={() => runWindowAction("close").catch(() => undefined)}>
+        <X className="h-4 w-4" strokeWidth={2.2} />
+      </button>
+    </div>
+  );
+}
+
+function StatusPill({ label, tone }: { label: string; tone: "ok" | "idle" | "bad" }) {
+  return (
+    <span className={cn(
+      "shrink-0 rounded-pill border px-2 py-0.5 text-[10px] font-bold tracking-normal",
+      tone === "ok" ? "border-brand/30 bg-brand/10 text-brand-strong" : tone === "bad" ? "border-red-500/25 bg-red-500/10 text-red-500" : "border-border-soft bg-surface-muted text-text-subtle"
+    )}>
+      {label}
+    </span>
   );
 }
 

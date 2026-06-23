@@ -15,6 +15,7 @@
     --surface-panel: #FFFFFF;
     --surface-raised: #FFFFFF;
     --surface-muted: rgba(6, 10, 38, 0.06);
+    --app-background-image: url("/taptap-backgrounds/bg-pattern_white.jpg");
     --radius-control: 6px;
     --radius-card: 8px;
     --radius-panel: 10px;
@@ -37,6 +38,7 @@
     --surface-panel: #202123;
     --surface-raised: #2B2C2F;
     --surface-muted: rgba(255, 255, 255, 0.08);
+    --app-background-image: url("/taptap-backgrounds/bg-pattern_black.png");
     --radius-control: 6px;
     --radius-card: 8px;
     --radius-panel: 10px;
@@ -69,7 +71,10 @@
 
   html, body, #root { height: 100%; margin: 0; }
   body { 
-    background: var(--surface-app); 
+    background-color: var(--surface-app);
+    background-image: var(--app-background-image);
+    background-size: cover;
+    background-position: center;
     color: var(--color-text); 
     font-family: Inter, "Segoe UI", system-ui, sans-serif; 
     overflow: hidden; 
@@ -77,6 +82,13 @@
 }
 
 @layer components {
+  .app-background {
+    background-color: var(--surface-app);
+    background-image: var(--app-background-image);
+    background-size: cover;
+    background-position: center;
+  }
+
   .flow-step-connector {
     position: absolute;
     inset-inline-end: 8px;

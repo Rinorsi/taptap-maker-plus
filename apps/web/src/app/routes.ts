@@ -1,4 +1,4 @@
-export type WorkbenchModule = "home" | "assets" | "studio-image" | "studio-video" | "studio-music" | "studio-3d" | "workflow" | "build" | "runs" | "settings";
+export type WorkbenchModule = "home" | "assets" | "studio-image" | "studio-video" | "studio-music" | "studio-3d" | "workflow" | "build" | "runs" | "agent" | "settings";
 
 export const workbenchRoutes: Array<{ id: WorkbenchModule; label: string; shortLabel: string }> = [
   { id: "home", label: "首页", shortLabel: "主页" },
@@ -10,5 +10,6 @@ export const workbenchRoutes: Array<{ id: WorkbenchModule; label: string; shortL
   { id: "workflow", label: "节点流", shortLabel: "流" },
   { id: "build", label: "构建中心", shortLabel: "构建" },
   { id: "runs", label: "运行记录", shortLabel: "记录" },
+  { id: "agent", label: "助手上下文", shortLabel: "助手" },
   { id: "settings", label: "设置", shortLabel: "设置" },
 ];

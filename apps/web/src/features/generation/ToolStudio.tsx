@@ -2,10 +2,10 @@ import { useMemo, useState } from "react";
 import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
 import type { RJSFSchema, UiSchema } from "@rjsf/utils";
-import { Braces, Boxes, Clock3, FileImage, FileVideo, Music, Play, Search, Wrench, Box, Sparkles, ChevronRight, Activity, Image as ImageIcon } from "lucide-react";
+import { toast } from "sonner";
+import { Braces, Boxes, FileVideo, Music, Play, Search, Wrench, Box, Sparkles, ChevronRight, Activity, Image as ImageIcon } from "lucide-react";
 import type { AssetSummary, ProjectSummary, TaskRecord, ToolSummary } from "../../api";
-import { Button } from "../../components/ui/Button";
-import { Input } from "../../components/ui/Input";
+import { RawViewer } from "../../components/developer";
 import { cn } from "../../lib/utils";
 
 type StudioCategory = "image" | "video" | "music" | "model3d" | "build" | "status";
@@ -69,6 +69,10 @@ export function ToolStudio({ category, title, project, tools, assets, tasks, bus
 
   const Icon = categoryMeta[category].icon;
   const schema = selectedTool?.inputSchema as RJSFSchema | undefined;
+  const schemaProperties = schema?.properties && typeof schema.properties === "object" && !Array.isArray(schema.properties)
+    ? schema.properties
+    : undefined;
+  const schemaJson = useMemo(() => selectedTool ? JSON.stringify(selectedTool.inputSchema, null, 2) : "", [selectedTool]);
 
   function changeTool(tool: ToolSummary) {
     setSelectedToolName(tool.name);
@@ -78,11 +82,19 @@ export function ToolStudio({ category, title, project, tools, assets, tasks, bus
 
   async function submit(event: { formData?: unknown }) {
     if (!selectedTool || !event.formData || typeof event.formData !== "object" || Array.isArray(event.formData)) return;
-    await onCallTool(selectedTool.name, event.formData as Record<string, unknown>);
+    const submitted = event.formData as Record<string, unknown>;
+    const guardedData = schemaProperties
+      ? Object.fromEntries(Object.entries(submitted).filter(([key]) => Object.prototype.hasOwnProperty.call(schemaProperties, key)))
+      : submitted;
+    await toast.promise(onCallTool(selectedTool.name, guardedData), {
+      loading: `正在执行 ${selectedTool.name}`,
+      success: `${selectedTool.name} 已提交`,
+      error: `${selectedTool.name} 执行失败`
+    });
   }
 
   return (
-    <section className="flex h-full min-h-0 w-full flex-col gap-6 overflow-hidden bg-surface-app p-6 md:p-8">
+    <section className="flex h-full min-h-0 w-full flex-col gap-6 overflow-hidden p-6 md:p-8">
       
       {/* 华丽头部区域 */}
       <div className="flex shrink-0 items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 duration-500">
@@ -184,6 +196,15 @@ export function ToolStudio({ category, title, project, tools, assets, tasks, bus
                 >
                   <button id="mcp-schema-form-submit" type="submit" className="hidden" />
                 </Form>
+                <RawViewer
+                  title="工具 Schema"
+                  value={schemaJson}
+                  language="json"
+                  height="260px"
+                  copyLabel="复制 schema"
+                  copySuccessMessage="工具 Schema 已复制"
+                  className="mt-5"
+                />
               </div>
             ) : (
               <div className="h-full flex flex-col items-center justify-center rounded-xl border border-dashed border-border-soft p-8 text-center bg-surface-muted/30">

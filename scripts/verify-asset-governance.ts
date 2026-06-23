@@ -6,6 +6,7 @@ import { buildAssetDirectoryTree, filterAssetsForDirectory, flattenDirectoryTree
 import { collectBatchModelGovernanceActions, defaultAssetImportFolders, managedAssetRoots, modelGovernanceCategoryLabels, modelGovernanceLabels, modelPackageBelongsToGovernanceCategory } from "../apps/web/src/features/assets/assetGovernance.ts";
 import { serverManagedAssetRoots } from "../apps/server/src/services/assetGovernance.ts";
 import { sqlite, upsertProject } from "../apps/server/src/lib/db.ts";
+import { scanAssetReferences } from "../apps/server/src/services/assetReferenceScanner.ts";
 import { scanProjectAssets } from "../apps/server/src/services/assetScanner.ts";
 import { discardModelPackage, restoreModelPackage, scanModelPackages, updateResourceTable } from "../apps/server/src/services/modelPackage.ts";
 import type { AssetSummary } from "../apps/web/src/api.ts";
@@ -185,6 +186,31 @@ async function verifyModelPackageGovernance() {
   });
 }
 
+async function verifyAssetReferenceScanner() {
+  await withTempProject(async (project) => {
+    writeFile(project.rootPath, ".project/resources.json", JSON.stringify({ groups: { default: ["assets/image/Hero.png"] } }, null, 2));
+    writeFile(project.rootPath, "scripts/main.lua", 'return { icon = "assets/image/Hero.png" }');
+    writeFile(project.rootPath, "assets/flows/intro.json", JSON.stringify({ image: "assets/image/Hero.png" }, null, 2));
+    writeFile(project.rootPath, "assets/notes.json", JSON.stringify({ image: "assets/image/Hero.png" }, null, 2));
+
+    const results = await scanAssetReferences(project.rootPath, ["assets/image/Hero.png", "assets/image/Missing.png"]);
+    const hero = results.find((item) => item.relativePath === "assets/image/Hero.png");
+    const missing = results.find((item) => item.relativePath === "assets/image/Missing.png");
+
+    assert(hero, "referenced asset should be present in scan result");
+    assert.equal(hero.referenceCount, 3);
+    assert.deepEqual(
+      hero.references.map((item) => item.sourcePath).sort(),
+      [".project/resources.json", "assets/flows/intro.json", "scripts/main.lua"]
+    );
+    assert(hero.references.every((item) => item.lineText.includes("assets/image/Hero.png")));
+
+    assert(missing, "unreferenced asset should be present in scan result");
+    assert.equal(missing.referenceCount, 0);
+    assert.deepEqual(missing.references, []);
+  });
+}
+
 function readSourceFile(relativePath: string) {
   return fs.readFileSync(path.join(process.cwd(), ...relativePath.split("/")), "utf8");
 }
@@ -215,5 +241,6 @@ verifyModelGovernanceLabels();
 verifyModelGovernanceUiRules();
 verifyStudioAssetManagerUsage();
 await verifyModelPackageGovernance();
+await verifyAssetReferenceScanner();
 
 console.log("asset governance verification passed");

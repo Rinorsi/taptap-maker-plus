@@ -15,7 +15,7 @@ import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Label } from "../../components/ui/Label";
 import { FileTypeChips, SelectionBox, StatusBadge, StudioBulkActionBar, StudioMediaDropzone, StudioModeButton, StudioSelectField } from "../../components/studio/StudioKit";
-import { collectBatchModelGovernanceActions, modelGovernanceCategoryLabels, modelGovernanceCategoryOrder, modelGovernanceLabels, modelGovernanceTones, modelPackageBelongsToGovernanceCategory, type BatchModelGovernanceAction } from "../assets/assetGovernance";
+import { collectBatchModelGovernanceActions, managedAssetRoots, modelGovernanceCategoryLabels, modelGovernanceCategoryOrder, modelGovernanceLabels, modelGovernanceTones, modelPackageBelongsToGovernanceCategory, type BatchModelGovernanceAction } from "../assets/assetGovernance";
 import { cn } from "../../lib/utils";
 
 function clampFaceLimit(value: string) {
@@ -205,6 +205,11 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
     });
   }
 
+  function importReferenceImages(files: File[]) {
+    if (!onImportAssets || files.length === 0) return;
+    void onImportAssets(files, managedAssetRoots.modelReferences).then(() => onScanAssets());
+  }
+
   useEffect(() => {
     if (!project || !displayAssetPath?.toLowerCase().endsWith(".mdl")) {
       setMdlConverting(false);
@@ -383,7 +388,7 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
                       <span>正面参考图</span>
                       <span className="text-[10px] text-brand font-bold bg-brand/10 px-1.5 py-0.5 rounded">必填</span>
                     </Label>
-                    <StudioMediaDropzone image={singleImage ? assetPreviewUrl(project?.id ?? "", singleImage) : ""} onChange={(v) => { setSingleImage(v); }} height="h-32" onPickClick={() => { setActiveDropzone("singleImage"); imageInputRef.current?.click(); }} />
+                    <StudioMediaDropzone image={singleImage ? assetPreviewUrl(project?.id ?? "", singleImage) : ""} onChange={(v) => { setSingleImage(v); }} height="h-32" onPickClick={() => { setActiveDropzone("singleImage"); imageInputRef.current?.click(); }} onImportFiles={importReferenceImages} />
                   </div>
                 )}
 
@@ -394,10 +399,10 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
                       <span className="text-[10px] text-brand font-bold bg-brand/10 px-1.5 py-0.5 rounded">必填</span>
                     </Label>
                     <div className="grid grid-cols-2 gap-3">
-                      <div className="flex flex-col gap-1.5"><Label className="text-[11px] font-bold text-brand">前视</Label><StudioMediaDropzone image={multiview.front ? assetPreviewUrl(project?.id ?? "", multiview.front) : ""} onChange={(v)=>{ setMultiview(m => ({...m, front: v})); }} height="h-24" onPickClick={() => { setActiveDropzone("multi_front"); imageInputRef.current?.click(); }} /></div>
-                      <div className="flex flex-col gap-1.5"><Label className="text-[11px] font-bold text-text-muted">右视</Label><StudioMediaDropzone image={multiview.right ? assetPreviewUrl(project?.id ?? "", multiview.right) : ""} onChange={(v)=>{ setMultiview(m => ({...m, right: v})); }} height="h-24" onPickClick={() => { setActiveDropzone("multi_right"); imageInputRef.current?.click(); }} /></div>
-                      <div className="flex flex-col gap-1.5"><Label className="text-[11px] font-bold text-text-muted">后视</Label><StudioMediaDropzone image={multiview.back ? assetPreviewUrl(project?.id ?? "", multiview.back) : ""} onChange={(v)=>{ setMultiview(m => ({...m, back: v})); }} height="h-24" onPickClick={() => { setActiveDropzone("multi_back"); imageInputRef.current?.click(); }} /></div>
-                      <div className="flex flex-col gap-1.5"><Label className="text-[11px] font-bold text-text-muted">左视</Label><StudioMediaDropzone image={multiview.left ? assetPreviewUrl(project?.id ?? "", multiview.left) : ""} onChange={(v)=>{ setMultiview(m => ({...m, left: v})); }} height="h-24" onPickClick={() => { setActiveDropzone("multi_left"); imageInputRef.current?.click(); }} /></div>
+                      <div className="flex flex-col gap-1.5"><Label className="text-[11px] font-bold text-brand">前视</Label><StudioMediaDropzone image={multiview.front ? assetPreviewUrl(project?.id ?? "", multiview.front) : ""} onChange={(v)=>{ setMultiview(m => ({...m, front: v})); }} height="h-24" onPickClick={() => { setActiveDropzone("multi_front"); imageInputRef.current?.click(); }} onImportFiles={importReferenceImages} /></div>
+                      <div className="flex flex-col gap-1.5"><Label className="text-[11px] font-bold text-text-muted">右视</Label><StudioMediaDropzone image={multiview.right ? assetPreviewUrl(project?.id ?? "", multiview.right) : ""} onChange={(v)=>{ setMultiview(m => ({...m, right: v})); }} height="h-24" onPickClick={() => { setActiveDropzone("multi_right"); imageInputRef.current?.click(); }} onImportFiles={importReferenceImages} /></div>
+                      <div className="flex flex-col gap-1.5"><Label className="text-[11px] font-bold text-text-muted">后视</Label><StudioMediaDropzone image={multiview.back ? assetPreviewUrl(project?.id ?? "", multiview.back) : ""} onChange={(v)=>{ setMultiview(m => ({...m, back: v})); }} height="h-24" onPickClick={() => { setActiveDropzone("multi_back"); imageInputRef.current?.click(); }} onImportFiles={importReferenceImages} /></div>
+                      <div className="flex flex-col gap-1.5"><Label className="text-[11px] font-bold text-text-muted">左视</Label><StudioMediaDropzone image={multiview.left ? assetPreviewUrl(project?.id ?? "", multiview.left) : ""} onChange={(v)=>{ setMultiview(m => ({...m, left: v})); }} height="h-24" onPickClick={() => { setActiveDropzone("multi_left"); imageInputRef.current?.click(); }} onImportFiles={importReferenceImages} /></div>
                     </div>
                   </div>
                 )}

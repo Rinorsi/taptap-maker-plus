@@ -57,6 +57,22 @@ export type AssetDirectoryNode = {
   children: AssetDirectoryNode[];
 };
 
+export type AssetReferenceSourceType = "resources_json" | "lua_script" | "flow_json";
+
+export type AssetReferenceEvidence = {
+  sourceType: AssetReferenceSourceType;
+  sourcePath: string;
+  line: number;
+  column: number;
+  lineText: string;
+};
+
+export type AssetReferenceScanResult = {
+  relativePath: string;
+  referenceCount: number;
+  references: AssetReferenceEvidence[];
+};
+
 export type ModelPackageSummary = {
   id: string;
   projectId: string;
@@ -277,6 +293,59 @@ export type ProjectBuildLogsSummary = {
   buildLogs: ProjectBuildLogEntry[];
 };
 
+export type AgentRightPanelTab = "status" | "tools" | "logs" | "errors";
+
+export type AgentSelectionReference =
+  | { type: "project"; projectId: string }
+  | { type: "tool"; toolName: string }
+  | { type: "task"; taskId: string }
+  | { type: "asset"; relativePath: string };
+
+export type AgentPageState = {
+  activeTab?: AgentRightPanelTab;
+  selection?: AgentSelectionReference;
+};
+
+export type AgentContextSnapshot = {
+  generatedAt: string;
+  selectedProjectId?: string;
+  page: AgentPageState;
+  project?: ProjectSummary;
+  projects: ProjectSummary[];
+  runtime?: RuntimeSummary;
+  tools: ToolSummary[];
+  toolsListSnapshot?: Pick<ToolsListSnapshot, "projectId" | "updatedAt">;
+  tasks: TaskRecord[];
+  generations: GenerationRecord[];
+  assets: AssetSummary[];
+  workflows: WorkflowGraphRecord[];
+  workflowRuns: WorkflowRunRecord[];
+  credits: CreditRecord[];
+  buildLogs?: ProjectBuildLogsSummary;
+  counts: {
+    projects: number;
+    tools: number;
+    tasks: number;
+    generations: number;
+    assets: number;
+    workflows: number;
+    workflowRuns: number;
+    credits: number;
+    buildLogs: number;
+  };
+};
+
+export type DesktopReadiness = {
+  ok: boolean;
+  mode: string;
+  server: {
+    host: string;
+    port: number;
+  };
+  paths: Record<string, string | undefined>;
+  env: Record<string, string | undefined>;
+};
+
 export type StatusLiteResponse = {
   projectId: string;
   task: TaskRecord;
@@ -390,6 +459,17 @@ export async function rebuildAssetProvenance(projectId: string): Promise<AssetSu
     await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/provenance/rebuild`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
   );
   return data.assets;
+}
+
+export async function scanAssetReferences(projectId: string, relativePaths: string[]): Promise<AssetReferenceScanResult[]> {
+  const data = await json<{ ok: true; results: AssetReferenceScanResult[] }>(
+    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/references/scan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ relativePaths })
+    })
+  );
+  return data.results;
 }
 
 export async function listModelPackages(projectId: string): Promise<{ packages: ModelPackageSummary[] }> {
@@ -560,6 +640,26 @@ export async function deleteWorkflowRun(projectId: string, runId: string) {
 export async function getBuildLogs(projectId: string): Promise<ProjectBuildLogsSummary> {
   const data = await json<{ logs: ProjectBuildLogsSummary }>(await fetch(`/api/projects/${encodeURIComponent(projectId)}/build/logs`));
   return data.logs;
+}
+
+export async function getAgentContext(projectId?: string, page?: AgentPageState): Promise<AgentContextSnapshot> {
+  const params = new URLSearchParams();
+  if (projectId) params.set("projectId", projectId);
+  if (page?.activeTab) params.set("activeTab", page.activeTab);
+  if (page?.selection) {
+    params.set("selectionType", page.selection.type);
+    if (page.selection.type === "project") params.set("projectSelectionId", page.selection.projectId);
+    if (page.selection.type === "tool") params.set("toolName", page.selection.toolName);
+    if (page.selection.type === "task") params.set("taskId", page.selection.taskId);
+    if (page.selection.type === "asset") params.set("assetRelativePath", page.selection.relativePath);
+  }
+  const query = params.toString();
+  const data = await json<{ context: AgentContextSnapshot }>(await fetch(`/api/agent/context${query ? `?${query}` : ""}`));
+  return data.context;
+}
+
+export async function getDesktopReadiness(): Promise<DesktopReadiness> {
+  return json<DesktopReadiness>(await fetch("/api/desktop/readiness"));
 }
 
 export async function saveWorkflow(projectId: string, name: string, graph: MakerWorkflowGraph, id?: string) {

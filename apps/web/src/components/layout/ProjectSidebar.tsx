@@ -1,7 +1,8 @@
 import { motion } from "framer-motion";
-import { Menu, FolderSync, LayoutDashboard, Home, Image as ImageIcon, Video, Music, Box, Hammer, Settings2, GitBranch, Activity } from "lucide-react";
+import { Menu, FolderSync, LayoutDashboard, Home, Image as ImageIcon, Video, Music, Box, Hammer, Settings2, GitBranch, Activity, Bot } from "lucide-react";
 import type { ProjectSummary, TaskRecord } from "../../api";
 import { workbenchRoutes, type WorkbenchModule } from "../../app/routes";
+import { AppContextMenu } from "../../commands";
 import { cn } from "../../lib/utils";
 
 type Props = {
@@ -12,7 +13,7 @@ type Props = {
   collapsed: boolean;
   width: number;
   onToggleCollapsed: () => void;
-  onSelectProject: (projectId: string) => void;
+  onClearProject: () => void;
   onSelectModule: (module: WorkbenchModule) => void;
   onScanProjects: () => void;
 };
@@ -28,10 +29,11 @@ const moduleIcons: Record<string, React.ElementType> = {
   "workflow": GitBranch,
   "build": Hammer,
   "runs": Activity,
+  "agent": Bot,
   "settings": Settings2,
 };
 
-export function ProjectSidebar({ projects, selectedProjectId, activeModule, tasks, collapsed, width, onToggleCollapsed, onSelectProject, onSelectModule, onScanProjects }: Props) {
+export function ProjectSidebar({ projects, selectedProjectId, activeModule, tasks, collapsed, width, onToggleCollapsed, onClearProject, onSelectModule, onScanProjects }: Props) {
   
   const activeProject = projects.find(p => p.id === selectedProjectId);
 
@@ -61,22 +63,24 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, task
               {isProjectOpened ? (
                 // 状态 B: 已打开项目，显示带官方图标的项目名称
                 <>
-                  {(activeProject as any).iconUrl ? (
-                    <img src={(activeProject as any).iconUrl} alt="Game Icon" className="w-5 h-5 rounded object-cover shadow-sm border border-border" />
+                  {activeProject.iconUrl ? (
+                    <img src={activeProject.iconUrl} alt="Game Icon" className="w-5 h-5 rounded object-cover shadow-sm border border-border" />
                   ) : (
                     <div className="w-5 h-5 flex items-center justify-center shrink-0 bg-surface-muted rounded border border-border-soft">
                       <span className="text-[10px] font-bold text-text-muted">{activeProject.name.charAt(0).toUpperCase()}</span>
                     </div>
                   )}
-                  <span className="text-[14px] font-semibold text-text truncate">
-                    {activeProject.name}
-                  </span>
+                  <AppContextMenu context={{ objectType: "project", projectId: activeProject.id }}>
+                    <span className="text-[14px] font-semibold text-text truncate">
+                      {activeProject.name}
+                    </span>
+                  </AppContextMenu>
                   <button 
                     type="button" 
                     className="flex items-center opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1 hover:bg-surface-muted rounded transition-opacity cursor-pointer text-text-muted hover:text-text shrink-0" 
                     title="退出当前项目"
                     onClick={() => {
-                      onSelectProject("");
+                      onClearProject();
                       onSelectModule("home");
                     }}
                   >

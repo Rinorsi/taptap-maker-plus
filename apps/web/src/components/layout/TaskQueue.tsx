@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp, ChevronRight, RefreshCw, CheckCircle2, XCircle,
 import type { ProjectSummary, TaskRecord } from "../../api";
 import { Button } from "../ui/Button";
 import { cn } from "../../lib/utils";
+import { classifyTaskError, formatTaskQueueDetails, getTaskCopyPayload } from "../../lib/taskResult";
 
 type Props = {
   tasks: TaskRecord[];
@@ -173,13 +174,13 @@ export function TaskQueue({ tasks, projects, collapsed, onToggleCollapsed, onCle
                           className="overflow-hidden"
                         >
                           <div className="mt-2 flex items-center justify-end">
-                            <button type="button" className="inline-flex items-center gap-1 rounded-control px-2 py-1 text-[10px] font-semibold text-text-subtle hover:bg-surface-muted hover:text-text" onClick={(event) => { event.stopPropagation(); void navigator.clipboard.writeText(task.errorMessage || task.rawResultJson || task.inputJson); }}>
+                            <button type="button" className="inline-flex items-center gap-1 rounded-control px-2 py-1 text-[10px] font-semibold text-text-subtle hover:bg-surface-muted hover:text-text" onClick={(event) => { event.stopPropagation(); void navigator.clipboard.writeText(getTaskCopyPayload(task)); }}>
                               <Copy className="h-3 w-3" />
                               复制 raw/error
                             </button>
                           </div>
                           <pre className="mt-1 p-2 bg-surface-muted rounded-control text-[10px] font-mono text-text-muted whitespace-pre-wrap break-words max-h-[140px] overflow-y-auto scrollbar-thin">
-                            {formatTaskDetails(task)}
+                            {formatTaskQueueDetails(task)}
                           </pre>
                         </motion.div>
                       )}
@@ -199,26 +200,9 @@ export function TaskQueue({ tasks, projects, collapsed, onToggleCollapsed, onCle
 function groupByErrorType(tasks: TaskRecord[]) {
   const groups: Record<string, TaskRecord[]> = {};
   for (const task of tasks) {
-    const name = task.status === "failed" ? classifyError(task) : task.status;
+    const name = task.status === "failed" ? classifyTaskError(task, "queue") : task.status;
     groups[name] = groups[name] ?? [];
     groups[name].push(task);
   }
   return groups;
-}
-
-function classifyError(task: TaskRecord) {
-  const text = `${task.errorMessage ?? ""}\n${task.rawResultJson ?? ""}`.toLowerCase();
-  if (text.includes("timeout") || text.includes("timed out")) return "timeout";
-  if (text.includes("schema") || text.includes("validation") || text.includes("invalid")) return "schema / validation";
-  if (text.includes("mcp") || text.includes("runtime") || text.includes("stdio")) return "mcp runtime";
-  if (text.includes("network") || text.includes("fetch") || text.includes("504")) return "network";
-  return "tool error";
-}
-
-function formatTaskDetails(task: TaskRecord) {
-  return [
-    task.errorMessage ? `errorMessage:\n${task.errorMessage}` : "",
-    task.rawResultJson ? `rawResultJson:\n${task.rawResultJson}` : "",
-    `inputJson:\n${task.inputJson}`
-  ].filter(Boolean).join("\n\n");
 }

@@ -10,7 +10,7 @@ export function SettingsView({ project, runtime, tools }: Props) {
   }, {});
 
   return (
-    <section className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto bg-surface-app p-4 md:p-6">
+    <section className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-4 md:p-6">
       <div className="shrink-0">
         <span className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-text-subtle">
           <Settings className="h-3.5 w-3.5" />

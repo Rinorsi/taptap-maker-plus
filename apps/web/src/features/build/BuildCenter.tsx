@@ -48,7 +48,7 @@ export function BuildCenter({ project, runtime, tools, tasks, busy, onCallTool, 
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-col gap-4 overflow-hidden bg-surface-app p-4 md:p-6">
+    <section className="flex h-full min-h-0 flex-col gap-4 overflow-hidden p-4 md:p-6">
       <div className="grid shrink-0 gap-3 md:grid-cols-4">
         <BuildStat icon={<Server className="h-4 w-4" />} label="MCP runtime" value={runtime?.status ?? "idle"} tone={runtime?.status === "ready" ? "good" : "neutral"} />
         <BuildStat icon={<Hammer className="h-4 w-4" />} label="构建工具" value={buildTool ? buildTool.name : "未加载"} tone={buildTool ? "brand" : "bad"} />

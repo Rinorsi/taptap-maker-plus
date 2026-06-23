@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import { CheckCircle2, CircleAlert, Copy, Loader2, Search, Terminal } from "lucide-react";
 import type { TaskRecord } from "../../api";
-import { CodeEditorPanel } from "../../components/ui/CodeEditorPanel";
+import { RawViewer } from "../../components/developer";
 import { Input } from "../../components/ui/Input";
+import { copyText } from "../../lib/clipboard";
+import { formatRunTaskDetails } from "../../lib/taskResult";
 import { cn } from "../../lib/utils";
 
 type Props = { tasks: TaskRecord[]; onSelectTask: (task: TaskRecord) => void };
@@ -24,7 +26,7 @@ export function RunsView({ tasks, onSelectTask }: Props) {
   const selectedTask = filteredTasks.find((task) => task.taskId === selectedTaskId) ?? filteredTasks[0];
 
   return (
-    <section className="flex h-full min-h-0 flex-col gap-4 bg-surface-app p-4 md:p-6">
+    <section className="flex h-full min-h-0 flex-col gap-4 p-4 md:p-6">
       <div className="flex shrink-0 items-center justify-between gap-4">
         <div>
           <span className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-text-subtle">
@@ -80,21 +82,22 @@ export function RunsView({ tasks, onSelectTask }: Props) {
             <button
               type="button"
               disabled={!selectedTask}
-              onClick={() => selectedTask && navigator.clipboard.writeText(formatTask(selectedTask))}
+              onClick={() => selectedTask && void copyText(formatRunTaskDetails(selectedTask), { successMessage: "任务 raw/error 已复制" })}
               className="inline-flex items-center gap-1.5 rounded-control px-3 py-1.5 text-xs font-semibold text-text-muted hover:bg-surface-muted hover:text-text disabled:opacity-50"
             >
               <Copy className="h-3.5 w-3.5" />
               复制 raw/error
             </button>
           </div>
-          <CodeEditorPanel
+          <RawViewer
             title="任务详情"
-            language={selectedTask?.toolName}
-            value={selectedTask ? formatTask(selectedTask) : ""}
+            language="log"
+            value={selectedTask ? formatRunTaskDetails(selectedTask) : ""}
             emptyText="暂无任务详情"
-            maxHeight="none"
+            height="100%"
+            copyLabel="复制 raw/error"
+            copySuccessMessage="任务详情已复制"
             className="flex-1 rounded-none border-0"
-            bodyClassName="flex-1"
           />
         </div>
       </div>
@@ -107,17 +110,4 @@ function StatusIcon({ status }: { status: TaskRecord["status"] }) {
   if (status === "succeeded") return <CheckCircle2 className="h-4 w-4 shrink-0 text-[#246b2f]" />;
   if (status === "failed") return <CircleAlert className="h-4 w-4 shrink-0 text-[#b03939]" />;
   return <Terminal className="h-4 w-4 shrink-0 text-text-subtle" />;
-}
-
-function formatTask(task: TaskRecord) {
-  return [
-    `taskId: ${task.taskId}`,
-    `toolName: ${task.toolName}`,
-    `status: ${task.status}`,
-    `startedAt: ${task.startedAt}`,
-    task.finishedAt ? `finishedAt: ${task.finishedAt}` : "",
-    task.errorMessage ? `\nerrorMessage:\n${task.errorMessage}` : "",
-    task.rawResultJson ? `\nrawResultJson:\n${task.rawResultJson}` : "",
-    `\ninputJson:\n${task.inputJson}`
-  ].filter(Boolean).join("\n");
 }

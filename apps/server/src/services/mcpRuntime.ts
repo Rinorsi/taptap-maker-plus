@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import fs from "node:fs";
+import path from "node:path";
 import { config } from "../lib/config.js";
 import { getToolsListSnapshot, saveTools } from "../lib/db.js";
 import type { ProjectSummary, RuntimeSummary, ToolSummary } from "../types.js";
@@ -27,8 +28,9 @@ function asSchema(value: unknown): Record<string, unknown> {
   return { type: "object", properties: {} };
 }
 
-function normalizeTool(tool: ToolLike): ToolSummary {
-  const name = typeof tool.name === "string" ? tool.name : String(tool.name ?? "unknown_tool");
+function normalizeTool(tool: ToolLike): ToolSummary | undefined {
+  if (typeof tool.name !== "string" || !tool.name.trim()) return undefined;
+  const name = tool.name;
   const inputSchema = asSchema(tool.inputSchema);
   const required = Array.isArray(inputSchema.required) ? inputSchema.required.map(String) : [];
   return {
@@ -66,10 +68,16 @@ class SdkMcpClient {
     return this.stderrBuffer;
   }
 
+  private get stderrLogPath() {
+    const safeProjectId = this.project.id.replace(/[^a-zA-Z0-9_-]/g, "_");
+    return path.join(config.mcpLogDir, `${safeProjectId}.stderr.log`);
+  }
+
   async connect() {
     if (this.client) return;
     this.closing = false;
     fs.mkdirSync(config.makerNpmCacheDir, { recursive: true });
+    fs.mkdirSync(config.mcpLogDir, { recursive: true });
     const client = new Client({ name: "taptap-maker-plus", version: "0.1.0" }, { capabilities: {} });
     const transport = new StdioClientTransport({
       command: "cmd.exe",
@@ -80,7 +88,9 @@ class SdkMcpClient {
     });
 
     transport.stderr?.on("data", (chunk: Buffer | string) => {
-      this.stderrBuffer += chunk.toString();
+      const text = chunk.toString();
+      this.stderrBuffer += text;
+      fs.appendFile(this.stderrLogPath, text, () => undefined);
     });
 
     this.client = client;
@@ -92,7 +102,7 @@ class SdkMcpClient {
     if (!this.client) await this.connect();
     const raw = await this.client!.listTools(undefined, { timeout: 30_000 });
     const rawTools = Array.isArray(raw.tools) ? raw.tools : [];
-    return { raw, tools: rawTools.map((tool) => normalizeTool(tool as ToolLike)) };
+    return { raw, tools: rawTools.map((tool) => normalizeTool(tool as ToolLike)).filter((tool): tool is ToolSummary => Boolean(tool)) };
   }
 
   async callTool(name: string, args: unknown) {
@@ -189,6 +199,11 @@ class McpRuntimeManager {
       cwd: current?.cwd,
       toolsListUpdatedAt: current?.toolsListUpdatedAt
     });
+  }
+
+  async stopAll() {
+    const projectIds = Array.from(new Set([...this.clients.keys(), ...this.statuses.keys()]));
+    await Promise.all(projectIds.map((projectId) => this.stop(projectId)));
   }
 
   async refreshTools(project: ProjectSummary): Promise<ToolSummary[]> {

@@ -3,13 +3,17 @@ import {
   ArrowLeft,
   Info, Cpu, Terminal, Play, RefreshCw, Activity, 
   Search, Loader2,
-  FileJson, PanelRightClose, Copy, CircleAlert, Check, Trash2, AlertCircle
+  FileJson, PanelRightClose, Copy, CircleAlert, Trash2, AlertCircle
 } from "lucide-react";
 import { assetPreviewUrl, type AssetSummary, type ProjectSummary, type TaskRecord, type ToolSummary } from "../../api";
+import { RawViewer } from "../developer";
 import { Button } from "../ui/Button";
 import { CodeEditorPanel } from "../ui/CodeEditorPanel";
 import { Input } from "../ui/Input";
+import { AppContextMenu } from "../../commands";
+import { copyText } from "../../lib/clipboard";
 import { cn } from "../../lib/utils";
+import { classifyTaskError, getTaskCopyPayload, getTaskPayloadDisplay, getVideoConcurrencyTaskId, isTaskError, isTaskSuccess, isVideoConcurrencyError, taskHasMcpErrorResult } from "../../lib/taskResult";
 import { getToolCategoryLabel, getToolDisplay } from "../../features/tools/toolDisplay";
 
 export type InspectorSelection =
@@ -308,7 +312,7 @@ export function AgentInspectorPanel({
 
             {activeTab === "errors" && (
               <ErrorsTab 
-                tasks={tasks.filter((task) => task.status === "failed" || task.rawResultJson?.includes('"isError": true') || task.rawResultJson?.includes('"isError":true'))} 
+                tasks={tasks.filter(isTaskError)} 
                 selectedTask={currentErrorTask}
                 onSelectTask={(task) => setSelectedErrorTask(task)} 
                 onClearTasks={onClearTasks}
@@ -577,17 +581,8 @@ function TaskInspector({
   recoveringVideoTaskId?: string;
   videoRecoveryCooldowns?: Record<string, number>;
 }) {
-  const [copiedError, setCopiedError] = useState(false);
-  const errorText = task.errorMessage ?? "";
-  const rawText = task.rawResultJson ?? "";
   const recoveryTaskId = getVideoConcurrencyTaskId(task);
   const recoveryState = recoveryTaskId ? getRecoveryState(recoveryTaskId, recoveringVideoTaskId, videoRecoveryCooldowns) : undefined;
-
-  const handleCopyError = () => {
-    navigator.clipboard.writeText(errorText || rawText || task.inputJson);
-    setCopiedError(true);
-    setTimeout(() => setCopiedError(false), 2000);
-  };
   
   const statusDisplay = task.status === "failed" ? "失败" : 
                         task.status === "succeeded" ? "成功" : 
@@ -602,23 +597,15 @@ function TaskInspector({
       <InfoRow label="开始时间" value={task.startedAt} />
       <InfoRow label="结束时间" value={task.finishedAt ?? "-"} />
       {task.errorMessage && (
-        <div className="mt-2 overflow-hidden rounded-panel border border-[#b03939]/20 bg-[#b03939]/10">
-          <div className="flex items-center justify-between gap-2 border-b border-[#b03939]/15 px-3 py-2">
-            <span className="text-[10px] font-bold uppercase tracking-wide text-[#b03939]">错误详情</span>
-            <button
-              onClick={handleCopyError}
-              className="inline-flex items-center gap-1 rounded-control px-2 py-1 text-[10px] font-semibold text-[#b03939] hover:bg-[#b03939]/10"
-              title="复制错误详情"
-              type="button"
-            >
-              {copiedError ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-              {copiedError ? "已复制" : "复制错误"}
-            </button>
-          </div>
-          <pre className="max-h-40 overflow-y-auto p-3 text-[11px] font-mono text-[#b03939] whitespace-pre-wrap break-words scrollbar-thin">
-            {task.errorMessage}
-          </pre>
-        </div>
+        <RawViewer
+          title="错误详情"
+          language="log"
+          value={task.errorMessage}
+          height="160px"
+          copyLabel="复制错误"
+          copySuccessMessage="错误详情已复制"
+          className="mt-2 border-[#b03939]/20"
+        />
       )}
       {recoveryTaskId && recoveryState && (
         <RecoveryAction
@@ -627,13 +614,14 @@ function TaskInspector({
           onRecoverVideoTask={onRecoverVideoTask}
         />
       )}
-      <CodeEditorPanel
+      <RawViewer
         title="请求/返回数据 (Payload)"
         language="json"
-        value={task.rawResultJson || task.inputJson}
-        maxHeight="520px"
+        value={getTaskPayloadDisplay(task)}
+        height="520px"
+        copyLabel="复制 raw"
+        copySuccessMessage="raw result 已复制"
         className="mt-2 flex-1"
-        bodyClassName="flex-1"
       />
     </div>
   );
@@ -746,19 +734,20 @@ function ToolsTab({ tools, selectedTool, onSelectTool }: { tools: ToolSummary[];
           filteredTools.map((tool) => {
             const display = getToolDisplay(tool);
             return (
-              <button
-                key={tool.name}
-                onClick={() => onSelectTool(tool)}
-                className="flex w-full cursor-pointer flex-col rounded-card border border-border-soft bg-surface-raised p-3 text-left shadow-sm transition-all hover:border-brand/40 hover:bg-surface-panel"
-                type="button"
-              >
-                <div className="flex items-center justify-between gap-2 w-full">
-                  <strong className="text-[12px] font-bold text-text truncate leading-none">{display.title}</strong>
-                  <span className="text-[8px] tracking-wider text-brand-strong bg-brand/10 px-1.5 py-0.5 rounded font-extrabold shrink-0 leading-none">{getToolCategoryLabel(tool.category)}</span>
-                </div>
-                <span className="mt-1 truncate font-mono text-[9px] text-text-subtle">{tool.name}</span>
-                <p className="m-0 mt-2 line-clamp-2 text-[10px] leading-relaxed text-text-muted">{display.summary}</p>
-              </button>
+              <AppContextMenu key={tool.name} context={{ objectType: "mcpTool", toolName: tool.name }}>
+                <button
+                  onClick={() => onSelectTool(tool)}
+                  className="flex w-full cursor-pointer flex-col rounded-card border border-border-soft bg-surface-raised p-3 text-left shadow-sm transition-all hover:border-brand/40 hover:bg-surface-panel"
+                  type="button"
+                >
+                  <div className="flex items-center justify-between gap-2 w-full">
+                    <strong className="text-[12px] font-bold text-text truncate leading-none">{display.title}</strong>
+                    <span className="text-[8px] tracking-wider text-brand-strong bg-brand/10 px-1.5 py-0.5 rounded font-extrabold shrink-0 leading-none">{getToolCategoryLabel(tool.category)}</span>
+                  </div>
+                  <span className="mt-1 truncate font-mono text-[9px] text-text-subtle">{tool.name}</span>
+                  <p className="m-0 mt-2 line-clamp-2 text-[10px] leading-relaxed text-text-muted">{display.summary}</p>
+                </button>
+              </AppContextMenu>
             );
           })
         )}
@@ -810,12 +799,13 @@ function ConsoleTab({
           ) : (
             tasks.slice(0, 50).map(t => {
               const isRunning = t.status === "running";
-              const hasErrorInResult = t.rawResultJson?.includes('"isError": true') || t.rawResultJson?.includes('"isError":true');
-              const isFailed = t.status === "failed" || hasErrorInResult;
-              const isSuccess = t.status === "succeeded" && !hasErrorInResult;
+              const hasErrorInResult = taskHasMcpErrorResult(t);
+              const isFailed = isTaskError(t);
+              const isSuccess = isTaskSuccess(t);
 
               return (
-                <div key={t.taskId} className="group relative flex w-full">
+                <AppContextMenu key={t.taskId} context={{ objectType: "task", taskId: t.taskId }}>
+                <div className="group relative flex w-full">
                   <button
                     onClick={() => {
                       onSelectTask(t);
@@ -855,6 +845,7 @@ function ConsoleTab({
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
+                </AppContextMenu>
               );
             })
           )}
@@ -911,16 +902,17 @@ function ErrorsTab({
         {tasks.length === 0 ? (
           <div className="rounded-panel border border-dashed border-border p-5 text-center text-xs text-text-muted">当前没有失败任务。</div>
         ) : tasks.map((task) => {
-          const isConcurrencyError = task.rawResultJson?.includes("并发超限") || task.errorMessage?.includes("并发超限");
+          const isConcurrencyError = isVideoConcurrencyError(task);
           const oldTaskId = getVideoConcurrencyTaskId(task);
           const recoveryState = oldTaskId ? getRecoveryState(oldTaskId, recoveringVideoTaskId, videoRecoveryCooldowns) : undefined;
           
           return (
-            <button key={task.taskId} type="button" onClick={() => onSelectTask(task)} className="rounded-card border border-[#b03939]/25 bg-[#b03939]/5 p-3 text-left hover:bg-[#b03939]/10">
+            <AppContextMenu key={task.taskId} context={{ objectType: "task", taskId: task.taskId }}>
+            <button type="button" onClick={() => onSelectTask(task)} className="rounded-card border border-[#b03939]/25 bg-[#b03939]/5 p-3 text-left hover:bg-[#b03939]/10">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <strong className="truncate text-xs text-[#b03939]">{task.toolName}</strong>
                 <span className="rounded-pill bg-[#b03939]/10 px-2 py-0.5 text-[9px] font-bold text-[#b03939]">
-                  {isConcurrencyError ? "VideoConcurrencyLimitError" : classifyError(task)}
+                  {isConcurrencyError ? "VideoConcurrencyLimitError" : classifyTaskError(task)}
                 </span>
               </div>
               <p className="m-0 line-clamp-3 text-[11px] leading-relaxed text-text-muted">{task.errorMessage || task.rawResultJson || task.inputSummary}</p>
@@ -943,12 +935,15 @@ function ErrorsTab({
                   role="button"
                   tabIndex={0}
                   className="inline-flex items-center gap-1 rounded-control px-2 py-1 text-[10px] font-semibold text-text-subtle hover:bg-surface-muted hover:text-text"
-                  onClick={(event) => { event.stopPropagation(); void navigator.clipboard.writeText(task.errorMessage || task.rawResultJson || task.inputJson); }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void copyText(getTaskCopyPayload(task), { successMessage: "raw/error 已复制" });
+                  }}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
                       event.stopPropagation();
-                      void navigator.clipboard.writeText(task.errorMessage || task.rawResultJson || task.inputJson);
+                      void copyText(getTaskCopyPayload(task), { successMessage: "raw/error 已复制" });
                     }
                   }}
                 >
@@ -957,6 +952,7 @@ function ErrorsTab({
                 </span>
               </div>
             </button>
+            </AppContextMenu>
           );
         })}
       </div>
@@ -969,16 +965,6 @@ type RecoveryState = {
   cooldownSeconds: number;
   disabled: boolean;
 };
-
-function getVideoConcurrencyTaskId(task: TaskRecord) {
-  const text = `${task.rawResultJson ?? ""}\n${task.errorMessage ?? ""}`;
-  const match = text.match(/cgt-[a-zA-Z0-9-]+/);
-  return match ? match[0] : undefined;
-}
-
-function isTaskError(task: TaskRecord) {
-  return task.status === "failed" || task.rawResultJson?.includes('"isError": true') || task.rawResultJson?.includes('"isError":true');
-}
 
 function getRecoveryState(taskId: string, recoveringVideoTaskId?: string, videoRecoveryCooldowns: Record<string, number> = {}): RecoveryState {
   const cooldownSeconds = Math.max(0, Math.ceil(((videoRecoveryCooldowns[taskId] ?? 0) - Date.now()) / 1000));
@@ -1024,25 +1010,4 @@ function RecoveryButton({ taskId, state, onRecoverVideoTask }: { taskId: string;
       {label}
     </Button>
   );
-}
-
-function formatConsoleOutput(task: TaskRecord) {
-  return [
-    `$ mcp-call ${task.toolName} --args`,
-    task.inputJson,
-    "",
-    "> output_raw_result:",
-    task.errorMessage ? `Error: ${task.errorMessage}` : task.rawResultJson || "{} (暂无返回数据)"
-  ].join("\n");
-}
-
-function classifyError(task: TaskRecord) {
-  const text = `${task.errorMessage ?? ""}\n${task.rawResultJson ?? ""}`.toLowerCase();
-  if (text.includes("timeout") || text.includes("timed out")) return "timeout";
-  if (text.includes("schema") || text.includes("validation") || text.includes("invalid")) return "schema";
-  if (text.includes("mcp") || text.includes("runtime") || text.includes("stdio")) return "mcp";
-  if (text.includes("network") || text.includes("fetch") || text.includes("504")) return "network";
-  if (text.includes("balance") || text.includes("credit")) return "INSUFFICIENT_FUNDS";
-  if (text.includes("rate limit") || text.includes("429")) return "RATE_LIMIT";
-  return "UNKNOWN";
 }

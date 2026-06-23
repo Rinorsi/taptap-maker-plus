@@ -13,7 +13,7 @@ type Props = {
 
 export function AssetHub({ project, assets, onScanAssets, onDeleteAssets, onMoveAssets, onSelectAsset }: Props) {
   return (
-    <section className="mx-auto flex h-full min-h-0 w-full max-w-[1600px] flex-col gap-4 bg-surface-app p-4 text-text md:p-6">
+    <section className="mx-auto flex h-full min-h-0 w-full max-w-[1600px] flex-col gap-4 p-4 text-text md:p-6">
       <div className="flex shrink-0 items-center justify-between">
         <div>
           <h1 className="m-0 flex items-center gap-2 text-xl font-bold text-text">

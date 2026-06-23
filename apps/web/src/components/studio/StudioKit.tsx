@@ -5,6 +5,8 @@ import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Label } from "../ui/Label";
 import { SelectField } from "../ui/SelectField";
+import { AssetDropzone } from "../interaction/AssetDropzone";
+import { readAssetDragData } from "../interaction/assetDragData";
 import { cn } from "../../lib/utils";
 
 export type StudioOption = {
@@ -193,6 +195,9 @@ export function StudioMediaDropzone({
   onChange,
   height = "h-32",
   onPickClick,
+  accept = "image/*",
+  onImportFiles,
+  onAssetDrop,
   emptyLabel = "将图片拖拽至此",
   emptySubLabel = "或点击拾取",
 }: {
@@ -200,55 +205,73 @@ export function StudioMediaDropzone({
   onChange: (image: string) => void;
   height?: string;
   onPickClick?: () => void;
+  accept?: string;
+  onImportFiles?: (files: File[]) => void;
+  onAssetDrop?: (asset: { relativePath: string; projectId?: string; fileName?: string; assetType?: string }) => void;
   emptyLabel?: string;
   emptySubLabel?: string;
 }) {
   return (
-    <div
-      onDragOver={(event) => event.preventDefault()}
-      onDrop={(event) => {
-        event.preventDefault();
-        const text = event.dataTransfer.getData("text/plain");
-        if (text) onChange(text);
-      }}
-      className={cn(
-        height,
-        "group relative flex flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border-2 border-dashed text-xs transition-all duration-300",
-        image ? "border-brand/50 bg-brand/5" : "cursor-pointer border-border-strong text-text-muted hover:border-brand/50 hover:bg-brand/5"
-      )}
-    >
-      {image ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/40 p-1 backdrop-blur-sm">
-          <img src={image} className="h-full rounded-xl object-contain shadow-lg" />
-        </div>
-      ) : (
-        <>
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-panel shadow-sm transition-transform duration-300 group-hover:scale-110">
-            <ImagePlus className="h-5 w-5 text-brand" />
-          </div>
-          <span className="px-2 text-center text-[10px] font-medium text-text-subtle">
-            {emptyLabel}
-            <br />
-            {emptySubLabel}
-          </span>
-        </>
-      )}
-      {!image && (
-        <button type="button" className="absolute inset-0 h-full w-full cursor-pointer opacity-0" onClick={onPickClick} title="拾取素材" />
-      )}
-      {image && (
-        <button
-          type="button"
-          className="absolute right-1 top-1 z-10 flex h-6 w-6 items-center justify-center rounded bg-black/50 text-white transition-colors hover:bg-red-500"
-          onClick={(event) => {
-            event.stopPropagation();
-            onChange("");
-          }}
+    <AssetDropzone accept={accept} disabled={!onImportFiles} onDropFiles={(files) => onImportFiles?.(files)}>
+      {({ getRootProps, getInputProps, isDragActive }) => (
+        <div
+          {...getRootProps({
+            onDragOver: (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            },
+            onDrop: (event) => {
+              const asset = readAssetDragData(event.dataTransfer);
+              if (asset) {
+                event.preventDefault();
+                event.stopPropagation();
+                onAssetDrop?.(asset);
+                onChange(asset.relativePath);
+              }
+            },
+            className: cn(
+              height,
+              "group relative flex flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border-2 border-dashed text-xs transition-all duration-300",
+              image ? "border-brand/50 bg-brand/5" : "cursor-pointer border-border-strong text-text-muted hover:border-brand/50 hover:bg-brand/5",
+              isDragActive && "border-brand/70 bg-brand/10"
+            )
+          })}
         >
-          <X className="h-3.5 w-3.5" />
-        </button>
+          <input {...getInputProps()} />
+          {image ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/40 p-1 backdrop-blur-sm">
+              <img src={image} className="h-full rounded-xl object-contain shadow-lg" />
+            </div>
+          ) : (
+            <>
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-panel shadow-sm transition-transform duration-300 group-hover:scale-110">
+                <ImagePlus className="h-5 w-5 text-brand" />
+              </div>
+              <span className="px-2 text-center text-[10px] font-medium text-text-subtle">
+                {emptyLabel}
+                <br />
+                {emptySubLabel}
+              </span>
+            </>
+          )}
+          {!image && (
+            <button type="button" className="absolute inset-0 h-full w-full cursor-pointer opacity-0" onClick={onPickClick} title="拾取素材" />
+          )}
+          {image && (
+            <button
+              type="button"
+              className="absolute right-1 top-1 z-10 flex h-6 w-6 items-center justify-center rounded bg-black/50 text-white transition-colors hover:bg-red-500"
+              onClick={(event) => {
+                event.stopPropagation();
+                onChange("");
+              }}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
       )}
-    </div>
+    </AssetDropzone>
   );
 }
 

@@ -60,6 +60,8 @@ Ordinary asset operations:
 
 Ordinary asset UI must not duplicate per-page file manager logic. Image, video, audio, and Asset Hub use the shared asset manager.
 
+Before moving, deleting, or renaming ordinary assets, Maker++ must run a read-only reference scan for the selected project-relative paths. The scan records literal text evidence from `.project/resources.json`, `scripts/**/*.lua`, and `assets/flows/**/*.json`. It does not parse or assume JSON field meaning, and it does not rewrite references in this round.
+
 ## 4. Provenance Rules
 
 Provenance is local evidence. It links an asset to stored workbench records when real `relativePath` or `absolutePath` text appears in:
@@ -153,6 +155,7 @@ Ordinary asset APIs:
 - `POST /api/projects/:projectId/assets/rename`
 - `GET /api/projects/:projectId/assets/tree`
 - `POST /api/projects/:projectId/assets/provenance/rebuild`
+- `POST /api/projects/:projectId/assets/references/scan`
 
 3D package APIs:
 

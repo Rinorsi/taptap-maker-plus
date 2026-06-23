@@ -30,7 +30,7 @@ type Props = {
   onShowError?: () => void;
 };
 
-type ResourceType = "video" | "image";
+type ResourceType = "video" | "image" | "audio";
 
 const videoModeOptions = [
   { value: "text_to_video", label: "纯文本生视频" },
@@ -147,8 +147,8 @@ export function VideoStudio({
 
   const generateTool = useMemo(() => tools.find((tool) => tool.category === "video" && (tool.name.includes("generate") || tool.name.includes("create_video"))), [tools]);
 
-  const currentRoot = resourceType === "video" ? managedAssetRoots.video : managedAssetRoots.image;
-  const currentImportFolder = resourceType === "video" ? defaultAssetImportFolders.video : defaultAssetImportFolders.image;
+  const currentRoot = resourceType === "video" ? managedAssetRoots.video : resourceType === "image" ? managedAssetRoots.image : managedAssetRoots.audio;
+  const currentImportFolder = resourceType === "video" ? defaultAssetImportFolders.video : resourceType === "image" ? defaultAssetImportFolders.image : defaultAssetImportFolders.audio;
 
   const projectAssets = useMemo(() => {
     if (!project) return [];
@@ -486,6 +486,7 @@ export function VideoStudio({
                   <button onClick={() => setViewTab("preview")} className={cn("px-3 py-1 text-[11px] font-bold rounded transition-all", viewTab === "preview" ? "bg-surface-raised shadow-sm text-text border border-border-soft" : "text-text-subtle hover:text-text")}>预览</button>
                   <button onClick={() => { setViewTab("manage"); setResourceType("video"); }} className={cn("px-3 py-1 text-[11px] font-bold rounded transition-all", viewTab === "manage" && resourceType === "video" ? "bg-surface-raised shadow-sm text-text border border-border-soft" : "text-text-subtle hover:text-text")}>视频库</button>
                   <button onClick={() => { setViewTab("manage"); setResourceType("image"); }} className={cn("px-3 py-1 text-[11px] font-bold rounded transition-all", viewTab === "manage" && resourceType === "image" ? "bg-surface-raised shadow-sm text-text border border-border-soft" : "text-text-subtle hover:text-text")}>图片库</button>
+                  <button onClick={() => { setViewTab("manage"); setResourceType("audio"); }} className={cn("px-3 py-1 text-[11px] font-bold rounded transition-all", viewTab === "manage" && resourceType === "audio" ? "bg-surface-raised shadow-sm text-text border border-border-soft" : "text-text-subtle hover:text-text")}>音频库</button>
                 </div>
 
               </div>
@@ -602,12 +603,12 @@ export function VideoStudio({
               assets={currentAssets}
               disabled={!project}
               rootPath={currentRoot}
-              title={resourceType === "video" ? "视频管理" : "图片管理"}
+              title={resourceType === "video" ? "视频管理" : resourceType === "image" ? "图片管理" : "音频管理"}
               defaultTargetFolder={currentImportFolder}
               assetTypeFilter={resourceType}
               showTypeFilter={false}
               showDirectoryTree={false}
-              importAccept={resourceType === "video" ? "video/*" : "image/*"}
+              importAccept={resourceType === "video" ? "video/*" : resourceType === "image" ? "image/*" : "audio/*"}
               onScanAssets={onScanAssets}
               onImportAssets={onImportAssets}
               onDeleteAssets={async (paths) => {

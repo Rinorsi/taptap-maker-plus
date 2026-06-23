@@ -1,11 +1,18 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
+import { DndContext } from "@dnd-kit/core";
 import { motion, AnimatePresence } from "framer-motion";
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { Activity, CheckCircle2, ChevronDown, ChevronRight, Copy, File, FileAudio, FileBox, FileImage, FileVideo, Folder, FolderOpen, LayoutGrid, List, PanelLeft, Play, RefreshCw, Upload, X } from "lucide-react";
 import { assetPreviewUrl, type AssetSummary } from "../../api";
+import { AssetDraggable } from "../../components/interaction/AssetDraggable";
+import { AssetDropzone } from "../../components/interaction/AssetDropzone";
+import { VirtualList } from "../../components/interaction/VirtualList";
+import { readAssetDragPath, writeAssetDragData } from "../../components/interaction/assetDragData";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { SelectionBox, StudioBulkActionBar, StudioSearchInput } from "../../components/studio/StudioKit";
+import { AppContextMenu, isEditableShortcutTarget } from "../../commands";
+import { copyText } from "../../lib/clipboard";
 import { cn, formatBytes } from "../../lib/utils";
 import { ordinaryAssetTypeLabels, ordinaryAssetTypeOrder } from "./assetGovernance";
 import { buildAssetDirectoryTree, filterAssetsForDirectory, flattenDirectoryTree, getAssetDirectory, getDirectoryBreadcrumbs, type AssetDirectoryNode } from "./assetTree";
@@ -63,7 +70,6 @@ export function AssetManagerPanel({
   const [recursive, setRecursive] = useState(false);
   const [treeOpen, setTreeOpen] = useState(false);
   const [collapsedDirectories, setCollapsedDirectories] = useState<string[]>([]);
-  const importInputRef = useRef<HTMLInputElement>(null);
 
   const scopedAssets = useMemo(() => assetTypeFilter ? assets.filter((asset) => asset.assetType === assetTypeFilter) : assets, [assetTypeFilter, assets]);
   const tree = useMemo(() => buildAssetDirectoryTree(scopedAssets, rootPath), [rootPath, scopedAssets]);
@@ -108,6 +114,8 @@ export function AssetManagerPanel({
 
   async function deleteSelected() {
     if (disabled || selectedPaths.length === 0) return;
+    const confirmed = window.confirm(`确认删除选中的 ${selectedPaths.length} 个资产？`);
+    if (!confirmed) return;
     await onDeleteAssets(selectedPaths);
     setSelectedPaths([]);
   }
@@ -147,30 +155,68 @@ export function AssetManagerPanel({
       void onImportAssets(Array.from(event.dataTransfer.files), directoryPath);
       return;
     }
-    const draggedRelativePath = event.dataTransfer.getData("text/plain");
+    const draggedRelativePath = readAssetDragPath(event.dataTransfer);
     if (!draggedRelativePath || disabled) return;
     const pathsToMove = selectedPaths.includes(draggedRelativePath) ? selectedPaths : [draggedRelativePath];
     void onMoveAssets(pathsToMove, directoryPath).then(() => setSelectedPaths([]));
   }
 
-  function handleDropOnPanel(event: React.DragEvent) {
-    event.preventDefault();
-    event.stopPropagation();
-    if (event.dataTransfer.files.length === 0 || !onImportAssets || disabled) return;
-    void onImportAssets(Array.from(event.dataTransfer.files), activeNode.path);
+  function importFiles(files: File[]) {
+    if (files.length === 0 || !onImportAssets || disabled) return;
+    void onImportAssets(files, activeNode.path);
   }
 
   async function copyPath(relativePath: string) {
-    await navigator.clipboard.writeText(relativePath).catch(() => undefined);
+    await copyText(relativePath, { successMessage: "资产路径已复制" });
+  }
+
+  function handleAssetKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (disabled || isEditableShortcutTarget(event.target)) return;
+    const key = event.key.toLowerCase();
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && key === "a") {
+      event.preventDefault();
+      const visiblePaths = new Set(filteredAssets.map((asset) => asset.relativePath));
+      setSelectedPaths((current) => [
+        ...current.filter((path) => !visiblePaths.has(path)),
+        ...filteredAssets.filter((asset) => !current.includes(asset.relativePath)).map((asset) => asset.relativePath)
+      ]);
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && key === "a") {
+      event.preventDefault();
+      setSelectedPaths(filteredAssets.map((asset) => asset.relativePath));
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && key === "c" && selectedPaths.length > 0) {
+      event.preventDefault();
+      void copyText(selectedPaths.join("\n"), { successMessage: selectedPaths.length === 1 ? "资产路径已复制" : "资产路径列表已复制" });
+      return;
+    }
+    if (event.key === "Delete" && selectedPaths.length > 0) {
+      event.preventDefault();
+      void deleteSelected();
+      return;
+    }
+    if (event.key === " " && selectedPaths.length > 0) {
+      event.preventDefault();
+      const selectedAsset = filteredAssets.find((asset) => asset.relativePath === selectedPaths[0]) ?? scopedAssets.find((asset) => asset.relativePath === selectedPaths[0]);
+      if (selectedAsset) onSelectAsset(selectedAsset);
+    }
   }
 
   return (
+    <DndContext>
+      <AssetDropzone accept={importAccept} disabled={disabled || !onImportAssets} onDropFiles={importFiles}>
+        {({ getRootProps, getInputProps, isDragActive, open }) => (
     <div
-      className="flex min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-surface-panel shadow-sm"
-      onDragOver={(event) => {
-        if (event.dataTransfer.types.includes("Files")) event.preventDefault();
-      }}
-      onDrop={handleDropOnPanel}
+      {...getRootProps({
+        tabIndex: 0,
+        onKeyDown: handleAssetKeyDown,
+        className: cn(
+          "flex min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-surface-panel shadow-sm",
+          isDragActive && "border-brand/60 ring-2 ring-brand/15"
+        )
+      })}
     >
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden relative">
         <div className="shrink-0 border-b border-border bg-surface-panel p-2">
@@ -219,10 +265,44 @@ export function AssetManagerPanel({
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
                 transition={{ duration: 0.15 }}
-                className="flex flex-col gap-1 w-full pb-1"
+                className="@container flex flex-col gap-1 w-full pb-1"
               >
-                <div className="flex items-center justify-between gap-2 w-full">
-                  <div className="flex items-center gap-2.5">
+                <div className="grid w-full gap-y-1 gap-x-2 grid-cols-[1fr_auto] px-1">
+                  
+                  {/* Search and Toggles */}
+                  <div className="col-span-2 @lg:col-span-1 @lg:col-start-2 @lg:row-start-1 flex h-9 items-center gap-1.5 w-full">
+                    <StudioSearchInput value={query} onChange={setQuery} className="min-w-0 flex-1 @lg:w-[260px] @lg:flex-none" />
+                    <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border-soft bg-surface-muted p-0.5">
+                      <button type="button" title="网格视图" className={cn("rounded-[4px] p-1.5 transition-colors", view === "grid" ? "bg-surface-panel text-text shadow-sm" : "text-text-muted hover:text-text")} onClick={() => setView("grid")}>
+                        <LayoutGrid className="h-3.5 w-3.5" />
+                      </button>
+                      <button type="button" title="列表视图" className={cn("rounded-[4px] p-1.5 transition-colors", view === "table" ? "bg-surface-panel text-text shadow-sm" : "text-text-muted hover:text-text")} onClick={() => setView("table")}>
+                        <List className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={onScanAssets} disabled={disabled} className="h-7 w-7 rounded-md hover:bg-surface-raised" title="刷新资产">
+                      <RefreshCw className="h-3.5 w-3.5 text-text-muted" />
+                    </Button>
+                    {onImportAssets ? (
+                      <>
+                        <Button variant="ghost" size="icon" disabled={disabled} className="h-7 w-7 rounded-md hover:bg-surface-raised" title="导入到当前目录" onClick={open}>
+                          <Upload className="h-3.5 w-3.5 text-text-muted" />
+                        </Button>
+                        <input
+                          {...getInputProps()}
+                          className="hidden"
+                        />
+                      </>
+                    ) : null}
+                  </div>
+                  
+                  {/* Breadcrumb */}
+                  <div className="col-start-1 row-start-2 @lg:row-start-1 flex h-7 items-center min-w-0 overflow-hidden pr-2">
+                    <Breadcrumb path={activeNode.path} onSelectPath={(path) => selectDirectory(directories.find((directory) => directory.path === path) ?? tree)} />
+                  </div>
+
+                  {/* Meta */}
+                  <div className="col-start-2 row-start-2 flex h-7 items-center gap-2.5 justify-end text-[10px] text-text-subtle">
                     {showDirectoryTree ? (
                       <Button
                         variant="ghost"
@@ -242,8 +322,9 @@ export function AssetManagerPanel({
                     {!showTypeFilter && <span className="hidden lg:inline shrink-0 text-[10px] font-semibold text-text-subtle opacity-70">共{counts.all}项</span>}
                   </div>
 
-                  {showTypeFilter && (
-                    <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap px-1 scrollbar-thin">
+                  {/* Type Filters */}
+                  {showTypeFilter ? (
+                    <div className="col-span-2 row-start-3 @lg:col-span-1 @lg:col-start-1 @lg:row-start-2 flex h-7 items-center gap-1 overflow-x-auto whitespace-nowrap scrollbar-thin">
                       {ordinaryAssetTypeOrder.map((nextType) => (
                         <button
                           key={nextType}
@@ -256,45 +337,8 @@ export function AssetManagerPanel({
                         </button>
                       ))}
                     </div>
-                  )}
-
-                  <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                    <StudioSearchInput value={query} onChange={setQuery} className="w-24 md:w-32 xl:w-40" />
-                    <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border-soft bg-surface-muted p-0.5">
-                      <button type="button" title="网格视图" className={cn("rounded-[4px] p-1.5 transition-colors", view === "grid" ? "bg-surface-panel text-text shadow-sm" : "text-text-muted hover:text-text")} onClick={() => setView("grid")}>
-                        <LayoutGrid className="h-3.5 w-3.5" />
-                      </button>
-                      <button type="button" title="列表视图" className={cn("rounded-[4px] p-1.5 transition-colors", view === "table" ? "bg-surface-panel text-text shadow-sm" : "text-text-muted hover:text-text")} onClick={() => setView("table")}>
-                        <List className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                    <Button variant="ghost" size="icon" onClick={onScanAssets} disabled={disabled} className="h-7 w-7 rounded-md hover:bg-surface-raised" title="刷新资产">
-                      <RefreshCw className="h-3.5 w-3.5 text-text-muted" />
-                    </Button>
-                    {onImportAssets ? (
-                      <>
-                        <Button variant="ghost" size="icon" disabled={disabled} className="h-7 w-7 rounded-md hover:bg-surface-raised" title="导入到当前目录" onClick={() => importInputRef.current?.click()}>
-                          <Upload className="h-3.5 w-3.5 text-text-muted" />
-                        </Button>
-                        <input
-                          ref={importInputRef}
-                          type="file"
-                          multiple
-                          accept={importAccept}
-                          className="hidden"
-                          onChange={(event) => {
-                            const files = event.currentTarget.files;
-                            if (files && files.length > 0) void onImportAssets(Array.from(files), activeNode.path);
-                            event.currentTarget.value = "";
-                          }}
-                        />
-                      </>
-                    ) : null}
-                  </div>
-                </div>
-                
-                <div className="flex w-full items-center text-[10px] text-text-subtle px-1">
-                  <Breadcrumb path={activeNode.path} onSelectPath={(path) => selectDirectory(directories.find((directory) => directory.path === path) ?? tree)} />
+                  ) : null}
+                  
                 </div>
               </motion.div>
             )}
@@ -419,6 +463,9 @@ export function AssetManagerPanel({
         </AnimatePresence>
       </div>
     </div>
+        )}
+      </AssetDropzone>
+    </DndContext>
   );
 }
 
@@ -516,15 +563,6 @@ function AssetGrid({
 }) {
   if (assets.length === 0 && directories.length === 0) return <EmptyState />;
 
-  function handleAssetDragStart(event: React.DragEvent, asset: AssetSummary) {
-    if (onAssetDragStart) {
-      onAssetDragStart(event, asset);
-      return;
-    }
-    event.dataTransfer.setData("text/plain", asset.relativePath);
-    event.dataTransfer.effectAllowed = "move";
-  }
-
   return (
     <div className="grid content-start gap-3 p-4 [grid-template-columns:repeat(auto-fill,minmax(112px,1fr))]">
       {directories.map((directory) => (
@@ -552,36 +590,40 @@ function AssetGrid({
         const isAudio = asset.assetType === "audio";
         const isPlaying = playingAssetPath === asset.relativePath;
         return (
-          <div
-            key={asset.id}
-            draggable
-            onDragStart={(event) => handleAssetDragStart(event, asset)}
-            className={cn(
-              "group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border transition-all hover:shadow-md hover:ring-1 hover:ring-brand/30",
-              isPlaying ? "border-brand bg-brand/5 ring-1 ring-brand shadow-[0_0_15px_rgba(0,0,0,0.1)]" : isSelected ? "border-brand ring-1 ring-brand bg-surface-app" : "border-border-soft bg-surface-app"
-            )}
-            onClick={() => onSelectAsset(asset)}
-          >
-            <label className={cn("absolute left-1.5 top-1.5 z-10 flex h-5 w-5 cursor-pointer items-center justify-center rounded border bg-surface-panel/90 shadow-sm backdrop-blur-sm transition-opacity", isSelected ? "border-brand opacity-100" : "border-border opacity-0 hover:border-brand group-hover:opacity-100")}>
-              {isSelected && <CheckCircle2 className="h-3.5 w-3.5 text-brand" />}
-              <input type="checkbox" className="sr-only" checked={isSelected} onChange={(e) => { e.stopPropagation(); onToggleAsset(asset); }} />
-            </label>
+          <AppContextMenu key={asset.id} context={{ objectType: "asset", relativePath: asset.relativePath }}>
+            <AssetDraggable asset={asset} onDragStart={onAssetDragStart}>
+              {({ ref, draggableProps, isDragging }) => (
             <div
-              role="button"
-              tabIndex={0}
-              className="flex h-full w-full flex-col text-left"
+              ref={ref}
+              {...draggableProps}
+              className={cn(
+                "group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border transition-all hover:shadow-md hover:ring-1 hover:ring-brand/30",
+                isDragging && "opacity-70",
+                isPlaying ? "border-brand bg-brand/5 ring-1 ring-brand shadow-[0_0_15px_rgba(0,0,0,0.1)]" : isSelected ? "border-brand ring-1 ring-brand bg-surface-app" : "border-border-soft bg-surface-app"
+              )}
               onClick={() => onSelectAsset(asset)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") onSelectAsset(asset);
-              }}
             >
+              <label className={cn("absolute left-1.5 top-1.5 z-10 flex h-5 w-5 cursor-pointer items-center justify-center rounded border bg-surface-panel/90 shadow-sm backdrop-blur-sm transition-opacity", isSelected ? "border-brand opacity-100" : "border-border opacity-0 hover:border-brand group-hover:opacity-100")}>
+                {isSelected && <CheckCircle2 className="h-3.5 w-3.5 text-brand" />}
+                <input type="checkbox" className="sr-only" checked={isSelected} onChange={(e) => { e.stopPropagation(); onToggleAsset(asset); }} />
+              </label>
+              <div
+                role="button"
+                tabIndex={0}
+                className="flex h-full w-full flex-col text-left"
+                onClick={() => onSelectAsset(asset)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") onSelectAsset(asset);
+                }}
+              >
               <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden border-b border-border-soft bg-surface-muted">
                 {asset.assetType === "image" ? (
-                  <img draggable={false} src={assetPreviewUrl(asset.projectId, asset.relativePath)} alt={asset.fileName} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" />
+                  <img draggable onDragStart={draggableProps.onDragStart} src={assetPreviewUrl(asset.projectId, asset.relativePath)} alt={asset.fileName} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" />
                 ) : asset.assetType === "video" ? (
                   <div className="h-full w-full bg-black/10">
                     <video
-                      draggable={false}
+                      draggable
+                      onDragStart={draggableProps.onDragStart}
                       src={assetPreviewUrl(asset.projectId, asset.relativePath)}
                       className="h-full w-full object-cover"
                       muted
@@ -629,8 +671,11 @@ function AssetGrid({
                   <span className="text-[9px] text-text-subtle">{formatBytes(asset.sizeBytes)}</span>
                 </div>
               </div>
+              </div>
             </div>
-          </div>
+              )}
+            </AssetDraggable>
+          </AppContextMenu>
         );
       })}
     </div>
@@ -690,7 +735,7 @@ function AssetTable({
         return (
           <div className="flex min-w-0 w-full items-start gap-2.5 text-left py-1" onClick={() => onSelectAsset(asset)}>
             {isImage ? (
-              <img draggable onDragStart={(event) => { if (onAssetDragStart) { onAssetDragStart(event, asset); return; } event.dataTransfer.setData("text/plain", asset.relativePath); event.dataTransfer.effectAllowed = "move"; }} src={assetPreviewUrl(asset.projectId, asset.relativePath)} className={cn("h-7 w-7 shrink-0 rounded-[4px] object-cover ring-1 mt-0.5", isSelected ? "ring-brand" : "ring-border-soft")} alt="" loading="lazy" />
+              <img draggable onDragStart={(event) => { writeAssetDragData(event, asset); onAssetDragStart?.(event, asset); }} src={assetPreviewUrl(asset.projectId, asset.relativePath)} className={cn("h-7 w-7 shrink-0 rounded-[4px] object-cover ring-1 mt-0.5", isSelected ? "ring-brand" : "ring-border-soft")} alt="" loading="lazy" />
             ) : isAudio ? (
               <button type="button" onClick={(e) => { e.stopPropagation(); isPlaying ? onPlayAudio?.(null) : onPlayAudio?.(asset); }} className={cn("group/play flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] ring-1 mt-0.5 transition-all hover:bg-brand hover:ring-brand", isPlaying ? "ring-brand bg-brand/20 animate-pulse" : isSelected ? "ring-border-soft bg-brand/10" : "ring-border-soft bg-surface-raised")} title={isPlaying ? "正在播放" : "播放音频"}>
                 {isPlaying ? <Activity className="h-4 w-4 text-brand" /> : (
@@ -768,36 +813,38 @@ function AssetTable({
             </div>
           </button>
         ))}
-        {table.getRowModel().rows.map((row) => {
+        <VirtualList
+          items={table.getRowModel().rows}
+          estimateSize={48}
+          getKey={(row) => row.original.id}
+          renderItem={(row) => {
           const asset = row.original;
           const isSelected = selectedSet.has(asset.relativePath);
           const isPlaying = playingAssetPath === asset.relativePath;
           return (
-            <div
-              key={asset.id}
-              draggable
-              onDragStart={(event) => {
-                if (onAssetDragStart) {
-                  onAssetDragStart(event, asset);
-                  return;
-                }
-                event.dataTransfer.setData("text/plain", asset.relativePath);
-                event.dataTransfer.effectAllowed = "move";
-              }}
-              className={cn(
-                "group flex min-h-[48px] py-2 items-center border-b px-4 text-left transition-colors hover:bg-surface-raised cursor-pointer",
-                isPlaying ? "bg-brand/5 border-brand/30" : isSelected ? "border-brand/20 bg-brand/5 hover:bg-brand/10" : "border-border-soft bg-transparent"
-              )}
-              onClick={() => onSelectAsset(asset)}
-            >
-              {row.getVisibleCells().map((cell) => (
-                <div key={cell.id} className={cn(cell.column.id === "select" ? "w-8 shrink-0" : cell.column.id === "assetType" ? "w-16 shrink-0 px-3" : cell.column.id === "sizeBytes" ? "w-20 shrink-0 px-3" : "min-w-[140px] flex-1 pr-4")} onClick={(e) => { if (cell.column.id === "select") e.stopPropagation(); }}>
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                </div>
-              ))}
-            </div>
+            <AppContextMenu key={asset.id} context={{ objectType: "asset", relativePath: asset.relativePath }}>
+              <div
+                draggable
+                onDragStart={(event) => {
+                  writeAssetDragData(event, asset);
+                  onAssetDragStart?.(event, asset);
+                }}
+                className={cn(
+                  "group flex min-h-[48px] py-2 items-center border-b px-4 text-left transition-colors hover:bg-surface-raised cursor-pointer",
+                  isPlaying ? "bg-brand/5 border-brand/30" : isSelected ? "border-brand/20 bg-brand/5 hover:bg-brand/10" : "border-border-soft bg-transparent"
+                )}
+                onClick={() => onSelectAsset(asset)}
+              >
+                {row.getVisibleCells().map((cell) => (
+                  <div key={cell.id} className={cn(cell.column.id === "select" ? "w-8 shrink-0" : cell.column.id === "assetType" ? "w-16 shrink-0 px-3" : cell.column.id === "sizeBytes" ? "w-20 shrink-0 px-3" : "min-w-[140px] flex-1 pr-4")} onClick={(e) => { if (cell.column.id === "select") e.stopPropagation(); }}>
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </div>
+                ))}
+              </div>
+            </AppContextMenu>
           );
-        })}
+        }}
+        />
       </div>
     </div>
   );

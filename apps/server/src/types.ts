@@ -56,6 +56,22 @@ export type AssetDirectoryNode = {
   children: AssetDirectoryNode[];
 };
 
+export type AssetReferenceSourceType = "resources_json" | "lua_script" | "flow_json";
+
+export type AssetReferenceEvidence = {
+  sourceType: AssetReferenceSourceType;
+  sourcePath: string;
+  line: number;
+  column: number;
+  lineText: string;
+};
+
+export type AssetReferenceScanResult = {
+  relativePath: string;
+  referenceCount: number;
+  references: AssetReferenceEvidence[];
+};
+
 export type ModelPackageGovernanceState = "in_use" | "adopted" | "packaged_unused" | "draft" | "source_orphan" | "runtime_orphan" | "discarded" | "broken";
 
 export type ModelPackageIssue = {
@@ -276,4 +292,46 @@ export type ProjectBuildLogsSummary = {
   generatedAt: string;
   runtime: ProjectRuntimeLogSummary;
   buildLogs: ProjectBuildLogEntry[];
+};
+
+export type AgentRightPanelTab = "status" | "tools" | "logs" | "errors";
+
+export type AgentSelectionReference =
+  | { type: "project"; projectId: string }
+  | { type: "tool"; toolName: string }
+  | { type: "task"; taskId: string }
+  | { type: "asset"; relativePath: string };
+
+export type AgentPageState = {
+  activeTab?: AgentRightPanelTab;
+  selection?: AgentSelectionReference;
+};
+
+export type AgentContextSnapshot = {
+  generatedAt: string;
+  selectedProjectId?: string;
+  page: AgentPageState;
+  project?: ProjectSummary;
+  projects: ProjectSummary[];
+  runtime?: RuntimeSummary;
+  tools: ToolSummary[];
+  toolsListSnapshot?: Pick<ToolsListSnapshot, "projectId" | "updatedAt">;
+  tasks: TaskRecord[];
+  generations: GenerationRecord[];
+  assets: AssetSummary[];
+  workflows: WorkflowGraphRecord[];
+  workflowRuns: WorkflowRunRecord[];
+  credits: CreditRecord[];
+  buildLogs?: ProjectBuildLogsSummary;
+  counts: {
+    projects: number;
+    tools: number;
+    tasks: number;
+    generations: number;
+    assets: number;
+    workflows: number;
+    workflowRuns: number;
+    credits: number;
+    buildLogs: number;
+  };
 };

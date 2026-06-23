@@ -7,16 +7,25 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "npm-run-all --parallel dev:web dev:server",
+    "dev": "npm run desktop:dev",
+    "dev:browser": "npm-run-all --parallel dev:web dev:server",
     "dev:web": "npm run dev --workspace @taptap/web",
     "dev:server": "npm run dev --workspace @taptap/server",
     "build": "npm run build --workspace @taptap/server && npm run build --workspace @taptap/web",
+    "prepare:desktop": "node scripts/prepare-desktop-resources.mjs",
+    "build:desktop": "npm run build && npm run prepare:desktop",
     "typecheck": "npm run typecheck --workspace @taptap/server && npm run typecheck --workspace @taptap/web",
     "lint": "npm run lint --workspace @taptap/server && npm run lint --workspace @taptap/web",
-    "verify:assets": "tsx scripts/verify-asset-governance.ts"
+    "verify:assets": "tsx scripts/verify-asset-governance.ts",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build",
+    "verify:desktop": "tsx scripts/verify-desktop-readiness.ts"
   },
   "devDependencies": {
+    "@mastra/core": "^1.45.0",
     "@playwright/test": "^1.61.0",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/cli": "^2.11.3",
     "npm-run-all": "^4.1.5"
   }
 }

@@ -2,16 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
+import { config } from "../lib/config.js";
 import {
-  createGeneration,
   createWorkflowRun,
-  createTask,
   deleteWorkflowGraph,
   deleteWorkflowRun,
   deleteTasks,
   finishWorkflowRun,
-  finishGeneration,
-  finishTask,
   getAssetByRelativePath,
   getProject,
   getSelectedProjectId,
@@ -29,19 +26,20 @@ import {
   listWorkflowRuns,
   saveWorkflowGraph,
   setSelectedProject,
-  updateTaskStatus,
-  addCreditRecord,
   listCreditRecords
 } from "../lib/db.js";
 import { scanMakerProjects } from "../services/projectDiscovery.js";
 import { scanProjectAssets } from "../services/assetScanner.js";
+import { scanAssetReferences } from "../services/assetReferenceScanner.js";
 import { buildAssetDirectoryTree } from "../services/assetTree.js";
 import { rebuildAssetProvenance } from "../services/assetProvenance.js";
 import { runtimeManager } from "../services/mcpRuntime.js";
+import { executeToolCall, syncCreditRecordsFromTasks } from "../services/toolExecution.js";
+import { buildAgentContext } from "../agent/contextBuilder.js";
 import { getProjectBuildLogs } from "../services/projectLogs.js";
 import { scanModelPackages, organizeModelPackage, bindModelPackage, discardModelPackage, restoreModelPackage, updateResourceTable, runModelPackageBatchAction } from "../services/modelPackage.js";
 import { convertMdlToGltf, inspectMdlFile } from "../services/urhoMdl.js";
-import type { MakerWorkflowGraph, ProjectSummary, TaskRecord, ToolSummary, WorkflowNodeRunResult, WorkflowRunStatus } from "../types.js";
+import type { MakerWorkflowGraph, ProjectSummary, ToolSummary, WorkflowNodeRunResult, WorkflowRunStatus } from "../types.js";
 
 const callToolSchema = z.object({
   arguments: z.record(z.string(), z.unknown()).optional(),
@@ -53,6 +51,8 @@ const callToolSchema = z.object({
 const assetPathsSchema = z.object({
   relativePaths: z.array(z.string()).min(1)
 });
+
+const assetReferenceScanSchema = assetPathsSchema;
 
 const assetMoveSchema = assetPathsSchema.extend({
   targetFolder: z.string().min(1)
@@ -106,27 +106,38 @@ const workflowRunSchema = z.object({
   nodeIds: z.array(z.string()).min(1)
 });
 
-function extractArguments(body: z.infer<typeof callToolSchema>): Record<string, unknown> {
-  return body.toolArgs ?? body.arguments ?? {};
+const agentContextQuerySchema = z.object({
+  projectId: z.string().min(1).optional(),
+  activeTab: z.enum(["status", "tools", "logs", "errors"]).optional(),
+  selectionType: z.enum(["project", "tool", "task", "asset"]).optional(),
+  projectSelectionId: z.string().min(1).optional(),
+  toolName: z.string().min(1).optional(),
+  taskId: z.string().min(1).optional(),
+  assetRelativePath: z.string().min(1).optional()
+});
+
+function pageStateFromQuery(query: z.infer<typeof agentContextQuerySchema>) {
+  const page = {
+    activeTab: query.activeTab,
+    selection: undefined as ReturnType<typeof buildAgentContext>["page"]["selection"]
+  };
+  if (query.selectionType === "project" && query.projectSelectionId) {
+    page.selection = { type: "project", projectId: query.projectSelectionId };
+  }
+  if (query.selectionType === "tool" && query.toolName) {
+    page.selection = { type: "tool", toolName: query.toolName };
+  }
+  if (query.selectionType === "task" && query.taskId) {
+    page.selection = { type: "task", taskId: query.taskId };
+  }
+  if (query.selectionType === "asset" && query.assetRelativePath) {
+    page.selection = { type: "asset", relativePath: query.assetRelativePath };
+  }
+  return page;
 }
 
-function extractMcpText(result: unknown): string {
-  if (typeof result === "string") return result;
-  if (!result || typeof result !== "object") return JSON.stringify(result, null, 2);
-
-  const content = (result as { content?: unknown }).content;
-  if (!Array.isArray(content)) return JSON.stringify(result, null, 2);
-
-  const text = content
-    .map((item) => {
-      if (!item || typeof item !== "object") return "";
-      const next = item as { type?: unknown; text?: unknown };
-      return next.type === "text" && typeof next.text === "string" ? next.text : "";
-    })
-    .filter(Boolean)
-    .join("\n");
-
-  return text || JSON.stringify(result, null, 2);
+function extractArguments(body: z.infer<typeof callToolSchema>): Record<string, unknown> {
+  return body.toolArgs ?? body.arguments ?? {};
 }
 
 function requireProject(projectId: string): ProjectSummary {
@@ -137,112 +148,6 @@ function requireProject(projectId: string): ProjectSummary {
 
 function withRuntime(project: ProjectSummary) {
   return { ...project, runtime: runtimeManager.getSummary(project.id) };
-}
-
-function extractCredits(result: unknown): number | undefined {
-  for (const object of resultObjects(result)) {
-    if (typeof object.credits === "number") return object.credits;
-  }
-  return undefined;
-}
-
-function extractAssetPath(result: unknown): string | undefined {
-  for (const object of resultObjects(result)) {
-    if (typeof object.localPath === "string") return object.localPath;
-    if (typeof object.videoUrl === "string") return object.videoUrl;
-    if (typeof object.imageUrl === "string") return object.imageUrl;
-    if (typeof object.audioUrl === "string") return object.audioUrl;
-    if (typeof object.modelUrl === "string") return object.modelUrl;
-    if (typeof object.assetPath === "string") return object.assetPath;
-  }
-  return undefined;
-}
-
-function resultObjects(result: unknown): Record<string, unknown>[] {
-  const objects: Record<string, unknown>[] = [];
-  if (result && typeof result === "object" && !Array.isArray(result)) {
-    const res = result as Record<string, unknown>;
-    objects.push(res);
-    if (res.structuredContent && typeof res.structuredContent === "object" && !Array.isArray(res.structuredContent)) {
-      objects.push(res.structuredContent as Record<string, unknown>);
-    }
-  }
-
-  const text = extractMcpText(result);
-  if (text) {
-    try {
-      const parsed = JSON.parse(text);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        objects.push(parsed as Record<string, unknown>);
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  return objects;
-}
-
-function parseTaskResult(task: TaskRecord): unknown {
-  if (!task.rawResultJson) return undefined;
-  try {
-    return JSON.parse(task.rawResultJson);
-  } catch {
-    return undefined;
-  }
-}
-
-function syncCreditRecordsFromTasks(projectId?: string) {
-  const tasks = listTasks(projectId, 1000);
-  for (const task of tasks) {
-    if (task.status !== "succeeded") continue;
-    const result = parseTaskResult(task);
-    const credits = extractCredits(result);
-    if (credits === undefined) continue;
-    addCreditRecord({
-      projectId: task.projectId,
-      taskId: task.taskId,
-      toolName: task.toolName,
-      credits,
-      assetPath: extractAssetPath(result),
-      rawResultJson: task.rawResultJson
-    });
-  }
-}
-
-async function executeToolCall(project: ProjectSummary, toolName: string, args: Record<string, unknown>) {
-  const task = createTask(project.id, toolName, args, "queued");
-  updateTaskStatus(task.taskId, "running");
-  const generation = createGeneration(project.id, toolName, args);
-  try {
-    const result = await runtimeManager.callTool(project, toolName, args);
-    const typedResult = result as { isError?: boolean };
-    if (typedResult?.isError) {
-      throw new Error(extractMcpText(result) || "MCP Tool returned an error");
-    }
-    const finishedTask = finishTask(task.taskId, "succeeded", result);
-    const finishedGeneration = finishGeneration(generation.id, "succeeded", result);
-    
-    const credits = extractCredits(result);
-    if (credits !== undefined) {
-      addCreditRecord({
-        projectId: project.id,
-        taskId: task.taskId,
-        toolName: toolName,
-        credits: credits,
-        assetPath: extractAssetPath(result),
-        rawResultJson: JSON.stringify(result)
-      });
-    }
-
-    const assets = await scanProjectAssets(project);
-    return { task: finishedTask, generation: finishedGeneration, result, text: extractMcpText(result), assetsIndexed: assets.length };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const failedTask = finishTask(task.taskId, "failed", undefined, message);
-    const failedGeneration = finishGeneration(generation.id, "failed", undefined, message);
-    throw Object.assign(new Error(message), { task: failedTask, generation: failedGeneration });
-  }
 }
 
 function readNodeId(node: unknown): string | undefined {
@@ -300,7 +205,7 @@ async function executeWorkflowRun(project: ProjectSummary, graph: MakerWorkflowG
 
     const startedAt = new Date().toISOString();
     try {
-      const response = await executeToolCall(project, tool.name, toolNode.inputs);
+      const response = await executeToolCall(project, tool, toolNode.inputs);
       nodeResults.push({
         nodeId: toolNode.nodeId,
         toolName: tool.name,
@@ -368,6 +273,42 @@ function sendAssetFile(reply: FastifyReply, filePath: string) {
 
 export async function registerApiRoutes(app: FastifyInstance) {
   app.get("/api/health", async () => ({ ok: true, name: "taptap-maker-plus" }));
+
+  app.get("/api/desktop/readiness", async () => ({
+    ok: true,
+    mode: process.env.NODE_ENV ?? "development",
+    server: {
+      host: config.host,
+      port: config.port
+    },
+    paths: {
+      dataDir: config.dataDir,
+      databasePath: config.databasePath,
+      workspaceRoot: config.workspaceRoot,
+      webDistDir: config.webDistDir,
+      makerNpmCacheDir: config.makerNpmCacheDir,
+      mcpLogDir: config.mcpLogDir,
+      makerProjectsRoot: config.makerProjectsRoot
+    },
+    env: {
+      TAPTAP_DATA_DIR: process.env.TAPTAP_DATA_DIR,
+      TAPTAP_WORKSPACE_ROOT: process.env.TAPTAP_WORKSPACE_ROOT,
+      TAPTAP_WEB_DIST_DIR: process.env.TAPTAP_WEB_DIST_DIR,
+      TAPTAP_MAKER_PROJECTS_ROOT: process.env.TAPTAP_MAKER_PROJECTS_ROOT,
+      TAPTAP_DESKTOP_PARENT_PID: process.env.TAPTAP_DESKTOP_PARENT_PID,
+      TAPTAP_MAKER_NPM_CACHE_DIR: process.env.TAPTAP_MAKER_NPM_CACHE_DIR,
+      TAPTAP_MCP_LOG_DIR: process.env.TAPTAP_MCP_LOG_DIR,
+      TAPTAP_SERVER_PORT: process.env.TAPTAP_SERVER_PORT,
+      TAPTAP_SERVER_HOST: process.env.TAPTAP_SERVER_HOST,
+      TAPTAP_MCP_ENV: process.env.TAPTAP_MCP_ENV
+    }
+  }));
+
+  app.get<{ Querystring: unknown }>("/api/agent/context", async (request, reply) => {
+    const parsed = agentContextQuerySchema.safeParse(request.query ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    return { context: buildAgentContext({ projectId: parsed.data.projectId, page: pageStateFromQuery(parsed.data) }) };
+  });
 
   app.get("/api/projects", async () => {
     const selectedProjectId = getSelectedProjectId();
@@ -446,8 +387,10 @@ export async function registerApiRoutes(app: FastifyInstance) {
     const project = requireProject(request.params.projectId);
     const parsed = callToolSchema.safeParse(request.body ?? {});
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const tool = getTool(project.id, "maker_status_lite");
+    if (!tool) return reply.code(404).send({ error: "Tool not found for selected project: maker_status_lite" });
     try {
-      const response = await executeToolCall(project, "maker_status_lite", extractArguments(parsed.data));
+      const response = await executeToolCall(project, tool, extractArguments(parsed.data));
       return { projectId: project.id, ...response };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -460,6 +403,14 @@ export async function registerApiRoutes(app: FastifyInstance) {
     const assets = await scanProjectAssets(project);
     const provenance = rebuildAssetProvenance(project);
     return { assets: listAssets(project.id), count: assets.length, provenanceCount: provenance.length };
+  });
+
+  app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/assets/references/scan", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    const parsed = assetReferenceScanSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const results = await scanAssetReferences(project.rootPath, parsed.data.relativePaths);
+    return { ok: true, results };
   });
 
   app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/assets/delete", async (request, reply) => {
@@ -821,9 +772,11 @@ export async function registerApiRoutes(app: FastifyInstance) {
     const project = requireProject(request.params.projectId);
     const parsed = callToolSchema.safeParse(request.body ?? {});
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const tool = getTool(project.id, request.params.toolName);
+    if (!tool) return reply.code(404).send({ error: `Tool not found for selected project: ${request.params.toolName}` });
 
     try {
-      const response = await executeToolCall(project, request.params.toolName, extractArguments(parsed.data));
+      const response = await executeToolCall(project, tool, extractArguments(parsed.data));
       return response;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -839,8 +792,10 @@ export async function registerApiRoutes(app: FastifyInstance) {
     const project = requireProject(selectedProjectId);
     const parsed = callToolSchema.safeParse(request.body ?? {});
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const tool = getTool(project.id, body.toolName);
+    if (!tool) return reply.code(404).send({ error: `Tool not found for selected project: ${body.toolName}` });
     try {
-      return await executeToolCall(project, body.toolName, extractArguments(parsed.data));
+      return await executeToolCall(project, tool, extractArguments(parsed.data));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return reply.code(500).send({ error: message, task: (error as { task?: unknown }).task, generation: (error as { generation?: unknown }).generation, assetsIndexed: 0 });

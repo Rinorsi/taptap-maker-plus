@@ -7,6 +7,7 @@ import type { RJSFSchema, UiSchema } from "@rjsf/utils";
 import { Activity, Boxes, Braces, CircleAlert, Database, GitBranch, Play, Save, Trash2, WandSparkles } from "lucide-react";
 import { deleteWorkflow, deleteWorkflowRun, listWorkflowRuns, listWorkflows, runWorkflow, saveWorkflow, type MakerWorkflowGraph, type ProjectSummary, type TaskRecord, type ToolSummary, type WorkflowGraphRecord, type WorkflowRunRecord } from "../../api";
 import { Button } from "../../components/ui/Button";
+import { AppContextMenu } from "../../commands";
 import { cn } from "../../lib/utils";
 
 type Props = {
@@ -140,6 +141,21 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool }: Props) {
     }
   }
 
+  useEffect(() => {
+    const saveCurrent = () => {
+      void handleSave();
+    };
+    const runCurrent = () => {
+      void handleRun(executableNodeIds);
+    };
+    window.addEventListener("taptap:workflow-save", saveCurrent);
+    window.addEventListener("taptap:workflow-run", runCurrent);
+    return () => {
+      window.removeEventListener("taptap:workflow-save", saveCurrent);
+      window.removeEventListener("taptap:workflow-run", runCurrent);
+    };
+  }, [executableNodeIds, handleSave, handleRun]);
+
   function updateNodeInputs(nodeId: string, inputs: Record<string, unknown>) {
     setToolInputs((current) => ({ ...current, [nodeId]: inputs }));
   }
@@ -198,36 +214,52 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool }: Props) {
           </div>
         </aside>
 
-        <div className="min-h-0 overflow-hidden rounded-large border border-border bg-surface-panel shadow-sm">
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={handleNodesChange}
-            onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-            defaultViewport={{ x: 48, y: 130, zoom: 0.92 }}
-            minZoom={0.45}
-            maxZoom={1.35}
-            nodesDraggable
-            nodesConnectable={false}
-            elementsSelectable
-            className="workflow-flow"
-          >
-            <Background gap={18} size={1} color="rgba(6, 10, 38, 0.12)" />
-            <MiniMap pannable zoomable nodeColor={(node) => String(node.data?.tone ?? "#00D9C5")} />
-            <Controls />
-          </ReactFlow>
-        </div>
+        <AppContextMenu context={{ objectType: "workflowCanvas" }}>
+          <div className="min-h-0 overflow-hidden rounded-large border border-border bg-surface-panel shadow-sm">
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              onNodesChange={handleNodesChange}
+              onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+              defaultViewport={{ x: 48, y: 130, zoom: 0.92 }}
+              minZoom={0.45}
+              maxZoom={1.35}
+              nodesDraggable
+              nodesConnectable={false}
+              elementsSelectable
+              className="workflow-flow"
+            >
+              <Background gap={18} size={1} color="rgba(6, 10, 38, 0.12)" />
+              <MiniMap pannable zoomable nodeColor={(node) => String(node.data?.tone ?? "#00D9C5")} />
+              <Controls />
+            </ReactFlow>
+          </div>
+        </AppContextMenu>
 
         <aside className="flex min-h-0 flex-col gap-4 overflow-hidden max-[1220px]:hidden">
-          <NodeConfigPanel
-            project={project}
-            nodeId={selectedNodeId}
-            selected={selectedToolNode}
-            inputs={selectedNodeId ? toolInputs[selectedNodeId] ?? {} : {}}
-            busy={busy}
-            onChange={(inputs) => selectedNodeId && updateNodeInputs(selectedNodeId, inputs)}
-            onRun={() => selectedNodeId && void handleRun([selectedNodeId])}
-          />
+          {selectedNodeId ? (
+            <AppContextMenu context={{ objectType: "workflowNode", nodeId: selectedNodeId }}>
+              <NodeConfigPanel
+                project={project}
+                nodeId={selectedNodeId}
+                selected={selectedToolNode}
+                inputs={selectedNodeId ? toolInputs[selectedNodeId] ?? {} : {}}
+                busy={busy}
+                onChange={(inputs) => selectedNodeId && updateNodeInputs(selectedNodeId, inputs)}
+                onRun={() => selectedNodeId && void handleRun([selectedNodeId])}
+              />
+            </AppContextMenu>
+          ) : (
+            <NodeConfigPanel
+              project={project}
+              nodeId={selectedNodeId}
+              selected={selectedToolNode}
+              inputs={selectedNodeId ? toolInputs[selectedNodeId] ?? {} : {}}
+              busy={busy}
+              onChange={(inputs) => selectedNodeId && updateNodeInputs(selectedNodeId, inputs)}
+              onRun={() => selectedNodeId && void handleRun([selectedNodeId])}
+            />
+          )}
           <RunHistoryPanel runs={runs} busy={busy} onDeleteRun={handleDeleteRun} />
         </aside>
       </div>

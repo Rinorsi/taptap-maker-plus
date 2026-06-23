@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import type { AssetSummary, ProjectSummary, RuntimeSummary, TaskRecord, ToolSummary } from "../../api";
+import type { AgentPageState, AssetSummary, ProjectSummary, RuntimeSummary, TaskRecord, ToolSummary } from "../../api";
 import type { InspectorSelection } from "./AgentInspectorPanel";
 import type { WorkbenchModule } from "../../app/routes";
 import { ProjectOverview } from "../../features/projects/ProjectOverview";
@@ -14,6 +14,7 @@ import { BuildCenter } from "../../features/build/BuildCenter";
 import { WorkflowCanvas } from "../../features/workflow/WorkflowCanvas";
 import { MusicStudio } from "../../features/generation/MusicStudio";
 import { Model3DStudio } from "../../features/generation/Model3DStudio";
+import { AgentContextView } from "../../features/agent/AgentContextView";
 
 type Props = {
   activeModule: WorkbenchModule;
@@ -33,6 +34,7 @@ type Props = {
   onCallStatusLite: () => void;
   onCallTool: (toolName: string, args: Record<string, unknown>) => Promise<unknown>;
   onSelect: (selection: InspectorSelection) => void;
+  agentPage: AgentPageState;
   projects: ProjectSummary[];
   onSelectProject: (projectId: string) => void;
   onScanProjects: () => void;
@@ -145,6 +147,7 @@ export function WorkbenchViewport(props: Props) {
             />
           ) : null}
           {props.activeModule === "runs" ? <RunsView tasks={props.tasks} onSelectTask={(task) => props.onSelect({ type: "task", item: task })} /> : null}
+          {props.activeModule === "agent" ? <AgentContextView project={props.project} page={props.agentPage} /> : null}
           {props.activeModule === "settings" ? <SettingsView project={props.project} runtime={props.runtime} tools={props.tools} /> : null}
         </motion.div>
       </AnimatePresence>

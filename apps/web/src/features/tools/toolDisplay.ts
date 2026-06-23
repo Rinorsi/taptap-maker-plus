@@ -286,8 +286,8 @@ const categoryLabels: Record<string, string> = {
 export function getToolDisplay(tool: ToolSummary): ToolDisplay {
   return toolDisplays[tool.name] ?? {
     title: tool.name,
-    summary: "来自真实 tools/list 的 MCP 工具，详情页可查看原始描述和输入 Schema。",
-    details: "该工具来自真实 tools/list，目前没有内置中文说明；请参考原始 MCP 描述和输入 Schema。",
+    summary: tool.description ? "来自真实 tools/list 的 MCP 工具，详情页保留原始描述和输入 Schema。" : "来自真实 tools/list 的 MCP 工具，详情页可查看输入 Schema。",
+    details: tool.description ? "该工具来自真实 tools/list，目前没有内置中文说明；原始 MCP 描述仍可在详情页查看。" : "该工具来自真实 tools/list，目前没有内置中文说明；请参考输入 Schema。",
     translatedDescription: "该工具来自真实 tools/list，目前没有内置中文说明；请切换到原始描述查看 MCP 返回的原文。"
   };
 }

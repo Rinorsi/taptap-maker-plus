@@ -4,6 +4,7 @@ export type CommandScope =
   | "global"
   | "project"
   | "asset"
+  | "assetList"
   | "assetDirectory"
   | "task"
   | "mcpTool"
@@ -20,6 +21,12 @@ export type AppCommandContext =
   | { objectType: "global" }
   | { objectType: "project"; projectId: string }
   | { objectType: "asset"; relativePath: string }
+  | {
+      objectType: "assetList";
+      visiblePaths: string[];
+      selectedPaths: string[];
+      primaryPath?: string;
+    }
   | { objectType: "assetDirectory"; directoryPath: string }
   | { objectType: "task"; taskId: string }
   | { objectType: "mcpTool"; toolName: string }

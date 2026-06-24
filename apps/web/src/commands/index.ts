@@ -1,6 +1,11 @@
 export { AppContextMenu, buildContextMenuItems, getContextMenuCommands, type MenuItem } from "./AppContextMenu";
 export { AppMenuBar } from "./AppMenuBar";
 export {
+  COMMAND_RUN_EVENT,
+  requestCommandRun,
+  type CommandRunRequest,
+} from "./commandBus";
+export {
   closeAllContextMenus,
   clampContextMenuPosition,
   CONTEXT_MENU_CLOSE_EVENT,

@@ -41,6 +41,8 @@ import {
   buildContextMenuItems,
   CommandPalette,
   CommandProvider,
+  COMMAND_RUN_EVENT,
+  type CommandRunRequest,
   EditableContextMenu,
   closeAllContextMenus,
   clampContextMenuPosition,
@@ -772,10 +774,6 @@ export function AppShell() {
     if (module === "settings") setSelection(undefined);
   }
 
-  function promptCanvasOperation() {
-    setNotice("请在画布内操作");
-  }
-
   function runWorkflowCanvasCommand(detail: Record<string, unknown>) {
     window.dispatchEvent(
       new CustomEvent("taptap:workflow-command", { detail }),
@@ -1257,6 +1255,108 @@ export function AppShell() {
         },
       },
       {
+        commandId: "assetList.selectAll",
+        title: "全选可见资产",
+        icon: <Check className="h-4 w-4" />,
+        description: "选中当前资产列表中的可见项",
+        shortcut: { key: "a", ctrlKey: true },
+        scope: "assetList",
+        when: (context) =>
+          context.objectType === "assetList" && context.visiblePaths.length > 0,
+        run: (context) => {
+          if (context.objectType !== "assetList") return;
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-list-command", {
+              detail: {
+                action: "selectPaths",
+                paths: context.visiblePaths,
+              },
+            }),
+          );
+        },
+      },
+      {
+        commandId: "assetList.addVisibleToSelection",
+        title: "追加选择可见资产",
+        icon: <Check className="h-4 w-4" />,
+        description: "把当前可见资产加入选择",
+        shortcut: { key: "a", ctrlKey: true, shiftKey: true },
+        scope: "assetList",
+        when: (context) =>
+          context.objectType === "assetList" && context.visiblePaths.length > 0,
+        run: (context) => {
+          if (context.objectType !== "assetList") return;
+          const visible = new Set(context.visiblePaths);
+          const next = [
+            ...context.selectedPaths.filter((path) => !visible.has(path)),
+            ...context.visiblePaths.filter(
+              (path) => !context.selectedPaths.includes(path),
+            ),
+          ];
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-list-command", {
+              detail: { action: "selectPaths", paths: next },
+            }),
+          );
+        },
+      },
+      {
+        commandId: "assetList.copyPaths",
+        title: "复制选中资产路径",
+        icon: <Copy className="h-4 w-4" />,
+        description: "复制资产列表当前选中路径",
+        shortcut: { key: "c", ctrlKey: true },
+        scope: "assetList",
+        when: (context) =>
+          context.objectType === "assetList" && context.selectedPaths.length > 0,
+        run: (context) => {
+          if (context.objectType !== "assetList") return;
+          void copyText(context.selectedPaths.join("\n"), {
+            successMessage:
+              context.selectedPaths.length === 1
+                ? "资产路径已复制"
+                : "资产路径列表已复制",
+          });
+        },
+      },
+      {
+        commandId: "assetList.previewPrimary",
+        title: "预览选中资产",
+        icon: <Eye className="h-4 w-4" />,
+        description: "预览资产列表中的当前资产",
+        shortcut: { key: " " },
+        scope: "assetList",
+        when: (context) =>
+          context.objectType === "assetList" && !!context.primaryPath,
+        run: (context) => {
+          if (context.objectType !== "assetList" || !context.primaryPath) return;
+          const asset = assets.find(
+            (item) => item.relativePath === context.primaryPath,
+          );
+          if (asset) handleSelectSelection({ type: "asset", item: asset });
+        },
+      },
+      {
+        commandId: "assetList.deleteSelected",
+        title: "删除选中资产",
+        icon: <Trash2 className="h-4 w-4" />,
+        description: "删除资产列表当前选中资产",
+        shortcut: { key: "Delete" },
+        scope: "assetList",
+        danger: true,
+        when: (context) =>
+          context.objectType === "assetList" && context.selectedPaths.length > 0,
+        run: (context) => {
+          if (context.objectType !== "assetList") return;
+          void handleDeleteAssets(context.selectedPaths);
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-list-command", {
+              detail: { action: "clearSelection" },
+            }),
+          );
+        },
+      },
+      {
         commandId: "assetDirectory.open",
         title: "打开目录",
         icon: <FolderOpen className="h-4 w-4" />,
@@ -1687,7 +1787,7 @@ export function AppShell() {
         commandId: "canvas.clear",
         title: "清空画布",
         description: "清空当前画布内的节点和连线",
-        scope: "workflowCanvas",
+        scope: ["workflowCanvas", "videoFlowCanvas"],
         category: "节点流",
         submenu: "画布",
         order: 40,
@@ -1839,7 +1939,6 @@ export function AppShell() {
             });
             return;
           }
-          promptCanvasOperation();
         },
       },
       {
@@ -1869,7 +1968,6 @@ export function AppShell() {
             });
             return;
           }
-          promptCanvasOperation();
         },
       },
       {
@@ -1905,11 +2003,17 @@ export function AppShell() {
             return;
           }
           if (context.objectType === "workflowSelection") {
-            runWorkflowCanvasCommand({ action: "deleteEdge" });
+            runWorkflowCanvasCommand({
+              action: "deleteEdge",
+              edgeId: context.edgeIds[0],
+            });
             return;
           }
           if (context.objectType === "videoFlowSelection") {
-            runVideoFlowCommand({ action: "deleteEdge" });
+            runVideoFlowCommand({
+              action: "deleteEdge",
+              edgeId: context.edgeIds[0],
+            });
             return;
           }
         },
@@ -1959,7 +2063,6 @@ export function AppShell() {
             });
             return;
           }
-          promptCanvasOperation();
         },
       },
     ],
@@ -2019,6 +2122,15 @@ export function AppShell() {
   }
 
   useEffect(() => {
+    const onCommandRun = (event: Event) => {
+      const detail = (event as CustomEvent<CommandRunRequest>).detail;
+      if (!detail?.commandId) return;
+      event.preventDefault();
+      void commandRegistry.run(
+        detail.commandId,
+        detail.context ?? commandContext,
+      );
+    };
     const onKeyDown = (event: KeyboardEvent) => {
       if (isEditableShortcutTarget(event.target)) return;
       for (const command of commandRegistry.list(commandContext)) {
@@ -2033,8 +2145,12 @@ export function AppShell() {
         return;
       }
     };
+    window.addEventListener(COMMAND_RUN_EVENT, onCommandRun);
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener(COMMAND_RUN_EVENT, onCommandRun);
+      window.removeEventListener("keydown", onKeyDown);
+    };
   }, [commandContext, commandRegistry]);
 
   useEffect(() => {
@@ -2591,6 +2707,7 @@ function contextMenuTitle(objectType: AppCommandContext["objectType"]) {
     global: "工作台操作",
     project: "项目操作",
     asset: "资产操作",
+    assetList: "资产列表操作",
     assetDirectory: "目录操作",
     task: "任务操作",
     mcpTool: "MCP 工具操作",

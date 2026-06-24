@@ -88,6 +88,14 @@ const MENU_TEMPLATES: Partial<
     { type: "separator", id: "asset:danger" },
     "asset.delete",
   ],
+  assetList: [
+    "assetList.previewPrimary",
+    "assetList.copyPaths",
+    "assetList.selectAll",
+    "assetList.addVisibleToSelection",
+    { type: "separator", id: "assetList:danger" },
+    "assetList.deleteSelected",
+  ],
   assetDirectory: [
     "assetDirectory.open",
     "assetDirectory.copyPath",
@@ -317,6 +325,7 @@ function contextMenuTitle(objectType: AppCommandContext["objectType"]) {
     global: "工作台操作",
     project: "项目操作",
     asset: "资产操作",
+    assetList: "资产列表操作",
     assetDirectory: "目录操作",
     task: "任务操作",
     mcpTool: "MCP 工具操作",

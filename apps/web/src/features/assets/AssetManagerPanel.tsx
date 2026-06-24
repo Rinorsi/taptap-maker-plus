@@ -11,7 +11,12 @@ import { clearAssetDragData, readAssetDragPath, writeAssetDragData } from "../..
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { SelectionBox, StudioBulkActionBar, StudioSearchInput } from "../../components/studio/StudioKit";
-import { AppContextMenu, isEditableShortcutTarget } from "../../commands";
+import {
+  AppContextMenu,
+  isEditableShortcutTarget,
+  requestCommandRun,
+  type AppCommandContext,
+} from "../../commands";
 import { copyText } from "../../lib/clipboard";
 import { cn, formatBytes } from "../../lib/utils";
 import { ordinaryAssetTypeLabels, ordinaryAssetTypeOrder } from "./assetGovernance";
@@ -241,37 +246,62 @@ export function AssetManagerPanel({
     return () => window.removeEventListener("taptap:asset-directory-command", onDirectoryCommand);
   }, [directories, tree]);
 
+  useEffect(() => {
+    const onAssetListCommand = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          action?: string;
+          paths?: string[];
+        }>
+      ).detail;
+      if (detail?.action === "selectPaths") {
+        setSelectedPaths(detail.paths ?? []);
+        return;
+      }
+      if (detail?.action === "clearSelection") {
+        setSelectedPaths([]);
+      }
+    };
+    window.addEventListener("taptap:asset-list-command", onAssetListCommand);
+    return () =>
+      window.removeEventListener("taptap:asset-list-command", onAssetListCommand);
+  }, []);
+
+  function assetListCommandContext(): AppCommandContext {
+    return {
+      objectType: "assetList",
+      visiblePaths: filteredAssets.map((asset) => asset.relativePath),
+      selectedPaths,
+      primaryPath: selectedPaths[0],
+    };
+  }
+
   function handleAssetKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     if (disabled || isEditableShortcutTarget(event.target)) return;
     const key = event.key.toLowerCase();
     if ((event.ctrlKey || event.metaKey) && event.shiftKey && key === "a") {
       event.preventDefault();
-      const visiblePaths = new Set(filteredAssets.map((asset) => asset.relativePath));
-      setSelectedPaths((current) => [
-        ...current.filter((path) => !visiblePaths.has(path)),
-        ...filteredAssets.filter((asset) => !current.includes(asset.relativePath)).map((asset) => asset.relativePath)
-      ]);
+      requestCommandRun("assetList.addVisibleToSelection", assetListCommandContext());
       return;
     }
     if ((event.ctrlKey || event.metaKey) && key === "a") {
       event.preventDefault();
-      setSelectedPaths(filteredAssets.map((asset) => asset.relativePath));
+      requestCommandRun("assetList.selectAll", assetListCommandContext());
       return;
     }
     if ((event.ctrlKey || event.metaKey) && key === "c" && selectedPaths.length > 0) {
       event.preventDefault();
-      void copyText(selectedPaths.join("\n"), { successMessage: selectedPaths.length === 1 ? "资产路径已复制" : "资产路径列表已复制" });
+      requestCommandRun("assetList.copyPaths", assetListCommandContext());
       return;
     }
     if (event.key === "Delete" && selectedPaths.length > 0) {
       event.preventDefault();
-      void deleteSelected();
+      requestCommandRun("assetList.deleteSelected", assetListCommandContext());
       return;
     }
     if (event.key === " " && selectedPaths.length > 0) {
       event.preventDefault();
-      const selectedAsset = filteredAssets.find((asset) => asset.relativePath === selectedPaths[0]) ?? scopedAssets.find((asset) => asset.relativePath === selectedPaths[0]);
-      if (selectedAsset) selectAsset(selectedAsset);
+      requestCommandRun("assetList.previewPrimary", assetListCommandContext());
     }
   }
 

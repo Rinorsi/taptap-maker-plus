@@ -58,6 +58,7 @@ import {
   shouldIgnoreContextMenuEvent,
   shouldUseNativeContextMenu,
   isEditableShortcutTarget,
+  requestCommandRun,
 } from "../../commands";
 import type { AppCommandContext } from "../../commands";
 import { cn } from "../../lib/utils";
@@ -682,7 +683,12 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool, onCommandC
         return;
       }
       const nodeId = "nodeId" in detail ? detail.nodeId ?? selectedNodeId : "";
-      const edgeId = "edgeId" in detail ? detail.edgeId : "";
+      const edgeId =
+        "edgeId" in detail
+          ? detail.edgeId ??
+            edges.find((edge) => edge.selected)?.id ??
+            ""
+          : "";
       if (detail.action === "copyNode" && nodeId) copyNode(nodeId);
       if (detail.action === "copyNode" && !nodeId) copySelected();
       if (detail.action === "deleteNode" && nodeId) deleteNode(nodeId);
@@ -695,6 +701,7 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool, onCommandC
       if (detail.action === "showNodePayload" && nodeId)
         showNodePayload(nodeId);
       if (detail.action === "deleteEdge" && edgeId) deleteEdge(edgeId);
+      if (detail.action === "deleteEdge" && !edgeId) deleteSelected();
       if (detail.action === "copyEdgeId" && edgeId)
         copyTextToClipboard(edgeId, "连线 ID 已复制");
       if (detail.action === "showEdgePayload" && edgeId)
@@ -755,22 +762,27 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool, onCommandC
       const key = event.key.toLowerCase();
       if ((event.ctrlKey || event.metaKey) && key === "a") {
         event.preventDefault();
-        selectAll();
+        requestCommandRun("canvas.selectAll");
         return;
       }
       if ((event.ctrlKey || event.metaKey) && key === "c") {
         event.preventDefault();
-        copySelected();
+        requestCommandRun("node.copy");
         return;
       }
       if (event.key === "Delete" || event.key === "Backspace") {
         event.preventDefault();
-        deleteSelected();
+        requestCommandRun(
+          edges.some((edge) => edge.selected) &&
+            !graphNodes.some((node) => node.selected)
+            ? "edge.delete"
+            : "node.delete",
+        );
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [copySelected, deleteSelected, selectAll]);
+  }, [edges, graphNodes]);
 
   function updateNodeInputs(nodeId: string, inputs: Record<string, unknown>) {
     setToolInputs((current) => ({ ...current, [nodeId]: inputs }));
@@ -1139,18 +1151,18 @@ function WorkflowContextMenu({
           <WorkflowMenuButton
             icon={<Maximize2 className="h-4 w-4" />}
             label="适应画布"
-            onClick={() => run(onFitCanvas)}
+            onClick={() => run(() => requestCommandRun("canvas.fitView"))}
           />
           <WorkflowMenuButton
             icon={<MousePointer2 className="h-4 w-4" />}
             label="全选"
-            onClick={() => run(onSelectAll)}
+            onClick={() => run(() => requestCommandRun("canvas.selectAll"))}
           />
           <WorkflowMenuButton
             icon={<Trash2 className="h-4 w-4" />}
             label="清空画布"
             danger
-            onClick={() => run(onClearCanvas)}
+            onClick={() => run(() => requestCommandRun("canvas.clear"))}
           />
         </>
       ) : menu.type === "node" ? (
@@ -1158,24 +1170,52 @@ function WorkflowContextMenu({
           <WorkflowMenuButton
             icon={<Play className="h-4 w-4" />}
             label="运行节点"
-            onClick={() => run(() => onRunNode(menu.nodeId))}
+            onClick={() =>
+              run(() =>
+                requestCommandRun("node.run", {
+                  objectType: "workflowNode",
+                  nodeId: menu.nodeId,
+                }),
+              )
+            }
           />
           <WorkflowMenuButton
             icon={<Copy className="h-4 w-4" />}
             label="复制节点"
-            onClick={() => run(() => onCopyNode(menu.nodeId))}
+            onClick={() =>
+              run(() =>
+                requestCommandRun("node.copy", {
+                  objectType: "workflowNode",
+                  nodeId: menu.nodeId,
+                }),
+              )
+            }
           />
           <WorkflowMenuButton
             icon={<Trash2 className="h-4 w-4" />}
             label="删除节点"
             danger
-            onClick={() => run(() => onDeleteNode(menu.nodeId))}
+            onClick={() =>
+              run(() =>
+                requestCommandRun("node.delete", {
+                  objectType: "workflowNode",
+                  nodeId: menu.nodeId,
+                }),
+              )
+            }
           />
           <WorkflowMenuSeparator />
           <WorkflowMenuButton
             icon={<Copy className="h-4 w-4" />}
             label="复制节点 ID"
-            onClick={() => run(() => onCopyNodeId(menu.nodeId))}
+            onClick={() =>
+              run(() =>
+                requestCommandRun("node.copyId", {
+                  objectType: "workflowNode",
+                  nodeId: menu.nodeId,
+                }),
+              )
+            }
           />
           <WorkflowMenuButton
             icon={<Eye className="h-4 w-4" />}
@@ -1185,7 +1225,14 @@ function WorkflowContextMenu({
           <WorkflowMenuButton
             icon={<Boxes className="h-4 w-4" />}
             label={collapsed ? "展开节点" : "收起节点"}
-            onClick={() => run(() => onToggleNodeCollapse(menu.nodeId))}
+            onClick={() =>
+              run(() =>
+                requestCommandRun("node.collapseToggle", {
+                  objectType: "workflowNode",
+                  nodeId: menu.nodeId,
+                }),
+              )
+            }
           />
         </>
       ) : (
@@ -1194,17 +1241,38 @@ function WorkflowContextMenu({
             icon={<Trash2 className="h-4 w-4" />}
             label="删除连线"
             danger
-            onClick={() => run(() => onDeleteEdge(menu.edgeId))}
+            onClick={() =>
+              run(() =>
+                requestCommandRun("edge.delete", {
+                  objectType: "workflowEdge",
+                  edgeId: menu.edgeId,
+                }),
+              )
+            }
           />
           <WorkflowMenuButton
             icon={<Copy className="h-4 w-4" />}
             label="复制连线 ID"
-            onClick={() => run(() => onCopyEdgeId(menu.edgeId))}
+            onClick={() =>
+              run(() =>
+                requestCommandRun("edge.copyId", {
+                  objectType: "workflowEdge",
+                  edgeId: menu.edgeId,
+                }),
+              )
+            }
           />
           <WorkflowMenuButton
             icon={<Eye className="h-4 w-4" />}
             label="查看连接数据"
-            onClick={() => run(() => onShowEdgePayload(menu.edgeId))}
+            onClick={() =>
+              run(() =>
+                requestCommandRun("edge.inspectData", {
+                  objectType: "workflowEdge",
+                  edgeId: menu.edgeId,
+                }),
+              )
+            }
           />
         </>
       )}

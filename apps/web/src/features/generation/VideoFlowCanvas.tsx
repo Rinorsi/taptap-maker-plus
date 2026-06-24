@@ -61,6 +61,7 @@ import {
   CONTEXT_MENU_OPEN_EVENT,
   isEditableShortcutTarget,
   notifyContextMenuOpen,
+  requestCommandRun,
   shouldIgnoreContextMenuEvent,
   shouldUseNativeContextMenu,
   type AppCommandContext,
@@ -318,12 +319,12 @@ function VideoFlowCanvasInner({
   const [submenuState, setSubmenuState] = useState<CanvasSubmenuState>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  function selectAllCanvasElements() {
+  const selectAllCanvasElements = useCallback(() => {
     setNodes((nds) => nds.map((n) => ({ ...n, selected: true })));
     setEdges((eds) => eds.map((edge) => ({ ...edge, selected: true })));
-  }
+  }, [setEdges, setNodes]);
 
-  function deleteSelectedCanvasElements() {
+  const deleteSelectedCanvasElements = useCallback(() => {
     const selectedNodes = reactFlow.getNodes().filter((node) => node.selected);
     const selectedEdges = reactFlow
       .getEdges()
@@ -343,7 +344,20 @@ function VideoFlowCanvasInner({
     setSelectedEdge(null);
     setIsCanvasMenuOpen(false);
     setSubmenuState(null);
-  }
+  }, [reactFlow, selectedEdge, setEdges, setNodes]);
+
+  const copySelectedCanvasElements = useCallback(() => {
+    const selectedNodes = reactFlow.getNodes().filter((node) => node.selected);
+    if (selectedNodes.length === 0) return;
+    const selectedNodeIds = new Set(selectedNodes.map((node) => node.id));
+    const selectedEdges = reactFlow
+      .getEdges()
+      .filter(
+        (edge) =>
+          selectedNodeIds.has(edge.source) && selectedNodeIds.has(edge.target),
+      );
+    setClipboard({ nodes: selectedNodes, edges: selectedEdges });
+  }, [reactFlow]);
 
   useEffect(() => {
     const selectedNodeIds = nodes.filter((node) => node.selected).map((node) => node.id);
@@ -382,18 +396,8 @@ function VideoFlowCanvasInner({
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
-        const selectedNodes = reactFlow.getNodes().filter((n) => n.selected);
-        if (selectedNodes.length > 0) {
-          const selectedNodeIds = new Set(selectedNodes.map((n) => n.id));
-          const selectedEdges = reactFlow
-            .getEdges()
-            .filter(
-              (edge) =>
-                selectedNodeIds.has(edge.source) &&
-                selectedNodeIds.has(edge.target),
-            );
-          setClipboard({ nodes: selectedNodes, edges: selectedEdges });
-        }
+        e.preventDefault();
+        requestCommandRun("node.copy");
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
         if (clipboard) {
           const newNodes: Node[] = [];
@@ -435,10 +439,18 @@ function VideoFlowCanvasInner({
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
         e.preventDefault();
-        selectAllCanvasElements();
+        requestCommandRun("canvas.selectAll");
       } else if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
-        deleteSelectedCanvasElements();
+        const selectedNodes = reactFlow.getNodes().filter((node) => node.selected);
+        const selectedEdges = reactFlow
+          .getEdges()
+          .filter((edge) => edge.selected || edge.id === selectedEdge);
+        requestCommandRun(
+          selectedEdges.length > 0 && selectedNodes.length === 0
+            ? "edge.delete"
+            : "node.delete",
+        );
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -1211,8 +1223,16 @@ function VideoFlowCanvasInner({
         handleCopyNode(detail.nodeId);
         return;
       }
+      if (detail.action === "copyNode") {
+        copySelectedCanvasElements();
+        return;
+      }
       if (detail.action === "deleteNode" && detail.nodeId) {
         handleDeleteNode(detail.nodeId);
+        return;
+      }
+      if (detail.action === "deleteNode") {
+        deleteSelectedCanvasElements();
         return;
       }
       if (detail.action === "runNode" && detail.nodeId) {
@@ -1227,6 +1247,10 @@ function VideoFlowCanvasInner({
         handleDeleteEdge(detail.edgeId);
         return;
       }
+      if (detail.action === "deleteEdge") {
+        deleteSelectedCanvasElements();
+        return;
+      }
       if (detail.action === "showEdgePayload" && detail.edgeId) {
         handleCopyConnectionData(detail.edgeId);
       }
@@ -1238,8 +1262,10 @@ function VideoFlowCanvasInner({
     handleClearCanvas,
     handleCopyConnectionData,
     handleCopyNode,
+    copySelectedCanvasElements,
     handleDeleteEdge,
     handleDeleteNode,
+    deleteSelectedCanvasElements,
     handleRunNode,
     handleToggleNodeCollapsed,
     reactFlow,
@@ -1825,7 +1851,9 @@ function VideoFlowCanvasInner({
                   type="button"
                   className={menuItemClasses}
                   onClick={() => {
-                    void reactFlow.fitView({ padding: 0.18, duration: 180 });
+                    requestCommandRun("canvas.fitView", {
+                      objectType: "videoFlowCanvas",
+                    });
                     closeCanvasMenu();
                   }}
                 >
@@ -1836,12 +1864,9 @@ function VideoFlowCanvasInner({
                   type="button"
                   className={menuItemClasses}
                   onClick={() => {
-                    setNodes((nds) =>
-                      nds.map((node) => ({ ...node, selected: true })),
-                    );
-                    setEdges((eds) =>
-                      eds.map((edge) => ({ ...edge, selected: true })),
-                    );
+                    requestCommandRun("canvas.selectAll", {
+                      objectType: "videoFlowCanvas",
+                    });
                     closeCanvasMenu();
                   }}
                 >
@@ -1852,7 +1877,9 @@ function VideoFlowCanvasInner({
                   type="button"
                   className={menuItemClasses}
                   onClick={() => {
-                    setSnapToGrid((value) => !value);
+                    requestCommandRun("canvas.toggleGrid", {
+                      objectType: "videoFlowCanvas",
+                    });
                     closeCanvasMenu();
                   }}
                 >
@@ -1893,7 +1920,12 @@ function VideoFlowCanvasInner({
                     menuItemClasses,
                     "text-red-500 hover:bg-red-500/10 hover:text-red-400",
                   )}
-                  onClick={handleClearCanvas}
+                  onClick={() => {
+                    requestCommandRun("canvas.clear", {
+                      objectType: "videoFlowCanvas",
+                    });
+                    closeCanvasMenu();
+                  }}
                 >
                   <Trash2 className="h-4 w-4" />
                   <span className="font-medium">清空画布</span>
@@ -1909,7 +1941,13 @@ function VideoFlowCanvasInner({
                 <button
                   type="button"
                   className={menuItemClasses}
-                  onClick={() => handleRunNode(activeMenuNode.id)}
+                  onClick={() => {
+                    requestCommandRun("node.run", {
+                      objectType: "videoFlowNode",
+                      nodeId: activeMenuNode.id,
+                    });
+                    closeCanvasMenu();
+                  }}
                 >
                   <Play className="h-4 w-4 opacity-70" />
                   <span className="font-medium">运行此节点</span>
@@ -1921,7 +1959,13 @@ function VideoFlowCanvasInner({
                 <button
                   type="button"
                   className={menuItemClasses}
-                  onClick={() => handleCopyNode(activeMenuNode.id)}
+                  onClick={() => {
+                    requestCommandRun("node.copy", {
+                      objectType: "videoFlowNode",
+                      nodeId: activeMenuNode.id,
+                    });
+                    closeCanvasMenu();
+                  }}
                 >
                   <Copy className="h-4 w-4 opacity-70" />
                   <span className="font-medium">复制节点</span>
@@ -1929,7 +1973,13 @@ function VideoFlowCanvasInner({
                 <button
                   type="button"
                   className={menuItemClasses}
-                  onClick={() => handleToggleNodeCollapsed(activeMenuNode.id)}
+                  onClick={() => {
+                    requestCommandRun("node.collapseToggle", {
+                      objectType: "videoFlowNode",
+                      nodeId: activeMenuNode.id,
+                    });
+                    closeCanvasMenu();
+                  }}
                 >
                   <Eye className="h-4 w-4 opacity-70" />
                   <span className="font-medium">
@@ -1940,7 +1990,10 @@ function VideoFlowCanvasInner({
                   type="button"
                   className={menuItemClasses}
                   onClick={() => {
-                    copyText(activeMenuNode.id);
+                    requestCommandRun("node.copyId", {
+                      objectType: "videoFlowNode",
+                      nodeId: activeMenuNode.id,
+                    });
                     closeCanvasMenu();
                   }}
                 >
@@ -1971,7 +2024,10 @@ function VideoFlowCanvasInner({
                     "text-red-500 hover:bg-red-500/10 hover:text-red-400",
                   )}
                   onClick={() => {
-                    handleDeleteNode(activeMenuNode.id);
+                    requestCommandRun("node.delete", {
+                      objectType: "videoFlowNode",
+                      nodeId: activeMenuNode.id,
+                    });
                     closeCanvasMenu();
                   }}
                 >
@@ -1990,7 +2046,10 @@ function VideoFlowCanvasInner({
                   type="button"
                   className={menuItemClasses}
                   onClick={() => {
-                    copyText(activeMenuEdge.id);
+                    requestCommandRun("edge.copyId", {
+                      objectType: "videoFlowEdge",
+                      edgeId: activeMenuEdge.id,
+                    });
                     closeCanvasMenu();
                   }}
                 >
@@ -2000,7 +2059,13 @@ function VideoFlowCanvasInner({
                 <button
                   type="button"
                   className={menuItemClasses}
-                  onClick={() => handleCopyConnectionData(activeMenuEdge.id)}
+                  onClick={() => {
+                    requestCommandRun("edge.inspectData", {
+                      objectType: "videoFlowEdge",
+                      edgeId: activeMenuEdge.id,
+                    });
+                    closeCanvasMenu();
+                  }}
                 >
                   <Copy className="h-4 w-4 opacity-70" />
                   <span className="font-medium">查看连接数据</span>
@@ -2033,7 +2098,10 @@ function VideoFlowCanvasInner({
                     "text-red-500 hover:bg-red-500/10 hover:text-red-400",
                   )}
                   onClick={() => {
-                    handleDeleteEdge(activeMenuEdge.id);
+                    requestCommandRun("edge.delete", {
+                      objectType: "videoFlowEdge",
+                      edgeId: activeMenuEdge.id,
+                    });
                     closeCanvasMenu();
                   }}
                 >

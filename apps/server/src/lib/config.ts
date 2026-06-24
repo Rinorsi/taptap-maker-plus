@@ -20,5 +20,6 @@ export const config = {
   mcpLogDir: process.env.TAPTAP_MCP_LOG_DIR ?? path.join(dataDir, "mcp-logs"),
   makerProjectsRoot: process.env.TAPTAP_MAKER_PROJECTS_ROOT ?? defaultMakerProjectsRoot,
   makerPackage: process.env.TAPTAP_MAKER_PACKAGE ?? "@taptap/maker",
-  makerEnv: process.env.TAPTAP_MCP_ENV ?? "production"
+  makerEnv: process.env.TAPTAP_MCP_ENV ?? "production",
+  desktopInstanceToken: process.env.TAPTAP_DESKTOP_INSTANCE_TOKEN
 };

@@ -365,6 +365,8 @@ export async function registerApiRoutes(app: FastifyInstance) {
 
   app.get("/api/desktop/readiness", async () => ({
     ok: true,
+    appId: "taptap-maker-plus",
+    desktopInstanceToken: config.desktopInstanceToken,
     mode: process.env.NODE_ENV ?? "development",
     server: {
       host: config.host,
@@ -389,6 +391,7 @@ export async function registerApiRoutes(app: FastifyInstance) {
       TAPTAP_MCP_LOG_DIR: process.env.TAPTAP_MCP_LOG_DIR,
       TAPTAP_SERVER_PORT: process.env.TAPTAP_SERVER_PORT,
       TAPTAP_SERVER_HOST: process.env.TAPTAP_SERVER_HOST,
+      TAPTAP_DESKTOP_INSTANCE_TOKEN: process.env.TAPTAP_DESKTOP_INSTANCE_TOKEN,
       TAPTAP_MCP_ENV: process.env.TAPTAP_MCP_ENV
     }
   }));

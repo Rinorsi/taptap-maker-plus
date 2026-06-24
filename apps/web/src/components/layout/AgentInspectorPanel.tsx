@@ -388,6 +388,17 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
   const runtimeStatus = runtime?.status ?? "idle";
   const ready = runtimeStatus === "ready";
   const starting = runtimeStatus === "starting";
+  const localApiUrl = desktopReadiness
+    ? `http://${desktopReadiness.server.host}:${desktopReadiness.server.port}`
+    : "等待本地 API";
+  const viteProxyTarget = desktopReadiness?.mode === "development"
+    ? "固定 /api -> 127.0.0.1:8787"
+    : "生产内置服务";
+  const currentAction = busy
+    ? notice || "正在执行..."
+    : starting
+      ? "MCP 正在启动，等待 runtime 返回 PID"
+      : notice || "空闲";
   const diagnosticsRaw = useMemo(
     () =>
       JSON.stringify(
@@ -412,14 +423,18 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
     let cancelled = false;
     async function loadDeveloperSnapshot() {
       try {
-        const [readiness, context] = await Promise.all([
-          getDesktopReadiness().catch(() => undefined),
-          getAgentContext(project?.id, { activeTab: "status" }).catch(() => undefined),
+        const [readinessResult, contextResult] = await Promise.allSettled([
+          getDesktopReadiness(),
+          getAgentContext(project?.id, { activeTab: "status" }),
         ]);
         if (cancelled) return;
-        setDesktopReadiness(readiness);
-        setAgentContext(context);
-        setDeveloperError("");
+        setDesktopReadiness(readinessResult.status === "fulfilled" ? readinessResult.value : undefined);
+        setAgentContext(contextResult.status === "fulfilled" ? contextResult.value : undefined);
+        const errors = [
+          readinessResult.status === "rejected" ? `desktop/readiness: ${readinessResult.reason instanceof Error ? readinessResult.reason.message : String(readinessResult.reason)}` : "",
+          contextResult.status === "rejected" ? `agent/context: ${contextResult.reason instanceof Error ? contextResult.reason.message : String(contextResult.reason)}` : "",
+        ].filter(Boolean);
+        setDeveloperError(errors.join("；"));
       } catch (error) {
         if (!cancelled) setDeveloperError(error instanceof Error ? error.message : String(error));
       }
@@ -453,8 +468,8 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
           </span>
         </div>
         <div className="grid gap-1.5">
-          <InfoRowCompact label="本地 API" value={desktopReadiness ? `http://${desktopReadiness.server.host}:${desktopReadiness.server.port}` : "http://127.0.0.1:8787"} />
-          <InfoRowCompact label="Vite 代理" value="/api -> 127.0.0.1:8787" />
+          <InfoRowCompact label="本地 API" value={localApiUrl} />
+          <InfoRowCompact label="Vite 代理" value={viteProxyTarget} />
           <InfoRowCompact label="MCP cwd" value={runtime?.cwd ?? project?.rootPath ?? "-"} />
           <InfoRowCompact label="进程 PID" value={runtime?.processId ? String(runtime.processId) : "-"} />
           <InfoRowCompact label="tools/list" value={agentContext?.toolsListSnapshot?.updatedAt ?? runtime?.toolsListUpdatedAt ?? "-"} />
@@ -466,7 +481,7 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
         <InfoRow label="最近任务" value={recent ? `${recent.toolName} / ${recent.status}` : "-"} />
         <InfoRow label="启动接口" value={project ? `/api/projects/${project.id}/mcp/start` : "-"} />
         <InfoRow label="状态接口" value={project ? `/api/projects/${project.id}/mcp/status` : "-"} />
-        <InfoRow label="当前动作" value={busy ? notice || "执行中..." : notice || "空闲"} />
+        <InfoRow label="当前动作" value={currentAction} />
       </div>
       <div className="rounded-panel border border-border-soft bg-surface-raised divide-y divide-border-soft overflow-hidden">
         <InfoRow label="桌面模式" value={desktopReadiness?.mode ?? "-"} />
@@ -487,7 +502,7 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
       <div className="grid gap-2 mt-3.5">
         <Button onClick={onStartRuntime} disabled={!project || starting || busy} className="w-full gap-2 text-xs h-9 shadow-sm">
           {starting || busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-current" />}
-          {starting || busy ? "正在执行..." : ready ? "重启 / 刷新 MCP" : "启动 MCP"}
+          {starting ? "MCP 启动中..." : busy ? "正在执行..." : ready ? "重启 / 刷新 MCP" : "启动 MCP"}
         </Button>
         <div className="grid grid-cols-2 gap-2">
           <Button variant="outline" onClick={onRefreshTools} disabled={!project || busy} className="gap-1.5 text-xs h-8 shadow-sm">
@@ -506,12 +521,18 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
           </Button>
         </div>
       </div>
-      <RawViewer
-        title="raw agent context"
-        value={agentContext ? JSON.stringify(agentContext, null, 2) : ""}
-        height="220px"
-        emptyText="暂无 agent context"
-      />
+      <details className="rounded-panel border border-border-soft bg-surface-raised">
+        <summary className="cursor-pointer px-3 py-2 text-[11px] font-bold text-text-muted hover:text-text">
+          raw agent context
+        </summary>
+        <RawViewer
+          title="raw agent context"
+          value={agentContext ? JSON.stringify(agentContext, null, 2) : ""}
+          height="180px"
+          emptyText="暂无 agent context"
+          className="rounded-t-none border-x-0 border-b-0"
+        />
+      </details>
     </div>
   );
 }
@@ -746,11 +767,25 @@ function TaskInspector({
 
 function AssetInspector({ asset, projectId }: { asset: AssetSummary; projectId?: string }) {
   const canPreview = projectId && asset.assetType === "image";
+  const [previewFailed, setPreviewFailed] = useState(false);
   return (
     <div className="flex flex-col gap-2.5">
       {canPreview && (
         <div className="mb-2 border border-border bg-surface-raised rounded-panel overflow-hidden shadow-sm">
-          <img className="w-full aspect-square object-contain bg-surface-muted" src={assetPreviewUrl(projectId, asset.relativePath)} alt={asset.fileName} />
+          {previewFailed ? (
+            <div className="flex aspect-square w-full flex-col items-center justify-center gap-2 bg-surface-muted p-4 text-center">
+              <FileJson className="h-8 w-8 text-text-subtle" />
+              <span className="text-[11px] font-bold text-text">预览加载失败</span>
+              <span className="max-w-full truncate text-[10px] text-text-subtle" title={asset.relativePath}>{asset.relativePath}</span>
+            </div>
+          ) : (
+            <img
+              className="w-full aspect-square object-contain bg-surface-muted"
+              src={assetPreviewUrl(projectId, asset.relativePath)}
+              alt={asset.fileName}
+              onError={() => setPreviewFailed(true)}
+            />
+          )}
         </div>
       )}
       <div className="rounded-panel border border-border-soft bg-surface-raised divide-y divide-border-soft overflow-hidden mt-2">

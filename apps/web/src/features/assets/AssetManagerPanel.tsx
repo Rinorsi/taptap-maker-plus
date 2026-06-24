@@ -758,7 +758,7 @@ function AssetGrid({
               >
               <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden border-b border-border-soft bg-surface-muted">
                 {asset.assetType === "image" ? (
-                  <img draggable={false} src={assetPreviewUrl(asset.projectId, asset.relativePath)} alt={asset.fileName} className="pointer-events-none max-h-[84%] max-w-[84%] object-contain transition-transform duration-300 group-hover:scale-105" loading="lazy" />
+                  <AssetImageThumb asset={asset} />
                 ) : asset.assetType === "video" ? (
                   <div className="group/video relative h-full w-full bg-black/10">
                     <video
@@ -841,6 +841,36 @@ function AssetGrid({
   );
 }
 
+function AssetImageThumb({ asset, compact = false }: { asset: AssetSummary; compact?: boolean }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <div className={cn(
+        "flex h-full w-full flex-col items-center justify-center gap-1 bg-surface-raised text-center",
+        compact ? "p-0.5" : "p-2"
+      )}>
+        <FileImage className={cn("text-text-subtle opacity-60", compact ? "h-3.5 w-3.5" : "h-6 w-6")} />
+        {!compact ? (
+          <span className="max-w-full truncate px-1 text-[9px] font-semibold text-text-subtle" title={asset.relativePath}>预览失败</span>
+        ) : null}
+      </div>
+    );
+  }
+  return (
+    <img
+      draggable={false}
+      src={assetPreviewUrl(asset.projectId, asset.relativePath)}
+      alt={asset.fileName}
+      className={cn(
+        "pointer-events-none object-contain",
+        compact ? "max-h-[82%] max-w-[82%]" : "max-h-[84%] max-w-[84%] transition-transform duration-300 group-hover:scale-105"
+      )}
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 function AssetTable({
   assets,
   directories,
@@ -898,7 +928,7 @@ function AssetTable({
           <div className="flex min-w-0 w-full items-start gap-2.5 text-left py-1" onClick={() => onSelectAsset(asset)}>
             {isImage ? (
               <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] bg-surface-muted ring-1 mt-0.5", isSelected ? "ring-brand" : "ring-border-soft")}>
-                <img draggable={false} src={assetPreviewUrl(asset.projectId, asset.relativePath)} className="pointer-events-none max-h-[82%] max-w-[82%] object-contain" alt="" loading="lazy" />
+                <AssetImageThumb asset={asset} compact />
               </span>
             ) : isVideo ? (
               <button type="button" onClick={(e) => { e.stopPropagation(); onPreviewAsset?.(asset); }} className={cn("group/play flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] ring-1 mt-0.5 transition-all hover:bg-brand hover:ring-brand", isSelected ? "ring-border-soft bg-brand/10" : "ring-border-soft bg-surface-raised")} title="播放视频">

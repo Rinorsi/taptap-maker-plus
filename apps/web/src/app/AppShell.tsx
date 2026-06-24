@@ -371,9 +371,7 @@ export function AppShell() {
           : project,
       ),
     );
-    setNotice(
-      "正在启动 MCP runtime：POST /api/projects/:projectId/mcp/start，服务端 http://127.0.0.1:8787",
-    );
+    setNotice("正在启动 MCP runtime：POST /api/projects/:projectId/mcp/start");
     try {
       const response = await startRuntime(selectedProject.id);
       setRuntime(response.runtime);
@@ -392,7 +390,23 @@ export function AppShell() {
       );
       await refreshProject(selectedProject.id);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      const failedRuntime: RuntimeSummary = {
+        projectId: selectedProject.id,
+        status: "error",
+        toolCount: tools.length,
+        cwd: selectedProject.rootPath,
+        lastError: message,
+      };
+      setRuntime(failedRuntime);
+      setProjects((current) =>
+        current.map((project) =>
+          project.id === selectedProject.id
+            ? { ...project, runtime: failedRuntime }
+            : project,
+        ),
+      );
+      setNotice(`MCP 启动失败：${message}`);
     } finally {
       setBusy(false);
     }

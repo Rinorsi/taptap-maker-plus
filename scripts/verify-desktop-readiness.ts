@@ -160,7 +160,7 @@ function requireServerArtifact() {
   }
   const serverConfigPath = path.join(workspaceRoot, "apps", "server", "dist", "lib", "config.js");
   const serverConfig = fs.readFileSync(serverConfigPath, "utf8");
-  for (const requiredEnv of ["TAPTAP_DATA_DIR", "TAPTAP_WORKSPACE_ROOT", "TAPTAP_WEB_DIST_DIR", "TAPTAP_MAKER_NPM_CACHE_DIR", "TAPTAP_MCP_LOG_DIR"]) {
+  for (const requiredEnv of ["TAPTAP_DATA_DIR", "TAPTAP_WORKSPACE_ROOT", "TAPTAP_WEB_DIST_DIR", "TAPTAP_MAKER_NPM_CACHE_DIR", "TAPTAP_MCP_LOG_DIR", "TAPTAP_DESKTOP_INSTANCE_TOKEN"]) {
     if (!serverConfig.includes(requiredEnv)) {
       throw new Error(`${relative(serverConfigPath)} does not reference ${requiredEnv}`);
     }
@@ -169,6 +169,13 @@ function requireServerArtifact() {
   const staticWeb = fs.readFileSync(staticWebPath, "utf8");
   if (!staticWeb.includes("webDistDir")) {
     throw new Error(`${relative(staticWebPath)} does not reference config.webDistDir`);
+  }
+  const apiPath = path.join(workspaceRoot, "apps", "server", "dist", "routes", "api.js");
+  const api = fs.readFileSync(apiPath, "utf8");
+  for (const requiredText of ["/api/desktop/readiness", "taptap-maker-plus", "desktopInstanceToken", "TAPTAP_DESKTOP_INSTANCE_TOKEN"]) {
+    if (!api.includes(requiredText)) {
+      throw new Error(`${relative(apiPath)} does not include ${requiredText}`);
+    }
   }
 }
 
@@ -262,7 +269,7 @@ function requireTauriConfig(rootPackage: JsonObject, tauriCliPackage: JsonObject
   const tauriLibPath = path.join(tauriSrcDir, "lib.rs");
   requireFile(tauriLibPath);
   const tauriLib = fs.readFileSync(tauriLibPath, "utf8");
-  for (const requiredText of ["DesktopServer", "resource_dir", "TAPTAP_WORKSPACE_ROOT", "TAPTAP_WEB_DIST_DIR", "TAPTAP_MAKER_PROJECTS_ROOT", "TAPTAP_DESKTOP_PARENT_PID", "TAPTAP_DATA_DIR", "TAPTAP_MAKER_NPM_CACHE_DIR", "TAPTAP_MCP_LOG_DIR", "RunEvent::Exit", "RunEvent::ExitRequested"]) {
+  for (const requiredText of ["DesktopServer", "resource_dir", "find_available_local_port", "make_desktop_instance_token", "wait_for_desktop_server_identity", "wait_for_dev_desktop_identity", "TAPTAP_WORKSPACE_ROOT", "TAPTAP_WEB_DIST_DIR", "TAPTAP_MAKER_PROJECTS_ROOT", "TAPTAP_DESKTOP_PARENT_PID", "TAPTAP_DATA_DIR", "TAPTAP_MAKER_NPM_CACHE_DIR", "TAPTAP_MCP_LOG_DIR", "TAPTAP_SERVER_PORT", "TAPTAP_DESKTOP_INSTANCE_TOKEN", "RunEvent::Exit", "RunEvent::ExitRequested"]) {
     if (!tauriLib.includes(requiredText)) {
       throw new Error(`${relative(tauriLibPath)} does not reference ${requiredText}`);
     }

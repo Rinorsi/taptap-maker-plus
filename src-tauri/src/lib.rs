@@ -2,28 +2,28 @@ use std::{
   fs,
   fs::OpenOptions,
   io::{Read, Write},
-  net::{TcpStream, ToSocketAddrs},
+  net::{TcpListener, TcpStream, ToSocketAddrs},
   path::{Path, PathBuf},
   process::{Child, Command, Stdio},
   sync::{Arc, Mutex},
   thread,
-  time::Duration,
+  time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-use tauri::{
-  menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
-  Emitter, Manager, PhysicalSize, RunEvent, Url, WindowEvent,
-};
+use tauri::{Manager, PhysicalSize, RunEvent, Url, WindowEvent};
 
 const SERVER_HOST: &str = "127.0.0.1";
-const SERVER_PORT: &str = "8787";
 const SERVER_PORT_NUMBER: u16 = 8787;
-const SERVER_URL: &str = "http://127.0.0.1:8787";
+const SERVER_PORT_SCAN_LIMIT: u16 = 40;
 const DEV_WEB_PORT_NUMBER: u16 = 5173;
 const DEV_WEB_URL: &str = "http://127.0.0.1:5173";
+const APP_ID: &str = "taptap-maker-plus";
+const READINESS_TOKEN_QUERY_PREFIX: &str = "/api/desktop/readiness?token=";
+const READINESS_APP_ID: &str = r#""appId":"taptap-maker-plus""#;
+const READINESS_TOKEN_KEY: &str = r#""desktopInstanceToken":""#;
 const WEB_IDENTITY_NAME: &str = r#"name="taptap-maker-plus""#;
 const WEB_IDENTITY_CONTENT: &str = r#"content="web""#;
 const ASPECT_WIDTH: u32 = 16;
@@ -31,18 +31,20 @@ const ASPECT_HEIGHT: u32 = 9;
 const ASPECT_TOLERANCE: u32 = 3;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
-const NATIVE_MENU_EVENT: &str = "taptap://native-menu";
-const MENU_COMMAND_PREFIX: &str = "command:";
-const MENU_QUIT_ID: &str = "app.quit";
-
 struct LocalPortProbe {
   host: &'static str,
   port: u16,
 }
 
+struct DesktopServerLaunch {
+  port: u16,
+  instance_token: String,
+}
+
 #[derive(Clone, Default)]
 struct DesktopServer {
   child: Arc<Mutex<Option<Child>>>,
+  launch: Arc<Mutex<Option<DesktopServerLaunch>>>,
 }
 
 #[derive(Default)]
@@ -68,6 +70,15 @@ impl DesktopServer {
     let workspace_root = normalize_windows_path(workspace_root(app)?);
     append_log(&desktop_log_path, &format!("starting Fastify from {}", workspace_root.display()));
     append_log(&desktop_log_path, &format!("server log {}", server_log_path.display()));
+    let server_port = if cfg!(debug_assertions) {
+      find_available_local_port(SERVER_HOST, SERVER_PORT_NUMBER, 0)
+        .ok_or_else(|| format!("Development server port {SERVER_PORT_NUMBER} is already in use"))?
+    } else {
+      find_available_local_port(SERVER_HOST, SERVER_PORT_NUMBER, SERVER_PORT_SCAN_LIMIT)
+        .ok_or_else(|| format!("Unable to find available local port from {SERVER_PORT_NUMBER}"))?
+    };
+    let instance_token = make_desktop_instance_token();
+    append_log(&desktop_log_path, &format!("Fastify target port {server_port}"));
     let mut command = server_command(&workspace_root);
     let server_stdout = OpenOptions::new()
       .create(true)
@@ -86,7 +97,8 @@ impl DesktopServer {
       .env("TAPTAP_MAKER_NPM_CACHE_DIR", &npm_cache_dir)
       .env("TAPTAP_MCP_LOG_DIR", &mcp_log_dir)
       .env("TAPTAP_SERVER_HOST", SERVER_HOST)
-      .env("TAPTAP_SERVER_PORT", SERVER_PORT)
+      .env("TAPTAP_SERVER_PORT", server_port.to_string())
+      .env("TAPTAP_DESKTOP_INSTANCE_TOKEN", &instance_token)
       .env("TAPTAP_MCP_ENV", "production")
       .stdin(Stdio::null())
       .stdout(Stdio::from(server_stdout))
@@ -95,7 +107,22 @@ impl DesktopServer {
     let child = command.spawn().map_err(|error| error.to_string())?;
     append_log(&desktop_log_path, &format!("Fastify child pid {}", child.id()));
     *self.child.lock().map_err(|error| error.to_string())? = Some(child);
+    *self.launch.lock().map_err(|error| error.to_string())? = Some(DesktopServerLaunch {
+      port: server_port,
+      instance_token,
+    });
     Ok(())
+  }
+
+  fn launch(&self) -> Result<DesktopServerLaunch, String> {
+    let launch = self.launch.lock().map_err(|error| error.to_string())?;
+    let Some(launch) = launch.as_ref() else {
+      return Err("Desktop server has not been launched".to_string());
+    };
+    Ok(DesktopServerLaunch {
+      port: launch.port,
+      instance_token: launch.instance_token.clone(),
+    })
   }
 
   fn stop(&self) {
@@ -105,6 +132,9 @@ impl DesktopServer {
     if let Some(mut child) = child.take() {
       let _ = child.kill();
       let _ = child.wait();
+    }
+    if let Ok(mut launch) = self.launch.lock() {
+      *launch = None;
     }
   }
 }
@@ -164,7 +194,25 @@ fn hide_command_window(command: &mut Command) {
   }
 }
 
-fn read_local_http_root(host: &str, port: u16) -> Option<String> {
+fn find_available_local_port(host: &str, preferred_port: u16, scan_limit: u16) -> Option<u16> {
+  for offset in 0..=scan_limit {
+    let port = preferred_port.checked_add(offset)?;
+    if TcpListener::bind((host, port)).is_ok() {
+      return Some(port);
+    }
+  }
+  None
+}
+
+fn make_desktop_instance_token() -> String {
+  let now = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .map(|duration| duration.as_nanos())
+    .unwrap_or_default();
+  format!("{APP_ID}-{}-{now}", std::process::id())
+}
+
+fn read_local_http_path(host: &str, port: u16, path: &str) -> Option<String> {
   let Ok(addresses) = (host, port).to_socket_addrs() else {
     return None;
   };
@@ -175,7 +223,7 @@ fn read_local_http_root(host: &str, port: u16) -> Option<String> {
     let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
     let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
     let request = format!(
-      "GET / HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\nAccept: text/html\r\n\r\n"
+      "GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\nAccept: */*\r\n\r\n"
     );
     if stream.write_all(request.as_bytes()).is_err() {
       continue;
@@ -188,8 +236,8 @@ fn read_local_http_root(host: &str, port: u16) -> Option<String> {
         Ok(bytes_read) => {
           response.extend_from_slice(&buffer[..bytes_read]);
           let response_text = String::from_utf8_lossy(&response);
-          if response_text.contains(WEB_IDENTITY_NAME) && response_text.contains(WEB_IDENTITY_CONTENT) {
-            return Some(String::from_utf8_lossy(&response).into_owned());
+          if response_text.contains("</html>") || response_text.contains(r#""ok":true"#) {
+            return Some(response_text.into_owned());
           }
         }
         Err(_) => break,
@@ -199,16 +247,95 @@ fn read_local_http_root(host: &str, port: u16) -> Option<String> {
   None
 }
 
-fn wait_for_web_identity(probes: &[LocalPortProbe]) -> bool {
+fn read_local_http_root(host: &str, port: u16) -> Option<String> {
+  read_local_http_path(host, port, "/")
+}
+
+fn has_web_identity(host: &str, port: u16) -> bool {
+  let Some(response) = read_local_http_root(host, port) else {
+    return false;
+  };
+  response.contains(WEB_IDENTITY_NAME) && response.contains(WEB_IDENTITY_CONTENT)
+}
+
+fn response_has_readiness_identity(response: &str, instance_token: &str) -> bool {
+  response.contains(READINESS_APP_ID)
+    && response.contains(READINESS_TOKEN_KEY)
+    && response.contains(instance_token)
+}
+
+fn has_readiness_identity(host: &str, port: u16, instance_token: &str) -> bool {
+  let path = format!("{READINESS_TOKEN_QUERY_PREFIX}{instance_token}");
+  let Some(response) = read_local_http_path(host, port, &path) else {
+    return false;
+  };
+  response_has_readiness_identity(&response, instance_token)
+}
+
+fn wait_for_desktop_server_identity(host: &'static str, port: u16, instance_token: &str) -> bool {
   for _ in 0..120 {
-    for probe in probes {
-      if read_local_http_root(probe.host, probe.port).is_some() {
-        return true;
-      }
+    if has_readiness_identity(host, port, instance_token) && has_web_identity(host, port) {
+      return true;
     }
     thread::sleep(Duration::from_millis(250));
   }
   false
+}
+
+fn wait_for_dev_desktop_identity(
+  web_probes: &[LocalPortProbe],
+  server_host: &'static str,
+  server_port: u16,
+  instance_token: &str,
+) -> bool {
+  for _ in 0..120 {
+    let web_ready = web_probes.iter().any(|probe| has_web_identity(probe.host, probe.port));
+    let server_ready = has_readiness_identity(server_host, server_port, instance_token);
+    if web_ready && server_ready {
+      return true;
+    }
+    thread::sleep(Duration::from_millis(250));
+  }
+  false
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn finds_next_port_when_preferred_port_is_bound() {
+    let listener = TcpListener::bind((SERVER_HOST, 0)).expect("bind ephemeral port");
+    let occupied_port = listener.local_addr().expect("read local address").port();
+    let selected_port = find_available_local_port(SERVER_HOST, occupied_port, 4)
+      .expect("find available fallback port");
+    assert_ne!(selected_port, occupied_port);
+  }
+
+  #[test]
+  fn readiness_identity_requires_app_id_and_matching_instance_token() {
+    let token = "test-token";
+    let matching_response = format!(
+      r#"HTTP/1.1 200 OK
+Content-Type: application/json
+
+{{"ok":true,"appId":"taptap-maker-plus","desktopInstanceToken":"{token}"}}"#
+    );
+    let wrong_token_response = r#"HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"ok":true,"appId":"taptap-maker-plus","desktopInstanceToken":"other-token"}"#;
+    let wrong_app_response = format!(
+      r#"HTTP/1.1 200 OK
+Content-Type: application/json
+
+{{"ok":true,"appId":"other-app","desktopInstanceToken":"{token}"}}"#
+    );
+
+    assert!(response_has_readiness_identity(&matching_response, token));
+    assert!(!response_has_readiness_identity(wrong_token_response, token));
+    assert!(!response_has_readiness_identity(&wrong_app_response, token));
+  }
 }
 
 #[tauri::command]
@@ -327,81 +454,25 @@ fn enforce_aspect_ratio(
   let _ = window.set_size(next_size);
 }
 
-fn command_menu_item(
-  app: &tauri::App,
-  command_id: &'static str,
-  title: &'static str,
-  accelerator: Option<&'static str>,
-) -> tauri::Result<tauri::menu::MenuItem<tauri::Wry>> {
-  let id = format!("{MENU_COMMAND_PREFIX}{command_id}");
-  let mut builder = MenuItemBuilder::with_id(id, title);
-  if let Some(accelerator) = accelerator {
-    builder = builder.accelerator(accelerator);
-  }
-  builder.build(app)
-}
-
-fn install_native_menu(app: &tauri::App) -> tauri::Result<()> {
-  let file_menu = SubmenuBuilder::new(app, "文件")
-    .item(&command_menu_item(app, "app.openCommandPalette", "打开命令面板", Some("Ctrl+K"))?)
-    .item(&command_menu_item(app, "app.saveCurrentDraft", "保存当前工作流/草稿", Some("Ctrl+S"))?)
-    .separator()
-    .text(MENU_QUIT_ID, "退出")
-    .build()?;
-  let view_menu = SubmenuBuilder::new(app, "视图")
-    .item(&command_menu_item(app, "layout.toggleSidebar", "折叠/展开左栏", Some("Ctrl+B"))?)
-    .item(&command_menu_item(app, "layout.toggleInspector", "折叠/展开右栏", Some("Ctrl+Shift+I"))?)
-    .item(&command_menu_item(app, "app.toggleTheme", "切换主题", None)?)
-    .separator()
-    .item(&command_menu_item(app, "app.refreshCurrent", "刷新当前数据", Some("Ctrl+R"))?)
-    .build()?;
-  let project_menu = SubmenuBuilder::new(app, "项目")
-    .item(&command_menu_item(app, "project.scanProjects", "扫描项目", None)?)
-    .item(&command_menu_item(app, "mcp.startRuntime", "启动 MCP runtime", None)?)
-    .item(&command_menu_item(app, "mcp.refreshTools", "刷新 MCP 工具", None)?)
-    .item(&command_menu_item(app, "asset.scanCurrentProject", "扫描当前项目资产", None)?)
-    .build()?;
-  let developer_menu = SubmenuBuilder::new(app, "开发者")
-    .item(&command_menu_item(app, "developer.openPanel", "打开开发者面板", None)?)
-    .item(&command_menu_item(app, "developer.copyDiagnostics", "复制诊断摘要", None)?)
-    .build()?;
-  let menu = MenuBuilder::new(app)
-    .item(&file_menu)
-    .item(&view_menu)
-    .item(&project_menu)
-    .item(&developer_menu)
-    .build()?;
-  app.set_menu(menu)?;
-  Ok(())
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   let aspect_ratio_lock = Arc::new(Mutex::new(AspectRatioLock::default()));
   let aspect_ratio_lock_for_run = aspect_ratio_lock.clone();
   let app = tauri::Builder::default()
-    .on_menu_event(|app, event| {
-      let id = event.id().0.as_str();
-      if id == MENU_QUIT_ID {
-        app.exit(0);
-        return;
-      }
-      if let Some(command_id) = id.strip_prefix(MENU_COMMAND_PREFIX) {
-        let _ = app.emit(NATIVE_MENU_EVENT, command_id);
-      }
-    })
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
             .level(log::LevelFilter::Info)
-            .build(),
+          .build(),
         )?;
       }
-      install_native_menu(app)?;
       let server = DesktopServer::default();
       let app_handle = app.handle().clone();
       server.start(&app_handle).map_err(|error| {
+        tauri::Error::Io(std::io::Error::new(std::io::ErrorKind::Other, error))
+      })?;
+      let server_launch = server.launch().map_err(|error| {
         tauri::Error::Io(std::io::Error::new(std::io::ErrorKind::Other, error))
       })?;
       app.manage(server.clone());
@@ -409,22 +480,30 @@ pub fn run() {
       let dev_web_probes = [
         LocalPortProbe { host: "127.0.0.1", port: DEV_WEB_PORT_NUMBER },
       ];
-      let production_probe = [LocalPortProbe { host: SERVER_HOST, port: SERVER_PORT_NUMBER }];
       thread::spawn(move || {
         let target_ready = if cfg!(debug_assertions) {
-          wait_for_web_identity(&dev_web_probes)
+          wait_for_dev_desktop_identity(
+            &dev_web_probes,
+            SERVER_HOST,
+            server_launch.port,
+            &server_launch.instance_token,
+          )
         } else {
-          wait_for_web_identity(&production_probe)
+          wait_for_desktop_server_identity(SERVER_HOST, server_launch.port, &server_launch.instance_token)
         };
         let target_url = if target_ready {
-          if cfg!(debug_assertions) { DEV_WEB_URL } else { SERVER_URL }
+          if cfg!(debug_assertions) {
+            DEV_WEB_URL.to_string()
+          } else {
+            format!("http://{SERVER_HOST}:{}", server_launch.port)
+          }
         } else {
           return;
         };
         let window_app_handle = app_handle.clone();
         let _ = app_handle.run_on_main_thread(move || {
           if let Some(window) = window_app_handle.get_webview_window("main") {
-            if let Ok(url) = Url::parse(target_url) {
+            if let Ok(url) = Url::parse(&target_url) {
               let _ = window.navigate(url);
             }
           }

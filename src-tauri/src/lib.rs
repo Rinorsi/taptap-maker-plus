@@ -203,6 +203,44 @@ fn open_devtools(app: tauri::AppHandle) -> Result<(), String> {
   }
 }
 
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+  if !(url.starts_with("https://") || url.starts_with("http://")) {
+    return Err("Only http and https URLs can be opened externally.".to_string());
+  }
+
+  #[cfg(windows)]
+  {
+    let status = Command::new("cmd.exe")
+      .args(["/d", "/s", "/c", "start", "", &url])
+      .creation_flags(CREATE_NO_WINDOW)
+      .status()
+      .map_err(|error| error.to_string())?;
+    if status.success() {
+      return Ok(());
+    }
+    return Err(format!("Failed to open external URL: {status}"));
+  }
+
+  #[cfg(target_os = "macos")]
+  {
+    Command::new("open")
+      .arg(&url)
+      .status()
+      .map_err(|error| error.to_string())?;
+    return Ok(());
+  }
+
+  #[cfg(all(unix, not(target_os = "macos")))]
+  {
+    Command::new("xdg-open")
+      .arg(&url)
+      .status()
+      .map_err(|error| error.to_string())?;
+    return Ok(());
+  }
+}
+
 fn rounded_div(value: u64, divisor: u64) -> u32 {
   ((value + (divisor / 2)) / divisor) as u32
 }
@@ -370,7 +408,7 @@ pub fn run() {
       });
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![open_devtools])
+    .invoke_handler(tauri::generate_handler![open_devtools, open_external_url])
     .build(tauri::generate_context!())
     .expect("error while building tauri application");
 

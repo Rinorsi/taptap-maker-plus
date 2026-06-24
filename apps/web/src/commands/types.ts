@@ -8,6 +8,7 @@ export type CommandScope =
   | "task"
   | "mcpTool"
   | "workflowCanvas"
+  | "workflowSelection"
   | "workflowNode"
   | "workflowEdge"
   | "videoFlowCanvas"

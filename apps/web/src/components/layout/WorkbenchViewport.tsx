@@ -101,6 +101,7 @@ export function WorkbenchViewport(props: Props) {
               onImportAssets={props.onImportAssets}
               onCollapseSidebar={props.onCollapseSidebar}
               onShowError={props.onShowError}
+              onCommandContextChange={props.onCanvasCommandContextChange}
             />
           ) : null}
           {props.activeModule === "studio-music" ? (

@@ -1,6 +1,7 @@
 import { FolderSync, ChevronRight, HelpCircle, BookOpen, Terminal, Folder } from "lucide-react";
 import type { ProjectSummary } from "../../api";
 import type { WorkbenchModule } from "../../app/routes";
+import { openExternalUrl } from "../../lib/externalLinks";
 
 type Props = {
   projects: ProjectSummary[];
@@ -100,7 +101,7 @@ export function WelcomeView({ projects, onSelectProject, onScanProjects, busy }:
 
           <div className="flex flex-col gap-3">
             <h3 className="text-[13px] font-bold text-text-subtle uppercase tracking-wider mb-1">资源</h3>
-            <a href="https://developer.taptap.cn/" target="_blank" rel="noreferrer" className="group flex items-center gap-3 p-3 w-full rounded-lg hover:bg-surface-panel text-left transition-all duration-200 ring-1 ring-transparent hover:ring-border-soft">
+            <button type="button" onClick={() => void openExternalUrl("https://developer.taptap.cn/")} className="group flex items-center gap-3 p-3 w-full rounded-lg hover:bg-surface-panel text-left transition-all duration-200 ring-1 ring-transparent hover:ring-border-soft">
               <div className="w-8 h-8 rounded-md flex items-center justify-center shrink-0 text-text-muted group-hover:text-text transition-colors">
                 <BookOpen className="w-4 h-4" />
               </div>
@@ -108,8 +109,8 @@ export function WelcomeView({ projects, onSelectProject, onScanProjects, busy }:
                 <strong className="block text-[13px] font-semibold text-text">官方文档</strong>
                 <span className="block text-[11px] text-text-subtle mt-0.5">API 与开发指南</span>
               </div>
-            </a>
-            <a href="https://developer.taptap.cn/" target="_blank" rel="noreferrer" className="group flex items-center gap-3 p-3 w-full rounded-lg hover:bg-surface-panel text-left transition-all duration-200 ring-1 ring-transparent hover:ring-border-soft">
+            </button>
+            <button type="button" onClick={() => void openExternalUrl("https://developer.taptap.cn/")} className="group flex items-center gap-3 p-3 w-full rounded-lg hover:bg-surface-panel text-left transition-all duration-200 ring-1 ring-transparent hover:ring-border-soft">
               <div className="w-8 h-8 rounded-md flex items-center justify-center shrink-0 text-text-muted group-hover:text-text transition-colors">
                 <HelpCircle className="w-4 h-4" />
               </div>
@@ -117,7 +118,7 @@ export function WelcomeView({ projects, onSelectProject, onScanProjects, busy }:
                 <strong className="block text-[13px] font-semibold text-text">获取帮助</strong>
                 <span className="block text-[11px] text-text-subtle mt-0.5">开发者社区与支持</span>
               </div>
-            </a>
+            </button>
           </div>
 
         </div>

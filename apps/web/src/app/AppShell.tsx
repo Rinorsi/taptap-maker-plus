@@ -1663,15 +1663,20 @@ export function AppShell() {
         title: "全选画布元素",
         description: "选择当前画布内的节点和连线",
         shortcut: { key: "a", ctrlKey: true },
-        scope: ["workflowCanvas", "videoFlowCanvas"],
+        scope: ["workflowCanvas", "workflowSelection", "videoFlowCanvas", "videoFlowSelection"],
         category: "节点流",
         submenu: "画布",
         order: 30,
         when: (context) =>
           context.objectType === "workflowCanvas" ||
+          context.objectType === "workflowSelection" ||
+          context.objectType === "videoFlowSelection" ||
           context.objectType === "videoFlowCanvas",
         run: (context) => {
-          if (context.objectType === "workflowCanvas") {
+          if (
+            context.objectType === "workflowCanvas" ||
+            context.objectType === "workflowSelection"
+          ) {
             runWorkflowCanvasCommand({ action: "selectAll" });
             return;
           }
@@ -1732,12 +1737,13 @@ export function AppShell() {
         title: "复制节点",
         description: "复制当前节点",
         shortcut: { key: "c", ctrlKey: true },
-        scope: ["workflowNode", "videoFlowNode", "videoFlowSelection"],
+        scope: ["workflowNode", "workflowSelection", "videoFlowNode", "videoFlowSelection"],
         category: "节点流",
         submenu: "节点",
         order: 20,
         when: (context) =>
           context.objectType === "workflowNode" ||
+          context.objectType === "workflowSelection" ||
           context.objectType === "videoFlowNode" ||
           context.objectType === "videoFlowSelection",
         run: (context) => {
@@ -1755,7 +1761,14 @@ export function AppShell() {
             });
             return;
           }
-          promptCanvasOperation();
+          if (context.objectType === "workflowSelection") {
+            runWorkflowCanvasCommand({ action: "copyNode" });
+            return;
+          }
+          if (context.objectType === "videoFlowSelection") {
+            runVideoFlowCommand({ action: "copyNode" });
+            return;
+          }
         },
       },
       {
@@ -1763,13 +1776,15 @@ export function AppShell() {
         title: "删除节点",
         description: "删除当前节点",
         shortcut: { key: "Delete" },
-        scope: ["workflowNode", "videoFlowNode", "videoFlowSelection"],
+        scope: ["workflowNode", "workflowSelection", "videoFlowNode", "videoFlowSelection"],
         category: "节点流",
         submenu: "节点",
         order: 30,
         danger: true,
         when: (context) =>
           context.objectType === "workflowNode" ||
+          (context.objectType === "workflowSelection" &&
+            context.nodeIds.length > 0) ||
           context.objectType === "videoFlowNode" ||
           (context.objectType === "videoFlowSelection" &&
             context.nodeIds.length > 0),
@@ -1788,7 +1803,14 @@ export function AppShell() {
             });
             return;
           }
-          promptCanvasOperation();
+          if (context.objectType === "workflowSelection") {
+            runWorkflowCanvasCommand({ action: "deleteNode" });
+            return;
+          }
+          if (context.objectType === "videoFlowSelection") {
+            runVideoFlowCommand({ action: "deleteNode" });
+            return;
+          }
         },
       },
       {
@@ -1855,13 +1877,15 @@ export function AppShell() {
         title: "删除连线",
         description: "删除当前连线",
         shortcut: { key: "Delete" },
-        scope: ["workflowEdge", "videoFlowEdge", "videoFlowSelection"],
+        scope: ["workflowEdge", "workflowSelection", "videoFlowEdge", "videoFlowSelection"],
         category: "节点流",
         submenu: "连线",
         order: 10,
         danger: true,
         when: (context) =>
           context.objectType === "workflowEdge" ||
+          (context.objectType === "workflowSelection" &&
+            context.edgeIds.length > 0) ||
           context.objectType === "videoFlowEdge" ||
           (context.objectType === "videoFlowSelection" &&
             context.edgeIds.length > 0),
@@ -1880,7 +1904,14 @@ export function AppShell() {
             });
             return;
           }
-          promptCanvasOperation();
+          if (context.objectType === "workflowSelection") {
+            runWorkflowCanvasCommand({ action: "deleteEdge" });
+            return;
+          }
+          if (context.objectType === "videoFlowSelection") {
+            runVideoFlowCommand({ action: "deleteEdge" });
+            return;
+          }
         },
       },
       {

@@ -63,6 +63,7 @@ import {
   notifyContextMenuOpen,
   shouldIgnoreContextMenuEvent,
   shouldUseNativeContextMenu,
+  type AppCommandContext,
 } from "../../commands";
 import { NodeLibraryDrawer } from "./NodeLibraryDrawer";
 import { getPresetById, NODE_PRESETS, type NodePreset } from "./nodeRegistry";
@@ -258,6 +259,7 @@ type VideoFlowCanvasProps = {
     args: Record<string, unknown>,
   ) => Promise<unknown>;
   onShowError?: () => void;
+  onCommandContextChange?: (context?: AppCommandContext) => void;
 };
 type PreviewMedia = {
   assetType: string;
@@ -288,6 +290,7 @@ function VideoFlowCanvasInner({
   onPreviewMedia,
   onCallTool,
   onShowError,
+  onCommandContextChange,
 }: VideoFlowCanvasProps) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(true);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -341,6 +344,30 @@ function VideoFlowCanvasInner({
     setIsCanvasMenuOpen(false);
     setSubmenuState(null);
   }
+
+  useEffect(() => {
+    const selectedNodeIds = nodes.filter((node) => node.selected).map((node) => node.id);
+    const selectedEdgeIds = edges
+      .filter((edge) => edge.selected || edge.id === selectedEdge)
+      .map((edge) => edge.id);
+    if (selectedNodeIds.length === 1 && selectedEdgeIds.length === 0) {
+      onCommandContextChange?.({ objectType: "videoFlowNode", nodeId: selectedNodeIds[0] });
+      return;
+    }
+    if (selectedNodeIds.length === 0 && selectedEdgeIds.length === 1) {
+      onCommandContextChange?.({ objectType: "videoFlowEdge", edgeId: selectedEdgeIds[0] });
+      return;
+    }
+    if (selectedNodeIds.length > 0 || selectedEdgeIds.length > 0) {
+      onCommandContextChange?.({
+        objectType: "videoFlowSelection",
+        nodeIds: selectedNodeIds,
+        edgeIds: selectedEdgeIds,
+      });
+      return;
+    }
+    onCommandContextChange?.({ objectType: "videoFlowCanvas" });
+  }, [edges, nodes, onCommandContextChange, selectedEdge]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

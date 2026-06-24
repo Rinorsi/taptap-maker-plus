@@ -40,6 +40,7 @@ import {
   managedAssetRoots,
 } from "../assets/assetGovernance";
 import { cn } from "../../lib/utils";
+import type { AppCommandContext } from "../../commands";
 
 type Props = {
   project?: ProjectSummary;
@@ -63,6 +64,7 @@ type Props = {
   onImportAssets: (files: File[], targetFolder: string) => Promise<void>;
   onCollapseSidebar?: () => void;
   onShowError?: () => void;
+  onCommandContextChange?: (context?: AppCommandContext) => void;
 };
 
 type ResourceType = "video" | "image" | "audio";
@@ -221,6 +223,7 @@ export function VideoStudio({
   onImportAssets,
   onCollapseSidebar,
   onShowError,
+  onCommandContextChange,
 }: Props) {
   const [videoMode, setVideoMode] = useState("text_to_video");
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -841,6 +844,7 @@ export function VideoStudio({
               onToggleFullscreen={() => void setFlowFullscreen(!isFlowFullscreen)}
               onCallTool={handleCallTool}
               onShowError={onShowError}
+              onCommandContextChange={onCommandContextChange}
               onPreviewMedia={(asset) => {
                 if (asset.assetType !== "audio") setPreviewAsset(asset);
               }}

@@ -101,7 +101,12 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
     const movedY = Math.abs(event.clientY - dragState.y);
     if (movedX < TITLEBAR_DRAG_THRESHOLD_PX && movedY < TITLEBAR_DRAG_THRESHOLD_PX) return;
     titlebarDragRef.current = null;
-    dragDesktopWindow().catch(() => undefined);
+    dragDesktopWindow({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      screenX: event.screenX,
+      screenY: event.screenY,
+    }).catch(() => undefined);
   }
 
   function clearTitlebarPointer(event: ReactPointerEvent<HTMLElement>) {
@@ -195,12 +200,28 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
   );
 }
 
-async function dragDesktopWindow() {
+async function dragDesktopWindow(pointer: {
+  clientX: number;
+  clientY: number;
+  screenX: number;
+  screenY: number;
+}) {
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  const { PhysicalPosition } = await import("@tauri-apps/api/dpi");
   const appWindow = getCurrentWindow();
   if (await appWindow.isMaximized()) {
+    const viewportWidth = Math.max(window.innerWidth, 1);
+    const horizontalRatio = Math.min(Math.max(pointer.clientX / viewportWidth, 0), 1);
+    const titlebarGrabY = Math.max(pointer.clientY, 0);
     await appWindow.toggleMaximize();
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const restoredSize = await appWindow.outerSize();
+    await appWindow.setPosition(
+      new PhysicalPosition(
+        Math.round(pointer.screenX - restoredSize.width * horizontalRatio),
+        Math.round(pointer.screenY - titlebarGrabY),
+      ),
+    );
   }
   await appWindow.startDragging();
 }

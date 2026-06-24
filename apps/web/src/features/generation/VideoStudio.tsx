@@ -60,6 +60,10 @@ type Props = {
     relativePaths: string[],
     targetFolder: string,
   ) => Promise<void>;
+  onCopyAssets: (
+    relativePaths: string[],
+    targetFolder: string,
+  ) => Promise<void>;
   onRenameAsset: (relativePath: string, newName: string) => Promise<void>;
   onImportAssets: (files: File[], targetFolder: string) => Promise<void>;
   onCollapseSidebar?: () => void;
@@ -220,6 +224,7 @@ export function VideoStudio({
   onScanAssets,
   onDeleteAssets,
   onMoveAssets,
+  onCopyAssets,
   onImportAssets,
   onCollapseSidebar,
   onShowError,
@@ -1135,6 +1140,7 @@ export function VideoStudio({
                           setPreviewAsset(null);
                       }}
                       onMoveAssets={onMoveAssets}
+                      onCopyAssets={onCopyAssets}
                       onSelectAsset={(asset) => {
                         onSelectAsset?.(asset);
                         if (asset.assetType !== "audio") openPreview(asset);

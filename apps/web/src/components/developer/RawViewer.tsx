@@ -27,6 +27,7 @@ export function RawViewer({
   height = "320px"
 }: RawViewerProps) {
   const documentTheme = useDocumentTheme();
+  const [wrapLines, setWrapLines] = useState(true);
   const rawValue = value ?? "";
   const viewerValue = useMemo(() => formatRawValue(rawValue, language, emptyText), [emptyText, language, rawValue]);
   const monacoLanguage = language === "json" ? "json" : "text";
@@ -34,7 +35,11 @@ export function RawViewer({
 
   return (
     <section className={cn("flex min-h-0 flex-col overflow-hidden rounded-panel border border-border bg-surface-panel shadow-sm", className)}>
-      <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border-soft bg-surface-muted/30 px-3">
+      <div
+        className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border-soft bg-surface-muted/30 px-3"
+        onDoubleClick={() => setWrapLines((current) => !current)}
+        title={wrapLines ? "双击切换为横向滚动" : "双击切换为自动换行"}
+      >
         <div className="flex min-w-0 items-center gap-2">
           <Braces className="h-3.5 w-3.5 shrink-0 text-text-subtle" />
           <span className="truncate text-[11px] font-bold text-text">{title}</span>
@@ -46,6 +51,7 @@ export function RawViewer({
             variant="ghost"
             size="sm"
             onClick={() => void copyText(rawValue, { successMessage: copySuccessMessage ?? `${title} 已复制` })}
+            onDoubleClick={(event) => event.stopPropagation()}
             className="h-7 gap-1.5 px-2 text-[10px] text-text-muted"
             title={copyLabel}
           >
@@ -65,7 +71,7 @@ export function RawViewer({
             domReadOnly: true,
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
-            wordWrap: "on",
+            wordWrap: wrapLines ? "on" : "off",
             lineNumbers: "on",
             folding: true,
             automaticLayout: true,

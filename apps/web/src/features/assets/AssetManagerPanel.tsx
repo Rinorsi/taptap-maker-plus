@@ -9,7 +9,6 @@ import { AssetDropzone } from "../../components/interaction/AssetDropzone";
 import { VirtualList } from "../../components/interaction/VirtualList";
 import { clearAssetDragData, readAssetDragPath, writeAssetDragData } from "../../components/interaction/assetDragData";
 import { Button } from "../../components/ui/Button";
-import { Input } from "../../components/ui/Input";
 import { SelectionBox, StudioBulkActionBar, StudioSearchInput } from "../../components/studio/StudioKit";
 import {
   AppContextMenu,
@@ -36,8 +35,21 @@ type AssetManagerPanelProps = {
   onImportAssets?: (files: File[], targetFolder: string) => Promise<void>;
   onDeleteAssets: (relativePaths: string[]) => Promise<void>;
   onMoveAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
+  onCopyAssets?: (relativePaths: string[], targetFolder: string) => Promise<void>;
   onSelectAsset: (asset: AssetSummary) => void;
   onAssetDragStart?: (event: React.DragEvent, asset: AssetSummary) => void;
+};
+
+type AssetClipboard = {
+  mode: "copy" | "cut";
+  paths: string[];
+};
+
+type DirectoryPickerState = {
+  title: string;
+  actionLabel: string;
+  paths: string[];
+  mode: "copy" | "move";
 };
 
 const typeIcons: Record<string, React.ElementType> = {
@@ -96,6 +108,7 @@ export function AssetManagerPanel({
   onImportAssets,
   onDeleteAssets,
   onMoveAssets,
+  onCopyAssets,
   onSelectAsset,
   onAssetDragStart
 }: AssetManagerPanelProps) {
@@ -105,11 +118,12 @@ export function AssetManagerPanel({
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
   const [playingAsset, setPlayingAsset] = useState<AssetSummary | null>(null);
   const [previewAsset, setPreviewAsset] = useState<AssetSummary | null>(null);
-  const [targetFolder, setTargetFolder] = useState(defaultTargetFolder);
   const [activeDirectory, setActiveDirectory] = useState(rootPath);
   const [recursive, setRecursive] = useState(false);
   const [treeOpen, setTreeOpen] = useState(false);
   const [collapsedDirectories, setCollapsedDirectories] = useState<string[]>([]);
+  const [assetClipboard, setAssetClipboard] = useState<AssetClipboard | null>(null);
+  const [directoryPicker, setDirectoryPicker] = useState<DirectoryPickerState | null>(null);
   const importTargetDirectoryRef = useRef<string | null>(null);
   const importOpenRef = useRef<(() => void) | null>(null);
 
@@ -172,15 +186,50 @@ export function AssetManagerPanel({
     setSelectedPaths([]);
   }
 
-  async function moveSelected() {
-    if (disabled || selectedPaths.length === 0) return;
-    await onMoveAssets(selectedPaths, targetFolder);
-    setSelectedPaths([]);
+  function openMovePicker(paths: string[]) {
+    if (disabled || paths.length === 0) return;
+    setDirectoryPicker({
+      title: "移动到...",
+      actionLabel: "移动",
+      paths,
+      mode: "move",
+    });
+  }
+
+  function openCopyPicker(paths: string[]) {
+    if (disabled || paths.length === 0 || !onCopyAssets) return;
+    setDirectoryPicker({
+      title: "复制到...",
+      actionLabel: "复制",
+      paths,
+      mode: "copy",
+    });
+  }
+
+  async function confirmDirectoryPicker(targetPath: string) {
+    if (!directoryPicker || disabled) return;
+    if (directoryPicker.mode === "move") {
+      await onMoveAssets(directoryPicker.paths, targetPath);
+      setSelectedPaths([]);
+    } else {
+      await onCopyAssets?.(directoryPicker.paths, targetPath);
+    }
+    setDirectoryPicker(null);
+  }
+
+  async function pasteClipboard(targetPath = activeNode.path) {
+    if (!assetClipboard || assetClipboard.paths.length === 0 || disabled) return;
+    if (assetClipboard.mode === "cut") {
+      await onMoveAssets(assetClipboard.paths, targetPath);
+      setAssetClipboard(null);
+      setSelectedPaths([]);
+      return;
+    }
+    await onCopyAssets?.(assetClipboard.paths, targetPath);
   }
 
   function selectDirectory(directory: AssetDirectoryNode) {
     setActiveDirectory(directory.path);
-    setTargetFolder(directory.path);
     setSelectedPaths([]);
     setTreeOpen(false);
   }
@@ -215,6 +264,11 @@ export function AssetManagerPanel({
     if (!draggedRelativePath || disabled) return;
     const pathsToMove = selectedPaths.includes(draggedRelativePath) ? selectedPaths : [draggedRelativePath];
     void onMoveAssets(pathsToMove, directoryPath).then(() => setSelectedPaths([]));
+  }
+
+  function copySelectedToClipboard(mode: AssetClipboard["mode"]) {
+    if (selectedPaths.length === 0) return;
+    setAssetClipboard({ mode, paths: selectedPaths });
   }
 
   function importFiles(files: File[]) {
@@ -264,12 +318,20 @@ export function AssetManagerPanel({
       }
       if (detail?.action === "clearSelection") {
         setSelectedPaths([]);
+        return;
+      }
+      if (detail?.action === "movePaths") {
+        openMovePicker(detail.paths ?? []);
+        return;
+      }
+      if (detail?.action === "copyPaths") {
+        openCopyPicker(detail.paths ?? []);
       }
     };
     window.addEventListener("taptap:asset-list-command", onAssetListCommand);
     return () =>
       window.removeEventListener("taptap:asset-list-command", onAssetListCommand);
-  }, []);
+  }, [disabled, onCopyAssets]);
 
   useEffect(() => {
     if (!previewAsset) return;
@@ -304,7 +366,17 @@ export function AssetManagerPanel({
     }
     if ((event.ctrlKey || event.metaKey) && key === "c" && selectedPaths.length > 0) {
       event.preventDefault();
-      requestCommandRun("assetList.copyPaths", assetListCommandContext());
+      copySelectedToClipboard("copy");
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && key === "x" && selectedPaths.length > 0) {
+      event.preventDefault();
+      copySelectedToClipboard("cut");
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && key === "v" && assetClipboard) {
+      event.preventDefault();
+      void pasteClipboard();
       return;
     }
     if (event.key === "Delete" && selectedPaths.length > 0) {
@@ -354,7 +426,6 @@ export function AssetManagerPanel({
                   <span className="rounded-md bg-brand/10 px-2 py-1 text-xs font-bold text-brand-strong">已选 {selectedPaths.length} 项</span>
                 </div>
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <Input value={targetFolder} onChange={(event) => setTargetFolder(event.target.value)} className="h-8 w-52 text-xs" placeholder="目标文件夹" />
                   <StudioBulkActionBar
                     selectedCount={selectedPaths.length}
                     allSelected={allVisibleSelected}
@@ -369,7 +440,9 @@ export function AssetManagerPanel({
                     onClear={() => setSelectedPaths([])}
                     showSelectionRow={false}
                     actions={[
-                      { id: "move", label: "移动", onClick: () => void moveSelected() },
+                      { id: "copy", label: "复制到", onClick: () => openCopyPicker(selectedPaths) },
+                      { id: "cut", label: "剪切", onClick: () => copySelectedToClipboard("cut") },
+                      { id: "move", label: "移动到", onClick: () => openMovePicker(selectedPaths) },
                       { id: "delete", label: "删除", tone: "danger", onClick: () => void deleteSelected() }
                     ]}
                   />
@@ -416,7 +489,23 @@ export function AssetManagerPanel({
                   
                   {/* Breadcrumb */}
                   <div className="col-start-1 row-start-2 @lg:row-start-1 flex h-7 items-center min-w-0 overflow-hidden pr-2">
-                    <Breadcrumb path={activeNode.path} onSelectPath={(path) => selectDirectory(directories.find((directory) => directory.path === path) ?? tree)} />
+                    {activeNode.parentPath ? (
+                      <button
+                        type="button"
+                        className="mr-1 shrink-0 rounded px-1.5 py-1 text-[11px] font-bold text-text-muted hover:bg-surface-raised hover:text-brand"
+                        onClick={() => selectDirectoryPath(activeNode.parentPath)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => handleDropOnDirectory(event, activeNode.parentPath)}
+                        title={`返回 ${activeNode.parentPath}`}
+                      >
+                        上一级
+                      </button>
+                    ) : null}
+                    <Breadcrumb
+                      path={activeNode.path}
+                      onSelectPath={(path) => selectDirectory(directories.find((directory) => directory.path === path) ?? tree)}
+                      onDropOnPath={(event, path) => handleDropOnDirectory(event, path)}
+                    />
                   </div>
 
                   {/* Meta */}
@@ -437,6 +526,18 @@ export function AssetManagerPanel({
                       <input type="checkbox" checked={recursive} onChange={(event) => setRecursive(event.target.checked)} className="h-3.5 w-3.5 cursor-pointer rounded border-border bg-surface-app text-brand focus:ring-brand/30" />
                       <span className="hidden xl:inline">包含</span>子目录
                     </label>
+                    {assetClipboard ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 shrink-0 px-2 text-[11px] font-semibold"
+                        onClick={() => void pasteClipboard()}
+                        disabled={disabled || (assetClipboard.mode === "copy" && !onCopyAssets)}
+                        title={`${assetClipboard.mode === "cut" ? "剪切" : "复制"} ${assetClipboard.paths.length} 项到当前目录`}
+                      >
+                        粘贴 {assetClipboard.paths.length}
+                      </Button>
+                    ) : null}
                     {!showTypeFilter && <span className="hidden lg:inline shrink-0 text-[10px] font-semibold text-text-subtle opacity-70">共{counts.all}项</span>}
                   </div>
 
@@ -522,39 +623,97 @@ export function AssetManagerPanel({
           ) : null}
         </AnimatePresence>
 
-        <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
-          {view === "grid" ? (
-            <AssetGrid
-              assets={filteredAssets}
-              directories={childDirectories}
-              selectedSet={selectedSet}
-              onSelectDirectory={selectDirectory}
-              onDropOnDirectory={handleDropOnDirectory}
-              onToggleAsset={toggleAsset}
-              onSelectAsset={selectAsset}
-              onCopyPath={copyPath}
-              onAssetDragStart={onAssetDragStart}
-              onPlayAudio={setPlayingAsset}
-              onPreviewAsset={setPreviewAsset}
-              playingAssetPath={playingAsset?.relativePath}
-            />
-          ) : (
-            <AssetTable
-              assets={filteredAssets}
-              directories={childDirectories}
-              selectedSet={selectedSet}
-              onSelectDirectory={selectDirectory}
-              onDropOnDirectory={handleDropOnDirectory}
-              onToggleAsset={toggleAsset}
-              onSelectAsset={selectAsset}
-              onCopyPath={copyPath}
-              onAssetDragStart={onAssetDragStart}
-              onPlayAudio={setPlayingAsset}
-              onPreviewAsset={setPreviewAsset}
-              playingAssetPath={playingAsset?.relativePath}
-            />
-          )}
-        </div>
+        <AnimatePresence>
+          {directoryPicker ? (
+            <motion.div
+              className="absolute inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDirectoryPicker(null)}
+            >
+              <motion.div
+                className="flex max-h-[78vh] w-[420px] max-w-full flex-col overflow-hidden rounded-lg border border-border bg-surface-panel shadow-2xl"
+                initial={{ scale: 0.98, y: 8 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.98, y: 8 }}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-3 py-3">
+                  <div className="min-w-0">
+                    <h3 className="m-0 text-sm font-extrabold text-text">{directoryPicker.title}</h3>
+                    <p className="m-0 mt-1 truncate text-[11px] text-text-subtle">
+                      {directoryPicker.paths.length} 个资产
+                    </p>
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md" onClick={() => setDirectoryPicker(null)} title="关闭">
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto p-2 scrollbar-thin">
+                  {directories.map((directory) => (
+                    <DirectoryRow
+                      key={directory.path}
+                      directory={directory}
+                      active={directory.path === activeNode.path}
+                      collapsed={false}
+                      onClick={() => void confirmDirectoryPicker(directory.path)}
+                      onToggleCollapse={() => undefined}
+                      onDrop={(event) => handleDropOnDirectory(event, directory.path)}
+                    />
+                  ))}
+                </div>
+                <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border px-3 py-2">
+                  <span className="min-w-0 truncate text-[10px] text-text-subtle">当前目录：{activeNode.path}</span>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setDirectoryPicker(null)}>
+                      取消
+                    </Button>
+                    <Button size="sm" className="h-8 text-xs" onClick={() => void confirmDirectoryPicker(activeNode.path)}>
+                      {directoryPicker.actionLabel}到当前目录
+                    </Button>
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+
+        <AppContextMenu context={assetListCommandContext()}>
+          <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
+            {view === "grid" ? (
+              <AssetGrid
+                assets={filteredAssets}
+                directories={childDirectories}
+                selectedSet={selectedSet}
+                onSelectDirectory={selectDirectory}
+                onDropOnDirectory={handleDropOnDirectory}
+                onToggleAsset={toggleAsset}
+                onSelectAsset={selectAsset}
+                onCopyPath={copyPath}
+                onAssetDragStart={onAssetDragStart}
+                onPlayAudio={setPlayingAsset}
+                onPreviewAsset={setPreviewAsset}
+                playingAssetPath={playingAsset?.relativePath}
+              />
+            ) : (
+              <AssetTable
+                assets={filteredAssets}
+                directories={childDirectories}
+                selectedSet={selectedSet}
+                onSelectDirectory={selectDirectory}
+                onDropOnDirectory={handleDropOnDirectory}
+                onToggleAsset={toggleAsset}
+                onSelectAsset={selectAsset}
+                onCopyPath={copyPath}
+                onAssetDragStart={onAssetDragStart}
+                onPlayAudio={setPlayingAsset}
+                onPreviewAsset={setPreviewAsset}
+                playingAssetPath={playingAsset?.relativePath}
+              />
+            )}
+          </div>
+        </AppContextMenu>
 
         <AnimatePresence>
           {previewAsset && (
@@ -562,45 +721,37 @@ export function AssetManagerPanel({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-6 backdrop-blur-sm"
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm"
               onClick={() => setPreviewAsset(null)}
             >
-              <div
-                className="flex max-h-[96vh] max-w-[96vw] flex-col overflow-hidden rounded-lg border border-white/10 bg-black shadow-2xl"
-                onClick={(event) => event.stopPropagation()}
+              <button
+                type="button"
+                className="absolute right-5 top-5 flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white/75 backdrop-blur-sm transition-colors hover:bg-black/70 hover:text-white"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setPreviewAsset(null);
+                }}
+                title="关闭预览"
               >
-                <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-white/10 bg-black/80 px-3 text-white">
-                  <div className="min-w-0">
-                    <span className="block truncate text-xs font-semibold" title={previewAsset.fileName}>{previewAsset.fileName}</span>
-                    <span className="block truncate text-[10px] text-white/55" title={previewAsset.relativePath}>{previewAsset.relativePath}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white/70 hover:bg-white/10 hover:text-white"
-                    onClick={() => setPreviewAsset(null)}
-                    title="关闭预览"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-                <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-black">
-                  {previewAsset.assetType === "image" ? (
-                    <img
-                      draggable={false}
-                      src={assetPreviewUrl(previewAsset.projectId, previewAsset.relativePath)}
-                      alt={previewAsset.fileName}
-                      className="max-h-[calc(96vh-40px)] max-w-[96vw] object-contain"
-                    />
-                  ) : (
-                    <video
-                      src={assetPreviewUrl(previewAsset.projectId, previewAsset.relativePath)}
-                      controls
-                      autoPlay
-                      className="max-h-[calc(96vh-40px)] max-w-[96vw] bg-black object-contain"
-                    />
-                  )}
-                </div>
-              </div>
+                <X className="h-5 w-5" />
+              </button>
+              {previewAsset.assetType === "image" ? (
+                <img
+                  draggable={false}
+                  src={assetPreviewUrl(previewAsset.projectId, previewAsset.relativePath)}
+                  alt={previewAsset.fileName}
+                  className="max-h-[96vh] max-w-[96vw] object-contain shadow-2xl"
+                  onClick={(event) => event.stopPropagation()}
+                />
+              ) : (
+                <video
+                  src={assetPreviewUrl(previewAsset.projectId, previewAsset.relativePath)}
+                  controls
+                  autoPlay
+                  className="max-h-[96vh] max-w-[96vw] bg-black object-contain shadow-2xl"
+                  onClick={(event) => event.stopPropagation()}
+                />
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -693,14 +844,29 @@ function DirectoryRow({
   );
 }
 
-function Breadcrumb({ path, onSelectPath }: { path: string; onSelectPath: (path: string) => void }) {
+function Breadcrumb({
+  path,
+  onSelectPath,
+  onDropOnPath
+}: {
+  path: string;
+  onSelectPath: (path: string) => void;
+  onDropOnPath: (event: React.DragEvent, path: string) => void;
+}) {
   const breadcrumbs = getDirectoryBreadcrumbs(path);
   return (
     <div className="flex min-w-0 items-center gap-1 text-xs font-bold text-text-muted">
       {breadcrumbs.map((crumb, index) => (
         <span key={crumb.path} className="flex min-w-0 items-center gap-1">
           {index > 0 ? <ChevronRight className="h-3 w-3 shrink-0 text-text-subtle" /> : null}
-          <button type="button" className={cn("max-w-[120px] truncate rounded px-1.5 py-1 hover:bg-surface-raised hover:text-brand", index === breadcrumbs.length - 1 && "text-text")} onClick={() => onSelectPath(crumb.path)} title={crumb.path}>
+          <button
+            type="button"
+            className={cn("max-w-[120px] truncate rounded px-1.5 py-1 hover:bg-surface-raised hover:text-brand", index === breadcrumbs.length - 1 && "text-text")}
+            onClick={() => onSelectPath(crumb.path)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => onDropOnPath(event, crumb.path)}
+            title={crumb.path}
+          >
             {crumb.name}
           </button>
         </span>

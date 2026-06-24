@@ -500,11 +500,11 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
         </div>
       </div>
 
-      <details className="mt-2 rounded-panel border border-border-soft bg-surface-raised overflow-hidden">
+      <details className="mt-2 shrink-0 rounded-panel border border-border-soft bg-surface-raised overflow-hidden">
         <summary className="cursor-pointer px-3 py-2 text-[11px] font-bold text-text-muted hover:text-text bg-surface-muted/30">
           高级诊断选项卡 (Developer)
         </summary>
-        <div className="p-3 grid gap-1.5 border-t border-border-soft text-[10px]">
+        <div className="p-3 grid gap-1.5 border-t border-border-soft text-[10px] min-w-0">
           <InfoRowCompact label="本地 API" value={localApiUrl} />
           <InfoRowCompact label="Vite 代理" value={viteProxyTarget} />
           <InfoRowCompact label="MCP cwd" value={runtime?.cwd ?? project?.rootPath ?? "-"} />
@@ -517,28 +517,30 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
           <InfoRowCompact label="启动接口" value={project ? `/api/projects/${project.id}/mcp/start` : "-"} />
           <InfoRowCompact label="最近任务" value={recent ? `${recent.toolName} / ${recent.status}` : "-"} />
 
-          <div className="grid grid-cols-2 gap-2 mt-3 mb-1">
-            <Button variant="outline" onClick={() => void copyText(diagnosticsRaw, { successMessage: "诊断 JSON 已复制" })} className="gap-1.5 text-xs h-8 shadow-sm">
-              <Copy className="w-3.5 h-3.5" /> 复制诊断
+          <div className="grid grid-cols-2 gap-2 mt-3 mb-1 min-w-0">
+            <Button variant="outline" onClick={() => void copyText(diagnosticsRaw, { successMessage: "诊断 JSON 已复制" })} className="gap-1.5 text-xs h-8 shadow-sm min-w-0 overflow-hidden">
+              <Copy className="w-3.5 h-3.5 shrink-0" /> <span className="truncate">复制诊断</span>
             </Button>
-            <Button variant="outline" onClick={exportDiagnostics} className="gap-1.5 text-xs h-8 shadow-sm">
-              <Download className="w-3.5 h-3.5" /> 导出诊断包
+            <Button variant="outline" onClick={exportDiagnostics} className="gap-1.5 text-xs h-8 shadow-sm min-w-0 overflow-hidden">
+              <Download className="w-3.5 h-3.5 shrink-0" /> <span className="truncate">导出诊断包</span>
             </Button>
           </div>
         </div>
 
         {hasAgentContextRaw ? (
-          <details className="border-t border-border-soft">
+          <details className="border-t border-border-soft shrink-0 group">
             <summary className="cursor-pointer px-3 py-2 text-[11px] font-bold text-text-muted hover:text-text bg-surface-muted/20">
               raw agent context
             </summary>
-            <RawViewer
-              title="raw agent context"
-              value={agentContextRaw}
-              height="180px"
-              emptyText="暂无 agent context"
-              className="rounded-t-none border-x-0 border-b-0"
-            />
+            <div className="h-[520px]">
+              <RawViewer
+                title="raw agent context"
+                value={agentContextRaw}
+                height="100%"
+                emptyText="暂无 agent context"
+                className="rounded-none border-0 h-full"
+              />
+            </div>
           </details>
         ) : null}
       </details>
@@ -548,9 +550,13 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
 
 function InfoRowCompact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-2 text-[10px]">
+    <div
+      className="flex items-center justify-between gap-2 text-[10px] min-w-0 group/row cursor-pointer rounded px-1 -mx-1 hover:bg-surface-muted/30 transition-colors"
+      onDoubleClick={() => void copyText(value, { successMessage: "已复制" })}
+      title={`${value} (双击复制)`}
+    >
       <span className="shrink-0 text-text-subtle">{label}</span>
-      <strong className="truncate text-right font-mono font-semibold text-text-muted" title={value}>{value}</strong>
+      <strong className="min-w-0 truncate text-right font-mono font-semibold text-text-muted">{value}</strong>
     </div>
   );
 }
@@ -948,9 +954,13 @@ function ProjectInspector({ project }: { project: ProjectSummary }) {
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 px-3 py-2.5 bg-transparent hover:bg-surface-app/50 transition-colors">
+    <div
+      className="flex items-center justify-between gap-3 px-3 py-2.5 bg-transparent hover:bg-surface-app/50 transition-colors cursor-pointer"
+      onDoubleClick={() => void copyText(value, { successMessage: "已复制" })}
+      title={`${value} (双击复制)`}
+    >
       <span className="text-xs font-semibold text-text-subtle shrink-0">{label}</span>
-      <strong className="text-[12px] font-semibold text-text truncate text-right" title={value}>{value}</strong>
+      <strong className="text-[12px] font-semibold text-text min-w-0 truncate text-right">{value}</strong>
     </div>
   );
 }

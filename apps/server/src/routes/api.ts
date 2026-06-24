@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { config } from "../lib/config.js";
@@ -56,6 +57,11 @@ const assetReferenceScanSchema = assetPathsSchema;
 
 const assetMoveSchema = assetPathsSchema.extend({
   targetFolder: z.string().min(1)
+});
+const assetCopySchema = assetMoveSchema;
+const assetOpenSchema = z.object({
+  relativePath: z.string().min(1),
+  mode: z.enum(["file", "directory"]).default("file")
 });
 const assetRenameSchema = z.object({ relativePath: z.string(), newName: z.string() });
 
@@ -283,6 +289,42 @@ function resolveProjectPath(projectRoot: string, relativePath: string) {
 
 function sanitizeFileName(fileName: string) {
   return path.basename(fileName).replace(/[\\/:*?"<>|]/g, "_").trim();
+}
+
+function nextAvailablePath(targetPath: string) {
+  if (!fs.existsSync(targetPath)) return targetPath;
+  const directory = path.dirname(targetPath);
+  const extension = path.extname(targetPath);
+  const baseName = path.basename(targetPath, extension);
+  let index = 1;
+  let nextPath = path.join(directory, `${baseName}_${index}${extension}`);
+  while (fs.existsSync(nextPath)) {
+    index += 1;
+    nextPath = path.join(directory, `${baseName}_${index}${extension}`);
+  }
+  return nextPath;
+}
+
+function openSystemPath(projectRoot: string, targetPath: string, mode: "file" | "directory") {
+  if (!isSafeProjectPath(projectRoot, targetPath)) throw new Error(`Unsafe open path: ${targetPath}`);
+  const statPath = fs.existsSync(targetPath) ? targetPath : path.dirname(targetPath);
+  if (!fs.existsSync(statPath)) throw new Error(`Path does not exist: ${statPath}`);
+  const directoryPath = fs.statSync(statPath).isDirectory() ? statPath : path.dirname(statPath);
+  const openDirectory = mode === "directory" || fs.statSync(statPath).isDirectory();
+
+  if (process.platform === "win32") {
+    const args = openDirectory ? [directoryPath] : ["/select,", statPath];
+    spawn("explorer.exe", args, { detached: true, stdio: "ignore" }).unref();
+    return;
+  }
+
+  if (process.platform === "darwin") {
+    const args = openDirectory ? [directoryPath] : ["-R", statPath];
+    spawn("open", args, { detached: true, stdio: "ignore" }).unref();
+    return;
+  }
+
+  spawn("xdg-open", [directoryPath], { detached: true, stdio: "ignore" }).unref();
 }
 
 function decodeDataUrl(dataUrl: string) {
@@ -535,6 +577,34 @@ export async function registerApiRoutes(app: FastifyInstance) {
     }
     const assets = await scanProjectAssets(project);
     return { ok: true, assets, count: assets.length };
+  });
+
+  app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/assets/copy", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    const parsed = assetCopySchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const targetDir = resolveProjectPath(project.rootPath, parsed.data.targetFolder);
+    fs.mkdirSync(targetDir, { recursive: true });
+    for (const relativePath of parsed.data.relativePaths) {
+      const asset = getAssetByRelativePath(project.id, relativePath);
+      if (!asset) continue;
+      const from = resolveProjectPath(project.rootPath, asset.relativePath);
+      if (!fs.existsSync(from)) continue;
+      const requestedTarget = path.join(targetDir, path.basename(asset.relativePath));
+      if (!isSafeProjectPath(project.rootPath, requestedTarget)) throw new Error(`Unsafe target path: ${parsed.data.targetFolder}`);
+      fs.copyFileSync(from, nextAvailablePath(requestedTarget));
+    }
+    const assets = await scanProjectAssets(project);
+    return { ok: true, assets, count: assets.length };
+  });
+
+  app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/assets/open-local", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    const parsed = assetOpenSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const targetPath = resolveProjectPath(project.rootPath, parsed.data.relativePath);
+    openSystemPath(project.rootPath, targetPath, parsed.data.mode);
+    return { ok: true };
   });
 
   app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/assets/import", async (request, reply) => {

@@ -578,6 +578,27 @@ export async function moveAssets(projectId: string, relativePaths: string[], tar
   return data.assets;
 }
 
+export async function copyAssets(projectId: string, relativePaths: string[], targetFolder: string): Promise<AssetSummary[]> {
+  const data = await json<{ assets: AssetSummary[] }>(
+    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/copy`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ relativePaths, targetFolder })
+    })
+  );
+  return data.assets;
+}
+
+export async function openLocalAssetPath(projectId: string, relativePath: string, mode: "file" | "directory" = "file"): Promise<void> {
+  await json<{ ok: true }>(
+    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/open-local`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ relativePath, mode })
+    })
+  );
+}
+
 export async function renameAsset(projectId: string, relativePath: string, newName: string): Promise<AssetSummary[]> {
   const res = await fetch(`/api/projects/${projectId}/assets/rename`, {
     method: "POST",

@@ -22,6 +22,7 @@ type Props = {
   onScanAssets: () => void;
   onDeleteAssets: (relativePaths: string[]) => Promise<void>;
   onMoveAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
+  onCopyAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
   onImportAssets: (files: File[], targetFolder: string) => Promise<void>;
 };
 
@@ -81,6 +82,7 @@ export function ImageStudio({
   onScanAssets,
   onDeleteAssets,
   onMoveAssets,
+  onCopyAssets,
   onImportAssets
 }: Props) {
   const [mode, setMode] = useState<ImageMode>("generate");
@@ -514,6 +516,7 @@ export function ImageStudio({
                   onImportAssets={(files, targetFolder) => handleImport(files, targetFolder)}
                   onDeleteAssets={onDeleteAssets}
                   onMoveAssets={onMoveAssets}
+                  onCopyAssets={onCopyAssets}
                   onSelectAsset={(asset) => {
                     onSelectAsset?.(asset);
                     setLightboxAsset(asset);

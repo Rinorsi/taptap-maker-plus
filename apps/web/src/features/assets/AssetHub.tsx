@@ -8,10 +8,11 @@ type Props = {
   onScanAssets: () => void;
   onDeleteAssets: (relativePaths: string[]) => Promise<void>;
   onMoveAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
+  onCopyAssets?: (relativePaths: string[], targetFolder: string) => Promise<void>;
   onSelectAsset: (asset: AssetSummary) => void;
 };
 
-export function AssetHub({ project, assets, onScanAssets, onDeleteAssets, onMoveAssets, onSelectAsset }: Props) {
+export function AssetHub({ project, assets, onScanAssets, onDeleteAssets, onMoveAssets, onCopyAssets, onSelectAsset }: Props) {
   return (
     <section className="mx-auto flex h-full min-h-0 w-full max-w-[1600px] flex-col gap-4 p-4 text-text md:p-6">
       <div className="flex shrink-0 items-center justify-between">
@@ -33,6 +34,7 @@ export function AssetHub({ project, assets, onScanAssets, onDeleteAssets, onMove
         onScanAssets={onScanAssets}
         onDeleteAssets={onDeleteAssets}
         onMoveAssets={onMoveAssets}
+        onCopyAssets={onCopyAssets}
         onSelectAsset={onSelectAsset}
       />
     </section>

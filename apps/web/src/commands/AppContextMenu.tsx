@@ -71,6 +71,8 @@ const MENU_TEMPLATES: Partial<
     "asset.revealInInspector",
     "asset.preview",
     "asset.copyRelativePath",
+    "asset.copyAbsolutePath",
+    "asset.openInExplorer",
     "asset.scanReferences",
     {
       type: "submenu",
@@ -91,6 +93,8 @@ const MENU_TEMPLATES: Partial<
   assetList: [
     "assetList.previewPrimary",
     "assetList.copyPaths",
+    "assetList.copyToDirectory",
+    "assetList.moveToDirectory",
     "assetList.selectAll",
     "assetList.addVisibleToSelection",
     { type: "separator", id: "assetList:danger" },
@@ -99,6 +103,8 @@ const MENU_TEMPLATES: Partial<
   assetDirectory: [
     "assetDirectory.open",
     "assetDirectory.copyPath",
+    "assetDirectory.copyAbsolutePath",
+    "assetDirectory.openInExplorer",
     "assetDirectory.importHere",
     "assetDirectory.refresh",
     {

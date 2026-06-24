@@ -2,6 +2,7 @@ import { Terminal, FolderSync, Search, Settings, Moon, PanelLeft, PanelRight, Re
 import { useEffect, useMemo, useState, useRef } from "react";
 import {
   callTool,
+  copyAssets,
   deleteAssets,
   renameAsset,
   getRuntimeStatus,
@@ -12,6 +13,7 @@ import {
   listTasks,
   listTools,
   moveAssets,
+  openLocalAssetPath,
   refreshTools,
   scanAssets,
   scanAssetReferences,
@@ -524,6 +526,27 @@ export function AppShell() {
     }
   }
 
+  async function handleCopyAssets(
+    relativePaths: string[],
+    targetFolder: string,
+  ) {
+    if (!selectedProject || !relativePaths.length) return;
+    setBusy(true);
+    try {
+      const nextAssets = await copyAssets(
+        selectedProject.id,
+        relativePaths,
+        targetFolder,
+      );
+      setAssets(nextAssets);
+      setNotice(`已复制 ${relativePaths.length} 个资产到 ${targetFolder}`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleRenameAsset(relativePath: string, newName: string) {
     if (!selectedProject) return;
     setBusy(true);
@@ -571,6 +594,12 @@ export function AppShell() {
 
   function handlePromptMoveAssets(relativePaths: string[]) {
     if (!relativePaths.length) return;
+    window.dispatchEvent(
+      new CustomEvent("taptap:asset-list-command", {
+        detail: { action: "movePaths", paths: relativePaths },
+      }),
+    );
+    if (activeModule === "assets") return;
     const currentFolder =
       relativePaths[0]?.split(/[\\/]/).slice(0, -1).join("/") || "assets";
     
@@ -1169,6 +1198,37 @@ export function AppShell() {
         },
       },
       {
+        commandId: "asset.copyAbsolutePath",
+        title: "复制完整路径",
+        icon: <Copy className="h-4 w-4" />,
+        description: "复制本机完整文件路径",
+        scope: "asset",
+        when: (context) => context.objectType === "asset" && !!selectedProject,
+        run: (context) => {
+          if (context.objectType !== "asset" || !selectedProject) return;
+          void copyText(
+            buildProjectPath(selectedProject.rootPath, context.relativePath),
+            { successMessage: "完整路径已复制" },
+          );
+        },
+      },
+      {
+        commandId: "asset.openInExplorer",
+        title: "在文件资源管理器打开",
+        icon: <FolderOpen className="h-4 w-4" />,
+        description: "打开本机目录并定位该资产",
+        scope: "asset",
+        when: (context) => context.objectType === "asset" && !!selectedProject,
+        run: async (context) => {
+          if (context.objectType !== "asset" || !selectedProject) return;
+          try {
+            await openLocalAssetPath(selectedProject.id, context.relativePath, "file");
+          } catch (error) {
+            setNotice(error instanceof Error ? error.message : String(error));
+          }
+        },
+      },
+      {
         commandId: "asset.scanReferences",
         title: "查看引用情况",
         icon: <Search className="h-4 w-4" />,
@@ -1334,6 +1394,40 @@ export function AppShell() {
         },
       },
       {
+        commandId: "assetList.copyToDirectory",
+        title: "复制到...",
+        icon: <Copy className="h-4 w-4" />,
+        description: "把选中资产复制到目录",
+        scope: "assetList",
+        when: (context) =>
+          context.objectType === "assetList" && context.selectedPaths.length > 0,
+        run: (context) => {
+          if (context.objectType !== "assetList") return;
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-list-command", {
+              detail: { action: "copyPaths", paths: context.selectedPaths },
+            }),
+          );
+        },
+      },
+      {
+        commandId: "assetList.moveToDirectory",
+        title: "移动到...",
+        icon: <Move className="h-4 w-4" />,
+        description: "把选中资产移动到目录",
+        scope: "assetList",
+        when: (context) =>
+          context.objectType === "assetList" && context.selectedPaths.length > 0,
+        run: (context) => {
+          if (context.objectType !== "assetList") return;
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-list-command", {
+              detail: { action: "movePaths", paths: context.selectedPaths },
+            }),
+          );
+        },
+      },
+      {
         commandId: "assetList.previewPrimary",
         title: "预览选中资产",
         icon: <Eye className="h-4 w-4" />,
@@ -1398,6 +1492,37 @@ export function AppShell() {
           void copyText(context.directoryPath, {
             successMessage: "目录路径已复制",
           });
+        },
+      },
+      {
+        commandId: "assetDirectory.copyAbsolutePath",
+        title: "复制完整路径",
+        icon: <Copy className="h-4 w-4" />,
+        description: "复制本机完整目录路径",
+        scope: "assetDirectory",
+        when: (context) => context.objectType === "assetDirectory" && !!selectedProject,
+        run: (context) => {
+          if (context.objectType !== "assetDirectory" || !selectedProject) return;
+          void copyText(
+            buildProjectPath(selectedProject.rootPath, context.directoryPath),
+            { successMessage: "目录完整路径已复制" },
+          );
+        },
+      },
+      {
+        commandId: "assetDirectory.openInExplorer",
+        title: "在文件资源管理器打开",
+        icon: <FolderOpen className="h-4 w-4" />,
+        description: "打开本机目录",
+        scope: "assetDirectory",
+        when: (context) => context.objectType === "assetDirectory" && !!selectedProject,
+        run: async (context) => {
+          if (context.objectType !== "assetDirectory" || !selectedProject) return;
+          try {
+            await openLocalAssetPath(selectedProject.id, context.directoryPath, "directory");
+          } catch (error) {
+            setNotice(error instanceof Error ? error.message : String(error));
+          }
         },
       },
       {
@@ -2518,6 +2643,7 @@ export function AppShell() {
               onScanAssets={handleScanAssets}
               onDeleteAssets={handleDeleteAssets}
               onMoveAssets={handleMoveAssets}
+              onCopyAssets={handleCopyAssets}
               onRenameAsset={handleRenameAsset}
               onImportAssets={handleImportAssets}
               onCallStatusLite={handleStatusLite}
@@ -2865,6 +2991,13 @@ function toAgentSelectionReference(
     return { type: "task", taskId: selection.item.taskId };
   if (selection.type === "assetReferences") return undefined;
   return { type: "asset", relativePath: selection.item.relativePath };
+}
+
+function buildProjectPath(projectRoot: string, relativePath: string) {
+  const normalizedRoot = projectRoot.replace(/[\\/]+$/g, "");
+  const normalizedRelative = relativePath.replace(/^[/\\]+/g, "");
+  const separator = projectRoot.includes("\\") ? "\\" : "/";
+  return `${normalizedRoot}${separator}${normalizedRelative.replace(/[\\/]/g, separator)}`;
 }
 
 function buildAssetReferenceConfirmationMessage(

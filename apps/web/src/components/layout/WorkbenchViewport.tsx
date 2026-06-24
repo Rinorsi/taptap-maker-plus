@@ -30,6 +30,7 @@ type Props = {
   onScanAssets: () => void;
   onDeleteAssets: (relativePaths: string[]) => Promise<void>;
   onMoveAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
+  onCopyAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
   onRenameAsset: (relativePath: string, newName: string) => Promise<void>;
   onImportAssets: (files: File[], targetFolder: string) => Promise<void>;
   onCallStatusLite: () => void;
@@ -66,7 +67,7 @@ export function WorkbenchViewport(props: Props) {
               busy={props.busy}
             />
           ) : null}
-          {props.activeModule === "assets" ? <AssetHub project={props.project} assets={props.assets} onScanAssets={props.onScanAssets} onDeleteAssets={props.onDeleteAssets} onMoveAssets={props.onMoveAssets}
+          {props.activeModule === "assets" ? <AssetHub project={props.project} assets={props.assets} onScanAssets={props.onScanAssets} onDeleteAssets={props.onDeleteAssets} onMoveAssets={props.onMoveAssets} onCopyAssets={props.onCopyAssets}
               onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })} /> : null}
           {props.activeModule === "studio-image" ? (
             <ImageStudio
@@ -81,6 +82,7 @@ export function WorkbenchViewport(props: Props) {
               onScanAssets={props.onScanAssets}
               onDeleteAssets={props.onDeleteAssets}
               onMoveAssets={props.onMoveAssets}
+              onCopyAssets={props.onCopyAssets}
               onImportAssets={props.onImportAssets}
             />
           ) : null}
@@ -97,6 +99,7 @@ export function WorkbenchViewport(props: Props) {
               onScanAssets={props.onScanAssets}
               onDeleteAssets={props.onDeleteAssets}
               onMoveAssets={props.onMoveAssets}
+              onCopyAssets={props.onCopyAssets}
               onRenameAsset={props.onRenameAsset}
               onImportAssets={props.onImportAssets}
               onCollapseSidebar={props.onCollapseSidebar}
@@ -117,6 +120,7 @@ export function WorkbenchViewport(props: Props) {
               onScanAssets={props.onScanAssets}
               onDeleteAssets={props.onDeleteAssets}
               onMoveAssets={props.onMoveAssets}
+              onCopyAssets={props.onCopyAssets}
               onRenameAsset={props.onRenameAsset}
               onImportAssets={props.onImportAssets}
             />

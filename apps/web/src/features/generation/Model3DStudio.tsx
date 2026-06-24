@@ -183,7 +183,9 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
     onScanAssets();
     const failed = response.results.filter((result) => !result.ok);
     if (failed.length > 0) {
-      alert(`批量操作完成，但 ${failed.length} 个失败：\n${failed.map((result) => `${result.id}: ${result.error ?? "未知错误"}`).join("\n")}`);
+      setPhaseMessage(`批量操作完成，但 ${failed.length} 个失败：${failed.map((result) => `${result.id}: ${result.error ?? "未知错误"}`).join("；")}`);
+    } else {
+      setPhaseMessage("批量操作完成");
     }
   }
 
@@ -279,11 +281,11 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
 
   const batchActions = useMemo(() => {
     return collectBatchModelGovernanceActions(selectedVisiblePackages).map((action) => {
-      if (action === "organize") return { id: action, label: "整理", onClick: () => runBatchAction(action).catch(err => alert("批量整理失败: " + (err.message || String(err)))) };
-      if (action === "restore") return { id: action, label: "还原", onClick: () => runBatchAction(action).catch(err => alert("批量还原失败: " + (err.message || String(err)))) };
-      if (action === "add_to_resource") return { id: action, label: "加入资源表", onClick: () => runBatchAction(action).catch(err => alert("批量进表失败: " + (err.message || String(err)))) };
-      if (action === "remove_from_resource") return { id: action, label: "移出资源表", onClick: () => runBatchAction(action).catch(err => alert("批量移出失败: " + (err.message || String(err)))) };
-      return { id: action, label: "移入废弃", tone: "warning" as const, onClick: () => runBatchAction(action).catch(err => alert("批量废弃失败: " + (err.message || String(err)))) };
+      if (action === "organize") return { id: action, label: "整理", onClick: () => runBatchAction(action).catch(err => setPhaseMessage("批量整理失败: " + (err.message || String(err)))) };
+      if (action === "restore") return { id: action, label: "还原", onClick: () => runBatchAction(action).catch(err => setPhaseMessage("批量还原失败: " + (err.message || String(err)))) };
+      if (action === "add_to_resource") return { id: action, label: "加入资源表", onClick: () => runBatchAction(action).catch(err => setPhaseMessage("批量进表失败: " + (err.message || String(err)))) };
+      if (action === "remove_from_resource") return { id: action, label: "移出资源表", onClick: () => runBatchAction(action).catch(err => setPhaseMessage("批量移出失败: " + (err.message || String(err)))) };
+      return { id: action, label: "移入废弃", tone: "warning" as const, onClick: () => runBatchAction(action).catch(err => setPhaseMessage("批量废弃失败: " + (err.message || String(err)))) };
     });
   }, [selectedVisiblePackages]);
 
@@ -626,13 +628,13 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
                                  </div>
                               ))}
                               <div className="flex flex-wrap gap-1.5 mt-1">
-                                 {pkg.suggestedActions.includes("organize") && <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2 bg-surface-muted text-text hover:bg-surface-raised border-0" onClick={(e) => { e.stopPropagation(); runPackageAction(() => organizeModelPackage(project?.id ?? "", pkg.id)).catch(err => alert("操作失败: " + (err.message || String(err)))); }}>归档整理</Button>}
-                                 {pkg.suggestedActions.includes("discard") && <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2 bg-orange-500/10 text-orange-600 hover:bg-orange-500/20 border-0" onClick={(e) => { e.stopPropagation(); runPackageAction(() => discardModelPackage(project?.id ?? "", pkg.id)).catch(err => alert("操作失败: " + (err.message || String(err)))); }}>移入废弃区</Button>}
-                                 {pkg.suggestedActions.includes("restore") && <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2 bg-brand/10 text-brand hover:bg-brand/20 border-0" onClick={(e) => { e.stopPropagation(); runPackageAction(() => restoreModelPackage(project?.id ?? "", pkg.id)).catch(err => alert("还原失败: " + (err.message || String(err)))); }}>还原</Button>}
-                                 {pkg.suggestedActions.includes("add_to_resource") && <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2 bg-purple-500/10 text-purple-600 hover:bg-purple-500/20 border-0" onClick={(e) => { e.stopPropagation(); runPackageAction(() => updateModelPackageResource(project?.id ?? "", pkg.id, "add")).catch(err => alert("操作失败: " + (err.message || String(err)))); }}>加资源表</Button>}
-                                 {pkg.suggestedActions.includes("remove_from_resource") && <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2 bg-purple-500/10 text-purple-600 hover:bg-purple-500/20 border-0" onClick={(e) => { e.stopPropagation(); runPackageAction(() => updateModelPackageResource(project?.id ?? "", pkg.id, "remove")).catch(err => alert("操作失败: " + (err.message || String(err)))); }}>移出资源表</Button>}
+                                 {pkg.suggestedActions.includes("organize") && <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2 bg-surface-muted text-text hover:bg-surface-raised border-0" onClick={(e) => { e.stopPropagation(); runPackageAction(() => organizeModelPackage(project?.id ?? "", pkg.id)).catch(err => setPhaseMessage("操作失败: " + (err.message || String(err)))); }}>归档整理</Button>}
+                                 {pkg.suggestedActions.includes("discard") && <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2 bg-orange-500/10 text-orange-600 hover:bg-orange-500/20 border-0" onClick={(e) => { e.stopPropagation(); runPackageAction(() => discardModelPackage(project?.id ?? "", pkg.id)).catch(err => setPhaseMessage("操作失败: " + (err.message || String(err)))); }}>移入废弃区</Button>}
+                                 {pkg.suggestedActions.includes("restore") && <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2 bg-brand/10 text-brand hover:bg-brand/20 border-0" onClick={(e) => { e.stopPropagation(); runPackageAction(() => restoreModelPackage(project?.id ?? "", pkg.id)).catch(err => setPhaseMessage("还原失败: " + (err.message || String(err)))); }}>还原</Button>}
+                                 {pkg.suggestedActions.includes("add_to_resource") && <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2 bg-purple-500/10 text-purple-600 hover:bg-purple-500/20 border-0" onClick={(e) => { e.stopPropagation(); runPackageAction(() => updateModelPackageResource(project?.id ?? "", pkg.id, "add")).catch(err => setPhaseMessage("操作失败: " + (err.message || String(err)))); }}>加资源表</Button>}
+                                 {pkg.suggestedActions.includes("remove_from_resource") && <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2 bg-purple-500/10 text-purple-600 hover:bg-purple-500/20 border-0" onClick={(e) => { e.stopPropagation(); runPackageAction(() => updateModelPackageResource(project?.id ?? "", pkg.id, "remove")).catch(err => setPhaseMessage("操作失败: " + (err.message || String(err)))); }}>移出资源表</Button>}
                                  {pkg.suggestedActions.includes("copy_lua") && <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2 bg-surface-muted text-text hover:bg-surface-raised border-0" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(copyLuaSnippet(pkg)).catch(() => undefined); }}>复制 Lua</Button>}
-                                 {pkg.suggestedActions.includes("delete_package") && <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2 bg-red-500/10 text-red-600 hover:bg-red-500/20 border-0" onClick={(e) => { e.stopPropagation(); const paths = pkg.files.filter((file) => file.exists).map((file) => file.relativePath); onDeleteAssets(paths).then(() => { refreshPackages(); onScanAssets(); }).catch(err => alert("删除失败: " + (err.message || String(err)))); }}>永久删除</Button>}
+                                 {pkg.suggestedActions.includes("delete_package") && <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2 bg-red-500/10 text-red-600 hover:bg-red-500/20 border-0" onClick={(e) => { e.stopPropagation(); const paths = pkg.files.filter((file) => file.exists).map((file) => file.relativePath); onDeleteAssets(paths).then(() => { refreshPackages(); onScanAssets(); }).catch(err => setPhaseMessage("删除失败: " + (err.message || String(err)))); }}>永久删除</Button>}
                               </div>
                            </motion.div>
                          )}

@@ -1,3 +1,5 @@
+import type React from "react";
+
 export type CommandScope =
   | "global"
   | "project"
@@ -21,6 +23,7 @@ export type AppCommandContext =
   | { objectType: "task"; taskId: string }
   | { objectType: "mcpTool"; toolName: string }
   | { objectType: "workflowCanvas" }
+  | { objectType: "workflowSelection"; nodeIds: string[]; edgeIds: string[] }
   | { objectType: "workflowNode"; nodeId: string }
   | { objectType: "workflowEdge"; edgeId: string }
   | { objectType: "videoFlowCanvas" }
@@ -39,6 +42,7 @@ export type CommandShortcut = {
 export type Command = {
   commandId: string;
   title: string;
+  icon?: React.ReactNode;
   description?: string;
   shortcut?: CommandShortcut;
   shortcuts?: CommandShortcut[];

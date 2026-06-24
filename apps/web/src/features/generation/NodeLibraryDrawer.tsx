@@ -4,6 +4,8 @@ import { NODE_PRESETS, type NodeCategory, getPresetsByCategory } from "./nodeReg
 import { cn } from "../../lib/utils";
 import { useReactFlow } from "@xyflow/react";
 import { ProjectSummary, listFlows, saveFlow, deleteFlow, getFlow } from "../../api";
+import { PromptDialog, type PromptConfig } from "../../components/ui/PromptDialog";
+import { ConfirmDialog, type ConfirmConfig } from "../../components/ui/ConfirmDialog";
 
 const CATEGORIES: { id: NodeCategory; label: string }[] = [
   { id: "prompt", label: "提示词 (Prompt)" },
@@ -31,6 +33,19 @@ export function NodeLibraryDrawer({ isOpen, project, onLoaded }: { isOpen: boole
   });
   
   const [savedFlows, setSavedFlows] = useState<{name: string, mtimeMs: number}[]>([]);
+  const [notice, setNotice] = useState("");
+  const [promptConfig, setPromptConfig] = useState<PromptConfig>({
+    isOpen: false,
+    title: "",
+    onConfirm: () => {},
+    onCancel: () => {},
+  });
+  const [confirmConfig, setConfirmConfig] = useState<ConfirmConfig>({
+    isOpen: false,
+    title: "",
+    onConfirm: () => {},
+    onCancel: () => {},
+  });
   const reactFlow = useReactFlow();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -65,17 +80,26 @@ export function NodeLibraryDrawer({ isOpen, project, onLoaded }: { isOpen: boole
     window.__taptapNodePresetDrag = undefined;
   };
 
-  const handleSaveCurrent = async () => {
+  const handleSaveCurrent = () => {
     if (!project) return;
-    const name = prompt("请输入保存的名称", "我的画布-" + new Date().toLocaleTimeString().replace(/:/g, '-'));
-    if (!name) return;
-    try {
-      const data = reactFlow.toObject();
-      await saveFlow(project.id, name, data);
-      await refreshFlows();
-    } catch (e) {
-      alert("保存失败: " + String(e));
-    }
+    setPromptConfig({
+      isOpen: true,
+      title: "请输入保存的名称",
+      defaultValue: "我的画布-" + new Date().toLocaleTimeString().replace(/:/g, "-"),
+      confirmLabel: "保存",
+      onConfirm: async (name) => {
+        setPromptConfig((prev) => ({ ...prev, isOpen: false }));
+        try {
+          const data = reactFlow.toObject();
+          await saveFlow(project.id, name, data);
+          setNotice(`已保存：${name}`);
+          await refreshFlows();
+        } catch (e) {
+          setNotice("保存失败: " + String(e));
+        }
+      },
+      onCancel: () => setPromptConfig((prev) => ({ ...prev, isOpen: false })),
+    });
   };
 
   const handleLoadFlow = async (name: string) => {
@@ -84,20 +108,31 @@ export function NodeLibraryDrawer({ isOpen, project, onLoaded }: { isOpen: boole
       const data = await getFlow(project.id, name);
       onLoaded(data);
     } catch (e) {
-      alert("加载失败: " + String(e));
+      setNotice("加载失败: " + String(e));
     }
   };
 
-  const handleDeleteFlow = async (e: React.MouseEvent, name: string) => {
+  const handleDeleteFlow = (e: React.MouseEvent, name: string) => {
     e.stopPropagation();
     if (!project) return;
-    if (!confirm(`确定要删除 ${name} 吗？`)) return;
-    try {
-      await deleteFlow(project.id, name);
-      await refreshFlows();
-    } catch (err) {
-      alert("删除失败: " + String(err));
-    }
+    setConfirmConfig({
+      isOpen: true,
+      title: "确定要删除这个保存？",
+      body: name,
+      confirmLabel: "删除",
+      danger: true,
+      onConfirm: async () => {
+        setConfirmConfig((prev) => ({ ...prev, isOpen: false }));
+        try {
+          await deleteFlow(project.id, name);
+          setNotice(`已删除：${name}`);
+          await refreshFlows();
+        } catch (err) {
+          setNotice("删除失败: " + String(err));
+        }
+      },
+      onCancel: () => setConfirmConfig((prev) => ({ ...prev, isOpen: false })),
+    });
   };
 
   const handleExportLocal = () => {
@@ -120,7 +155,7 @@ export function NodeLibraryDrawer({ isOpen, project, onLoaded }: { isOpen: boole
         const data = JSON.parse(event.target?.result as string);
         onLoaded(data);
       } catch (err) {
-        alert("无效的 JSON 文件");
+        setNotice("无效的 JSON 文件");
       }
     };
     reader.readAsText(file);
@@ -141,6 +176,9 @@ export function NodeLibraryDrawer({ isOpen, project, onLoaded }: { isOpen: boole
         <div>
           <h3 className="font-bold text-text">节点与布局</h3>
           <p className="text-xs text-text-subtle mt-1">拖拽预设或管理画布配置</p>
+          {notice ? (
+            <p className="mt-1 truncate text-[11px] text-text-muted">{notice}</p>
+          ) : null}
         </div>
         <div className="flex bg-surface-app rounded-md p-1 border border-border-soft">
           <button 
@@ -305,6 +343,8 @@ export function NodeLibraryDrawer({ isOpen, project, onLoaded }: { isOpen: boole
           </div>
         )}
       </div>
+      <PromptDialog config={promptConfig} />
+      <ConfirmDialog config={confirmConfig} />
     </div>
   );
 }

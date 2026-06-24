@@ -48,6 +48,7 @@ import {
   type WorkflowRunRecord,
 } from "../../api";
 import { Button } from "../../components/ui/Button";
+import { ConfirmDialog, type ConfirmConfig } from "../../components/ui/ConfirmDialog";
 import {
   AppContextMenu,
   clampContextMenuPosition,
@@ -56,14 +57,18 @@ import {
   notifyContextMenuOpen,
   shouldIgnoreContextMenuEvent,
   shouldUseNativeContextMenu,
+  isEditableShortcutTarget,
 } from "../../commands";
+import type { AppCommandContext } from "../../commands";
 import { cn } from "../../lib/utils";
+import { ContextMenuStyles } from "../../components/ui/ContextMenuStyles";
 
 type Props = {
   project?: ProjectSummary;
   tools: ToolSummary[];
   tasks: TaskRecord[];
   onSelectTool: (tool: ToolSummary) => void;
+  onCommandContextChange?: (context?: AppCommandContext) => void;
 };
 
 type ToolInputs = Record<string, Record<string, unknown>>;
@@ -99,7 +104,7 @@ const workflowFormUiSchema: UiSchema = {
   "ui:globalOptions": { label: true },
 };
 
-export function WorkflowCanvas({ project, tools, tasks, onSelectTool }: Props) {
+export function WorkflowCanvas({ project, tools, tasks, onSelectTool, onCommandContextChange }: Props) {
   const [workflows, setWorkflows] = useState<WorkflowGraphRecord[]>([]);
   const [runs, setRuns] = useState<WorkflowRunRecord[]>([]);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState("");
@@ -112,6 +117,12 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool }: Props) {
   );
   const [workflowMenu, setWorkflowMenu] = useState<WorkflowMenu>();
   const [payloadDialog, setPayloadDialog] = useState<PayloadDialog>();
+  const [confirmConfig, setConfirmConfig] = useState<ConfirmConfig>({
+    isOpen: false,
+    title: "",
+    onConfirm: () => {},
+    onCancel: () => {},
+  });
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -174,10 +185,11 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool }: Props) {
       setDraftGraph(undefined);
       setCollapsedNodeIds(new Set());
       setWorkflowMenu(undefined);
+      onCommandContextChange?.(undefined);
       return;
     }
     void refreshWorkflowData(project.id);
-  }, [project?.id]);
+  }, [onCommandContextChange, project?.id]);
 
   useEffect(() => {
     if (!selectedWorkflow) return;
@@ -522,9 +534,55 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool }: Props) {
     setNotice("已全选画布对象");
   }
 
-  function clearCanvas() {
+  function copySelected() {
+    const selectedNodes = graphNodes.filter((node) => node.selected);
+    if (selectedNodes.length === 0 && selectedNodeId) {
+      copyNode(selectedNodeId);
+      return;
+    }
+    if (selectedNodes.length === 0) return;
+    const firstNode = selectedNodes[0];
+    if (firstNode) copyNode(firstNode.id);
+  }
+
+  function deleteSelected() {
+    const selectedNodeIds = graphNodes
+      .filter((node) => node.selected)
+      .map((node) => node.id);
+    const selectedEdgeIds = edges.filter((edge) => edge.selected).map((edge) => edge.id);
+    if (selectedNodeIds.length === 0 && selectedEdgeIds.length === 0 && selectedNodeId) {
+      deleteNode(selectedNodeId);
+      return;
+    }
+    setGraph((current) => ({
+      nodes: current.nodes.filter((node) => !selectedNodeIds.includes(node.id)),
+      edges: current.edges.filter(
+        (edge) =>
+          !selectedEdgeIds.includes(edge.id) &&
+          !selectedNodeIds.includes(edge.source) &&
+          !selectedNodeIds.includes(edge.target),
+      ),
+    }));
+    setToolInputs((current) =>
+      selectedNodeIds.reduce((next, nodeId) => removeRecordKey(next, nodeId), current),
+    );
+    setCollapsedNodeIds((current) => {
+      const next = new Set(current);
+      selectedNodeIds.forEach((nodeId) => next.delete(nodeId));
+      return next;
+    });
+    setSelectedNodeId("");
+    setNotice("已删除选中对象");
+  }
+
+  async function clearCanvas() {
     if (visibleGraph.nodes.length > 0 || visibleGraph.edges.length > 0) {
-      const confirmed = window.confirm("确认清空当前节点流画布？");
+      const confirmed = await requestConfirm({
+        title: "确认清空当前节点流画布？",
+        body: "当前画布内的节点和连线会被移除。",
+        confirmLabel: "清空",
+        danger: true,
+      });
       if (!confirmed) return;
     }
     setDraftGraph({ nodes: [], edges: [] });
@@ -532,6 +590,31 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool }: Props) {
     setSelectedNodeId("");
     setCollapsedNodeIds(new Set());
     setNotice("已清空画布");
+  }
+
+  function requestConfirm({
+    title,
+    body,
+    confirmLabel,
+    cancelLabel,
+    danger,
+  }: Omit<ConfirmConfig, "isOpen" | "onConfirm" | "onCancel">) {
+    return new Promise<boolean>((resolve) => {
+      const close = (result: boolean) => {
+        setConfirmConfig((prev) => ({ ...prev, isOpen: false }));
+        resolve(result);
+      };
+      setConfirmConfig({
+        isOpen: true,
+        title,
+        body,
+        confirmLabel,
+        cancelLabel,
+        danger,
+        onConfirm: () => close(true),
+        onCancel: () => close(false),
+      });
+    });
   }
 
   function fitCanvas() {
@@ -595,13 +678,15 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool }: Props) {
         return;
       }
       if (detail.action === "clear") {
-        clearCanvas();
+        void clearCanvas();
         return;
       }
       const nodeId = "nodeId" in detail ? detail.nodeId ?? selectedNodeId : "";
       const edgeId = "edgeId" in detail ? detail.edgeId : "";
       if (detail.action === "copyNode" && nodeId) copyNode(nodeId);
+      if (detail.action === "copyNode" && !nodeId) copySelected();
       if (detail.action === "deleteNode" && nodeId) deleteNode(nodeId);
+      if (detail.action === "deleteNode" && !nodeId) deleteSelected();
       if (detail.action === "runNode" && nodeId) void handleRun([nodeId]);
       if (detail.action === "toggleNodeCollapse" && nodeId)
         toggleNodeCollapse(nodeId);
@@ -625,8 +710,10 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool }: Props) {
     };
   }, [
     clearCanvas,
+    copySelected,
     copyNode,
     deleteEdge,
+    deleteSelected,
     deleteNode,
     executableNodeIds,
     fitCanvas,
@@ -638,6 +725,52 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool }: Props) {
     showNodePayload,
     toggleNodeCollapse,
   ]);
+
+  useEffect(() => {
+    const selectedNodeIds = graphNodes.filter((node) => node.selected).map((node) => node.id);
+    const selectedEdgeIds = edges.filter((edge) => edge.selected).map((edge) => edge.id);
+    if (selectedNodeIds.length === 1 && selectedEdgeIds.length === 0) {
+      onCommandContextChange?.({ objectType: "workflowNode", nodeId: selectedNodeIds[0] });
+      return;
+    }
+    if (selectedNodeIds.length === 0 && selectedEdgeIds.length === 1) {
+      onCommandContextChange?.({ objectType: "workflowEdge", edgeId: selectedEdgeIds[0] });
+      return;
+    }
+    if (selectedNodeIds.length > 0 || selectedEdgeIds.length > 0) {
+      onCommandContextChange?.({
+        objectType: "workflowSelection",
+        nodeIds: selectedNodeIds,
+        edgeIds: selectedEdgeIds,
+      });
+      return;
+    }
+    onCommandContextChange?.({ objectType: "workflowCanvas" });
+  }, [edges, graphNodes, onCommandContextChange]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isEditableShortcutTarget(event.target) || isEditableShortcutTarget(document.activeElement)) return;
+      if (!wrapperRef.current?.contains(document.activeElement)) return;
+      const key = event.key.toLowerCase();
+      if ((event.ctrlKey || event.metaKey) && key === "a") {
+        event.preventDefault();
+        selectAll();
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && key === "c") {
+        event.preventDefault();
+        copySelected();
+        return;
+      }
+      if (event.key === "Delete" || event.key === "Backspace") {
+        event.preventDefault();
+        deleteSelected();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [copySelected, deleteSelected, selectAll]);
 
   function updateNodeInputs(nodeId: string, inputs: Record<string, unknown>) {
     setToolInputs((current) => ({ ...current, [nodeId]: inputs }));
@@ -865,6 +998,7 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool }: Props) {
               onClose={() => setPayloadDialog(undefined)}
             />
           ) : null}
+          <ConfirmDialog config={confirmConfig} />
         </div>
 
         <aside className="flex min-h-0 flex-col gap-4 overflow-hidden max-[1220px]:hidden">
@@ -941,7 +1075,7 @@ function WorkflowContextMenu({
   onPasteNode: (position?: { x: number; y: number }) => void;
   onFitCanvas: () => void;
   onSelectAll: () => void;
-  onClearCanvas: () => void;
+  onClearCanvas: () => void | Promise<void>;
   onRunNode: (nodeId: string) => void;
   onCopyNode: (nodeId: string) => void;
   onDeleteNode: (nodeId: string) => void;
@@ -952,15 +1086,15 @@ function WorkflowContextMenu({
   onCopyEdgeId: (edgeId: string) => void;
   onShowEdgePayload: (edgeId: string) => void;
 }) {
-  function run(action: () => void) {
-    action();
+  function run(action: () => void | Promise<void>) {
     onClose();
+    void action();
   }
 
   const panePosition = menu.type === "pane" ? menu.flowPosition : undefined;
   return (
     <div
-      className="fixed z-[70] min-w-[240px] rounded-md border border-border/70 bg-surface-panel/98 p-1 shadow-[0_12px_34px_-14px_rgba(0,0,0,0.65)] ring-1 ring-white/5 backdrop-blur-xl"
+      className={["fixed z-[70]", ContextMenuStyles.content].join(" ")}
       data-workflow-menu-surface
       style={{ left: menu.x, top: menu.y }}
       onPointerDown={(event) => event.stopPropagation()}
@@ -1096,21 +1230,20 @@ function WorkflowMenuButton({
       type="button"
       disabled={disabled}
       className={cn(
-        "flex w-full cursor-pointer select-none items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] font-medium outline-none transition-all disabled:cursor-not-allowed disabled:opacity-45",
-        danger
-          ? "text-red-500 hover:bg-red-500/10 hover:text-red-400"
-          : "text-text hover:bg-brand/15 hover:text-brand-strong",
+        disabled ? ContextMenuStyles.disabledItem : ContextMenuStyles.item,
+        "disabled:opacity-45 disabled:cursor-not-allowed",
+        danger && "text-red-500 hover:bg-red-500/10 hover:text-red-400"
       )}
       onClick={onClick}
     >
-      <span className="shrink-0 text-text-muted">{icon}</span>
+      <span className={cn("shrink-0", disabled ? "text-text-muted/50" : "text-text-muted")}>{icon}</span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
     </button>
   );
 }
 
 function WorkflowMenuSeparator() {
-  return <div className="my-1.5 mx-2 h-px bg-border/50" />;
+  return <div className={ContextMenuStyles.separator} />;
 }
 
 function PayloadDialogView({

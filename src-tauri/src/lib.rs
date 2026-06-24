@@ -13,7 +13,10 @@ use std::{
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-use tauri::{Manager, PhysicalSize, RunEvent, Url, WindowEvent};
+use tauri::{
+  menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
+  Emitter, Manager, PhysicalSize, RunEvent, Url, WindowEvent,
+};
 
 const SERVER_HOST: &str = "127.0.0.1";
 const SERVER_PORT: &str = "8787";
@@ -26,6 +29,9 @@ const ASPECT_HEIGHT: u32 = 9;
 const ASPECT_TOLERANCE: u32 = 3;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+const NATIVE_MENU_EVENT: &str = "taptap://native-menu";
+const MENU_COMMAND_PREFIX: &str = "command:";
+const MENU_QUIT_ID: &str = "app.quit";
 
 struct LocalPortProbe {
   host: &'static str,
@@ -257,11 +263,69 @@ fn enforce_aspect_ratio(
   let _ = window.set_size(next_size);
 }
 
+fn command_menu_item(
+  app: &tauri::App,
+  command_id: &'static str,
+  title: &'static str,
+  accelerator: Option<&'static str>,
+) -> tauri::Result<tauri::menu::MenuItem<tauri::Wry>> {
+  let id = format!("{MENU_COMMAND_PREFIX}{command_id}");
+  let mut builder = MenuItemBuilder::with_id(id, title);
+  if let Some(accelerator) = accelerator {
+    builder = builder.accelerator(accelerator);
+  }
+  builder.build(app)
+}
+
+fn install_native_menu(app: &tauri::App) -> tauri::Result<()> {
+  let file_menu = SubmenuBuilder::new(app, "文件")
+    .item(&command_menu_item(app, "app.openCommandPalette", "打开命令面板", Some("Ctrl+K"))?)
+    .item(&command_menu_item(app, "app.saveCurrentDraft", "保存当前工作流/草稿", Some("Ctrl+S"))?)
+    .separator()
+    .text(MENU_QUIT_ID, "退出")
+    .build()?;
+  let view_menu = SubmenuBuilder::new(app, "视图")
+    .item(&command_menu_item(app, "layout.toggleSidebar", "折叠/展开左栏", Some("Ctrl+B"))?)
+    .item(&command_menu_item(app, "layout.toggleInspector", "折叠/展开右栏", Some("Ctrl+Shift+I"))?)
+    .item(&command_menu_item(app, "app.toggleTheme", "切换主题", None)?)
+    .separator()
+    .item(&command_menu_item(app, "app.refreshCurrent", "刷新当前数据", Some("Ctrl+R"))?)
+    .build()?;
+  let project_menu = SubmenuBuilder::new(app, "项目")
+    .item(&command_menu_item(app, "project.scanProjects", "扫描项目", None)?)
+    .item(&command_menu_item(app, "mcp.startRuntime", "启动 MCP runtime", None)?)
+    .item(&command_menu_item(app, "mcp.refreshTools", "刷新 MCP 工具", None)?)
+    .item(&command_menu_item(app, "asset.scanCurrentProject", "扫描当前项目资产", None)?)
+    .build()?;
+  let developer_menu = SubmenuBuilder::new(app, "开发者")
+    .item(&command_menu_item(app, "developer.openPanel", "打开开发者面板", None)?)
+    .item(&command_menu_item(app, "developer.copyDiagnostics", "复制诊断摘要", None)?)
+    .build()?;
+  let menu = MenuBuilder::new(app)
+    .item(&file_menu)
+    .item(&view_menu)
+    .item(&project_menu)
+    .item(&developer_menu)
+    .build()?;
+  app.set_menu(menu)?;
+  Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   let aspect_ratio_lock = Arc::new(Mutex::new(AspectRatioLock::default()));
   let aspect_ratio_lock_for_run = aspect_ratio_lock.clone();
   let app = tauri::Builder::default()
+    .on_menu_event(|app, event| {
+      let id = event.id().0.as_str();
+      if id == MENU_QUIT_ID {
+        app.exit(0);
+        return;
+      }
+      if let Some(command_id) = id.strip_prefix(MENU_COMMAND_PREFIX) {
+        let _ = app.emit(NATIVE_MENU_EVENT, command_id);
+      }
+    })
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -270,6 +334,7 @@ pub fn run() {
             .build(),
         )?;
       }
+      install_native_menu(app)?;
       let server = DesktopServer::default();
       let app_handle = app.handle().clone();
       server.start(&app_handle).map_err(|error| {

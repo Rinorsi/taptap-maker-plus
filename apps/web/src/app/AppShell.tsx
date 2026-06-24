@@ -1,3 +1,4 @@
+import { Terminal, FolderSync, Search, Settings, Moon, PanelLeft, PanelRight, RefreshCw, Copy, Trash2, Eye, Save, Play, Code, ClipboardList, Scan, Edit2, Move, ExternalLink, Image, FolderOpen, Download, Crosshair, Check } from "lucide-react";
 import { useEffect, useMemo, useState, useRef } from "react";
 import {
   callTool,
@@ -58,6 +59,9 @@ import {
   type Command,
 } from "../commands";
 import { copyText } from "../lib/clipboard";
+import { ContextMenuStyles } from "../components/ui/ContextMenuStyles";
+import { PromptDialog, type PromptConfig } from "../components/ui/PromptDialog";
+import { ConfirmDialog, type ConfirmConfig } from "../components/ui/ConfirmDialog";
 import { ASSET_DRAG_MIME, clearAssetDragData } from "../components/interaction/assetDragData";
 
 const DEFAULT_PROJECT_MODULE: WorkbenchModule = "assets";
@@ -138,6 +142,20 @@ export function AppShell() {
   const [videoRecoveryCooldowns, setVideoRecoveryCooldowns] = useState<
     Record<string, number>
   >({});
+  const [canvasCommandContext, setCanvasCommandContext] =
+    useState<AppCommandContext>();
+  const [promptConfig, setPromptConfig] = useState<PromptConfig>({
+    isOpen: false,
+    title: "",
+    onConfirm: () => {},
+    onCancel: () => {},
+  });
+  const [confirmConfig, setConfirmConfig] = useState<ConfirmConfig>({
+    isOpen: false,
+    title: "",
+    onConfirm: () => {},
+    onCancel: () => {},
+  });
   const failedTasks = useMemo(
     () => tasks.filter((task) => task.status === "failed"),
     [tasks],
@@ -417,16 +435,22 @@ export function AppShell() {
       (result) => result.referenceCount > 0,
     );
     if (!referencedResults.length) return true;
-    return window.confirm(
-      buildAssetReferenceConfirmationMessage(actionLabel, referencedResults),
-    );
+    return requestConfirm({
+      title: `${actionLabel}已引用资产？`,
+      body: buildAssetReferenceConfirmationMessage(actionLabel, referencedResults),
+      confirmLabel: `继续${actionLabel}`,
+      danger: true,
+    });
   }
 
   async function handleDeleteAssets(relativePaths: string[]) {
     if (!selectedProject || !relativePaths.length) return;
-    const confirmedDelete = window.confirm(
-      `确认删除 ${relativePaths.length} 个资产？\n\n${relativePaths.join("\n")}`,
-    );
+    const confirmedDelete = await requestConfirm({
+      title: `确认删除 ${relativePaths.length} 个资产？`,
+      body: relativePaths.join("\n"),
+      confirmLabel: "删除",
+      danger: true,
+    });
     if (!confirmedDelete) {
       setNotice("已取消删除资产");
       return;
@@ -512,20 +536,66 @@ export function AppShell() {
     }
   }
 
-  async function handlePromptRenameAsset(relativePath: string) {
+  function handlePromptRenameAsset(relativePath: string) {
     const currentName = relativePath.split(/[\\/]/).pop() ?? relativePath;
-    const nextName = window.prompt("输入新的文件名", currentName);
-    if (!nextName || nextName === currentName) return;
-    await handleRenameAsset(relativePath, nextName);
+    setPromptConfig({
+      isOpen: true,
+      title: "输入新的文件名",
+      defaultValue: currentName,
+      confirmLabel: "重命名",
+      onConfirm: async (nextName) => {
+        setPromptConfig((prev) => ({ ...prev, isOpen: false }));
+        if (nextName !== currentName) {
+          await handleRenameAsset(relativePath, nextName);
+        }
+      },
+      onCancel: () => setPromptConfig((prev) => ({ ...prev, isOpen: false })),
+    });
   }
 
-  async function handlePromptMoveAssets(relativePaths: string[]) {
+  function handlePromptMoveAssets(relativePaths: string[]) {
     if (!relativePaths.length) return;
     const currentFolder =
       relativePaths[0]?.split(/[\\/]/).slice(0, -1).join("/") || "assets";
-    const targetFolder = window.prompt("输入目标目录", currentFolder);
-    if (!targetFolder || targetFolder === currentFolder) return;
-    await handleMoveAssets(relativePaths, targetFolder);
+    
+    setPromptConfig({
+      isOpen: true,
+      title: "输入目标目录",
+      defaultValue: currentFolder,
+      confirmLabel: "移动",
+      onConfirm: async (targetFolder) => {
+        setPromptConfig((prev) => ({ ...prev, isOpen: false }));
+        if (targetFolder !== currentFolder) {
+          await handleMoveAssets(relativePaths, targetFolder);
+        }
+      },
+      onCancel: () => setPromptConfig((prev) => ({ ...prev, isOpen: false })),
+    });
+  }
+
+  function requestConfirm({
+    title,
+    body,
+    confirmLabel,
+    cancelLabel,
+    danger,
+  }: Omit<ConfirmConfig, "isOpen" | "onConfirm" | "onCancel">) {
+    return new Promise<boolean>((resolve) => {
+      const close = (result: boolean) => {
+        setConfirmConfig((prev) => ({ ...prev, isOpen: false }));
+        resolve(result);
+      };
+      setConfirmConfig({
+        isOpen: true,
+        title,
+        body,
+        confirmLabel,
+        cancelLabel,
+        danger,
+        onConfirm: () => close(true),
+        onCancel: () => close(false),
+      });
+    });
   }
 
   async function handleScanAssetReferencesNotice(relativePaths: string[]) {
@@ -727,19 +797,36 @@ export function AppShell() {
       return { objectType: "mcpTool", toolName: selection.item.name };
     if (selection?.type === "project")
       return { objectType: "project", projectId: selection.item.id };
+    if (
+      activeModule === "workflow" &&
+      canvasCommandContext &&
+      (canvasCommandContext.objectType === "workflowSelection" ||
+        canvasCommandContext.objectType === "workflowNode" ||
+        canvasCommandContext.objectType === "workflowEdge")
+    )
+      return canvasCommandContext;
+    if (
+      activeModule === "studio-video" &&
+      canvasCommandContext &&
+      (canvasCommandContext.objectType === "videoFlowSelection" ||
+        canvasCommandContext.objectType === "videoFlowNode" ||
+        canvasCommandContext.objectType === "videoFlowEdge")
+    )
+      return canvasCommandContext;
     if (activeModule === "workflow") return { objectType: "workflowCanvas" };
     if (activeModule === "studio-video")
       return { objectType: "videoFlowCanvas" };
     if (selectedProject)
       return { objectType: "project", projectId: selectedProject.id };
     return { objectType: "global" };
-  }, [activeModule, selectedProject, selection]);
+  }, [activeModule, canvasCommandContext, selectedProject, selection]);
 
   const commands = useMemo<Command[]>(
     () => [
       {
         commandId: "app.openCommandPalette",
         title: "打开命令面板",
+        icon: <Terminal className="h-4 w-4" />,
         description: "搜索并运行当前可用命令",
         shortcut: { key: "k", ctrlKey: true },
         scope: "global",
@@ -748,6 +835,7 @@ export function AppShell() {
       {
         commandId: "app.quickSwitchProject",
         title: "快速切换项目",
+        icon: <FolderSync className="h-4 w-4" />,
         description: "在命令面板中搜索项目",
         shortcut: { key: "p", ctrlKey: true },
         scope: "global",
@@ -756,6 +844,7 @@ export function AppShell() {
       {
         commandId: "app.focusPanelSearch",
         title: "当前面板搜索",
+        icon: <Search className="h-4 w-4" />,
         description: "聚焦工作台搜索，不打开浏览器搜索",
         shortcut: { key: "f", ctrlKey: true },
         scope: "global",
@@ -764,6 +853,7 @@ export function AppShell() {
       {
         commandId: "app.openSettings",
         title: "打开设置",
+        icon: <Settings className="h-4 w-4" />,
         description: "切换到设置模块",
         shortcut: { key: ",", ctrlKey: true },
         scope: "global",
@@ -772,6 +862,7 @@ export function AppShell() {
       {
         commandId: "app.toggleTheme",
         title: "切换主题",
+        icon: <Moon className="h-4 w-4" />,
         description: theme === "light" ? "切换到深色主题" : "切换到浅色主题",
         scope: "global",
         run: () =>
@@ -797,6 +888,7 @@ export function AppShell() {
       {
         commandId: "app.refreshCurrent",
         title: "刷新当前数据",
+        icon: <RefreshCw className="h-4 w-4" />,
         description: "刷新当前项目数据，不触发浏览器刷新",
         shortcut: { key: "r", ctrlKey: true },
         scope: "global",
@@ -808,6 +900,7 @@ export function AppShell() {
       {
         commandId: "app.copyCurrent",
         title: "复制当前选中内容",
+        icon: <Copy className="h-4 w-4" />,
         description: "按当前对象复制路径、错误或 raw result",
         shortcut: { key: "c", ctrlKey: true },
         scope: "global",
@@ -840,20 +933,24 @@ export function AppShell() {
       {
         commandId: "app.deleteSelected",
         title: "删除当前选中项",
+        icon: <Trash2 className="h-4 w-4" />,
         description: "删除前必须确认",
         shortcut: { key: "Delete" },
         scope: "global",
         danger: true,
         when: () => selection?.type === "asset" || selection?.type === "task",
-        run: () => {
+        run: async () => {
           if (selection?.type === "asset") {
             void handleDeleteAssets([selection.item.relativePath]);
             return;
           }
           if (selection?.type === "task") {
-            const confirmed = window.confirm(
-              `确认删除任务记录？\n\n${selection.item.taskId}`,
-            );
+            const confirmed = await requestConfirm({
+              title: "确认删除任务记录？",
+              body: selection.item.taskId,
+              confirmLabel: "删除",
+              danger: true,
+            });
             if (confirmed) handleDeleteTask(selection.item.taskId);
           }
         },
@@ -861,6 +958,7 @@ export function AppShell() {
       {
         commandId: "app.previewSelectedAsset",
         title: "预览当前资产",
+        icon: <Eye className="h-4 w-4" />,
         description: "打开资产面板并在 Inspector 查看",
         shortcut: { key: " " },
         scope: "global",
@@ -874,6 +972,7 @@ export function AppShell() {
       {
         commandId: "asset.preview",
         title: "预览资产",
+        icon: <Eye className="h-4 w-4" />,
         description: "打开资产面板并在 Inspector 查看",
         shortcut: { key: " " },
         scope: "asset",
@@ -893,6 +992,7 @@ export function AppShell() {
       {
         commandId: "app.saveCurrentDraft",
         title: "保存当前工作流/草稿",
+        icon: <Save className="h-4 w-4" />,
         description:
           activeModule === "workflow"
             ? "保存当前节点流"
@@ -910,6 +1010,7 @@ export function AppShell() {
       {
         commandId: "app.executeCurrent",
         title: "执行当前生成/节点",
+        icon: <Play className="h-4 w-4" />,
         description:
           activeModule === "workflow"
             ? "运行当前节点流中已配置节点"
@@ -927,6 +1028,7 @@ export function AppShell() {
       {
         commandId: "project.copyPath",
         title: "复制项目路径",
+        icon: <Copy className="h-4 w-4" />,
         description: "复制当前项目根目录",
         scope: "project",
         when: () => !!selectedProject,
@@ -940,6 +1042,7 @@ export function AppShell() {
       {
         commandId: "project.copyId",
         title: "复制 project_id",
+        icon: <Copy className="h-4 w-4" />,
         description: "复制 Maker project_id",
         scope: "project",
         when: () => !!selectedProject,
@@ -953,6 +1056,7 @@ export function AppShell() {
       {
         commandId: "developer.openPanel",
         title: "打开开发者面板",
+        icon: <Code className="h-4 w-4" />,
         description: "查看当前项目、工具、任务和 runtime 上下文",
         scope: "global",
         run: () => selectModule("agent"),
@@ -960,6 +1064,7 @@ export function AppShell() {
       {
         commandId: "developer.copyDiagnostics",
         title: "复制诊断摘要",
+        icon: <ClipboardList className="h-4 w-4" />,
         description: "复制当前桌面工作台状态摘要",
         scope: "global",
         run: () =>
@@ -978,6 +1083,7 @@ export function AppShell() {
       {
         commandId: "project.scanProjects",
         title: "扫描项目",
+        icon: <Scan className="h-4 w-4" />,
         description: "刷新本地 Maker 项目列表",
         scope: "global",
         run: () => void handleScanProjects(),
@@ -985,6 +1091,7 @@ export function AppShell() {
       {
         commandId: "project.refreshCurrent",
         title: "刷新当前项目数据",
+        icon: <RefreshCw className="h-4 w-4" />,
         description: "刷新 runtime、tools、assets 和 tasks",
         scope: "project",
         when: () => !!selectedProject,
@@ -994,6 +1101,7 @@ export function AppShell() {
       {
         commandId: "asset.scanCurrentProject",
         title: "扫描当前项目资产",
+        icon: <Scan className="h-4 w-4" />,
         description: "通过本地 Fastify API 更新资产索引",
         scope: "project",
         when: () => !!selectedProject,
@@ -1002,6 +1110,7 @@ export function AppShell() {
       {
         commandId: "mcp.refreshTools",
         title: "刷新 MCP 工具",
+        icon: <RefreshCw className="h-4 w-4" />,
         description: "通过当前项目 runtime 刷新 tools/list",
         scope: "project",
         when: () => !!selectedProject,
@@ -1010,6 +1119,7 @@ export function AppShell() {
       {
         commandId: "mcp.startRuntime",
         title: "启动 MCP runtime",
+        icon: <Play className="h-4 w-4" />,
         description: "走本地 Fastify 到项目 MCP Runtime",
         scope: "project",
         when: () => !!selectedProject,
@@ -1018,6 +1128,7 @@ export function AppShell() {
       {
         commandId: "asset.revealInInspector",
         title: "在 Inspector 查看资产",
+        icon: <PanelRight className="h-4 w-4" />,
         description: "把资产详情打开到右侧面板",
         scope: "asset",
         when: (context) =>
@@ -1034,6 +1145,7 @@ export function AppShell() {
       {
         commandId: "asset.copyRelativePath",
         title: "复制资产路径",
+        icon: <Copy className="h-4 w-4" />,
         description: "复制资产相对路径",
         scope: "asset",
         when: (context) => context.objectType === "asset",
@@ -1047,6 +1159,7 @@ export function AppShell() {
       {
         commandId: "asset.scanReferences",
         title: "查看引用情况",
+        icon: <Search className="h-4 w-4" />,
         description: "通过本地引用扫描检查项目内引用",
         scope: "asset",
         when: (context) => context.objectType === "asset" && !!selectedProject,
@@ -1058,6 +1171,7 @@ export function AppShell() {
       {
         commandId: "asset.rename",
         title: "重命名",
+        icon: <Edit2 className="h-4 w-4" />,
         description: "重命名前先做引用扫描确认",
         scope: "asset",
         when: (context) => context.objectType === "asset" && !!selectedProject,
@@ -1069,6 +1183,7 @@ export function AppShell() {
       {
         commandId: "asset.move",
         title: "移动",
+        icon: <Move className="h-4 w-4" />,
         description: "移动前先做引用扫描确认",
         scope: "asset",
         when: (context) => context.objectType === "asset" && !!selectedProject,
@@ -1080,6 +1195,7 @@ export function AppShell() {
       {
         commandId: "asset.openSourceTask",
         title: "来源任务",
+        icon: <ExternalLink className="h-4 w-4" />,
         description: "定位资产来源任务",
         scope: "asset",
         when: (context) =>
@@ -1103,6 +1219,7 @@ export function AppShell() {
       {
         commandId: "asset.setVideoFirstFrame",
         title: "设为视频首帧",
+        icon: <Image className="h-4 w-4" />,
         description: "该动作需要视频工作室接入后执行",
         scope: "asset",
         when: (context) => context.objectType === "asset",
@@ -1111,6 +1228,7 @@ export function AppShell() {
       {
         commandId: "asset.setVideoLastFrame",
         title: "设为视频尾帧",
+        icon: <Image className="h-4 w-4" />,
         description: "该动作需要视频工作室接入后执行",
         scope: "asset",
         when: (context) => context.objectType === "asset",
@@ -1119,6 +1237,7 @@ export function AppShell() {
       {
         commandId: "asset.setModelReference",
         title: "设为 3D 参考图",
+        icon: <Image className="h-4 w-4" />,
         description: "该动作需要 3D 工作室接入后执行",
         scope: "asset",
         when: (context) => context.objectType === "asset",
@@ -1127,6 +1246,7 @@ export function AppShell() {
       {
         commandId: "asset.delete",
         title: "删除资产",
+        icon: <Trash2 className="h-4 w-4" />,
         description: "删除前确认，并先做引用扫描",
         scope: "asset",
         danger: true,
@@ -1139,6 +1259,7 @@ export function AppShell() {
       {
         commandId: "assetDirectory.open",
         title: "打开目录",
+        icon: <FolderOpen className="h-4 w-4" />,
         description: "切换资产中心当前目录",
         scope: "assetDirectory",
         when: (context) => context.objectType === "assetDirectory",
@@ -1154,6 +1275,7 @@ export function AppShell() {
       {
         commandId: "assetDirectory.copyPath",
         title: "复制目录路径",
+        icon: <Copy className="h-4 w-4" />,
         description: "复制资产目录相对路径",
         scope: "assetDirectory",
         when: (context) => context.objectType === "assetDirectory",
@@ -1167,6 +1289,7 @@ export function AppShell() {
       {
         commandId: "assetDirectory.importHere",
         title: "导入到此目录",
+        icon: <Download className="h-4 w-4" />,
         description: "将新的资产导入到该目录",
         scope: "assetDirectory",
         when: (context) => context.objectType === "assetDirectory",
@@ -1185,6 +1308,7 @@ export function AppShell() {
       {
         commandId: "assetDirectory.refresh",
         title: "刷新资产索引",
+        icon: <RefreshCw className="h-4 w-4" />,
         description: "重新扫描当前项目资产",
         scope: "assetDirectory",
         when: () => !!selectedProject,
@@ -1193,6 +1317,7 @@ export function AppShell() {
       {
         commandId: "assetDirectory.rename",
         title: "移动目录内资产",
+        icon: <Edit2 className="h-4 w-4" />,
         description: "把该目录下的资产移动到新目录",
         scope: "assetDirectory",
         when: (context) => context.objectType === "assetDirectory",
@@ -1209,6 +1334,7 @@ export function AppShell() {
       {
         commandId: "assetDirectory.move",
         title: "查看目录引用",
+        icon: <Move className="h-4 w-4" />,
         description: "扫描该目录下资产的项目引用",
         scope: "assetDirectory",
         when: (context) => context.objectType === "assetDirectory",
@@ -1225,6 +1351,7 @@ export function AppShell() {
       {
         commandId: "assetDirectory.delete",
         title: "删除目录内资产",
+        icon: <Trash2 className="h-4 w-4" />,
         description: "删除该目录下所有资产",
         scope: "assetDirectory",
         danger: true,
@@ -1246,6 +1373,7 @@ export function AppShell() {
       {
         commandId: "task.revealInInspector",
         title: "在 Inspector 查看任务",
+        icon: <PanelRight className="h-4 w-4" />,
         description: "打开任务日志或错误详情",
         scope: "task",
         when: (context) =>
@@ -1260,23 +1388,28 @@ export function AppShell() {
       {
         commandId: "task.deleteRecord",
         title: "删除任务记录",
+        icon: <Trash2 className="h-4 w-4" />,
         description: "从当前前端列表移除这条任务记录",
         scope: "task",
         danger: true,
         when: (context) =>
           context.objectType === "task" &&
           tasks.some((task) => task.taskId === context.taskId),
-        run: (context) => {
+        run: async (context) => {
           if (context.objectType !== "task") return;
-          const confirmed = window.confirm(
-            `确认删除任务记录？\n\n${context.taskId}`,
-          );
+          const confirmed = await requestConfirm({
+            title: "确认删除任务记录？",
+            body: context.taskId,
+            confirmLabel: "删除",
+            danger: true,
+          });
           if (confirmed) handleDeleteTask(context.taskId);
         },
       },
       {
         commandId: "task.copyRaw",
         title: "复制任务 raw/error",
+        icon: <Copy className="h-4 w-4" />,
         description: "复制完整 raw result 或错误内容",
         scope: "task",
         when: (context) =>
@@ -1294,6 +1427,7 @@ export function AppShell() {
       {
         commandId: "task.copySummary",
         title: "复制摘要",
+        icon: <Copy className="h-4 w-4" />,
         description: "复制任务名称与输入摘要",
         scope: "task",
         when: (context) =>
@@ -1311,6 +1445,7 @@ export function AppShell() {
       {
         commandId: "task.retry",
         title: "重试",
+        icon: <Play className="h-4 w-4" />,
         description: "使用原始 inputJson 重新调用工具",
         scope: "task",
         when: (context) =>
@@ -1331,6 +1466,7 @@ export function AppShell() {
       {
         commandId: "task.locateTool",
         title: "定位相关工具",
+        icon: <Crosshair className="h-4 w-4" />,
         description: "在 Inspector 中打开任务对应工具",
         scope: "task",
         when: (context) =>
@@ -1349,6 +1485,7 @@ export function AppShell() {
       {
         commandId: "task.locateAssets",
         title: "定位相关资产",
+        icon: <Crosshair className="h-4 w-4" />,
         description: "根据 raw result 中的文件名定位资产",
         scope: "task",
         when: (context) =>
@@ -1367,6 +1504,7 @@ export function AppShell() {
       {
         commandId: "task.markHandled",
         title: "标记已处理",
+        icon: <Check className="h-4 w-4" />,
         description: "当前仅隐藏选中状态，不删除记录",
         scope: "task",
         when: (context) => context.objectType === "task",
@@ -1378,6 +1516,7 @@ export function AppShell() {
       {
         commandId: "mcpTool.revealInInspector",
         title: "查看 MCP 工具",
+        icon: <PanelRight className="h-4 w-4" />,
         description: "打开工具 Schema 与描述",
         scope: "mcpTool",
         when: (context) =>
@@ -1392,6 +1531,7 @@ export function AppShell() {
       {
         commandId: "mcpTool.copyName",
         title: "复制工具名",
+        icon: <Copy className="h-4 w-4" />,
         description: "复制 MCP 工具 name",
         scope: "mcpTool",
         when: (context) => context.objectType === "mcpTool",
@@ -1867,6 +2007,22 @@ export function AppShell() {
   }, [commandContext, commandRegistry]);
 
   useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void import("@tauri-apps/api/event")
+      .then(({ listen }) =>
+        listen<string>("taptap://native-menu", (event) => {
+          if (!event.payload) return;
+          void commandRegistry.run(event.payload, commandContext);
+        }),
+      )
+      .then((handler) => {
+        unlisten = handler;
+      })
+      .catch(() => undefined);
+    return () => unlisten?.();
+  }, [commandContext, commandRegistry]);
+
+  useEffect(() => {
     const onContextMenu = (event: MouseEvent) => {
       closeAllContextMenus();
       if (isLocalContextMenuTarget(event.target)) {
@@ -2076,11 +2232,11 @@ export function AppShell() {
 
   function renderFallbackMenuItem(item: MenuItem): React.ReactNode {
     if (item.type === "separator")
-      return <div key={item.id} className="my-1.5 mx-2 h-px bg-border/50" />;
+      return <div key={item.id} className={ContextMenuStyles.separator} />;
     if (item.type === "submenu") {
       return (
-        <div key={item.id} className="px-1 py-1">
-          <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-text-muted/60">
+        <div key={item.id} className="py-1">
+          <div className={ContextMenuStyles.label}>
             {item.title}
           </div>
           {item.items.map(renderFallbackMenuItem)}
@@ -2093,8 +2249,8 @@ export function AppShell() {
         key={command.commandId}
         type="button"
         className={[
-          "flex h-7 w-full cursor-pointer select-none items-center gap-3 rounded-sm px-2.5 text-left text-[13px] font-medium outline-none transition-all hover:bg-brand/15 hover:text-brand-strong",
-          command.danger ? "text-red-500" : "text-text",
+          ContextMenuStyles.item,
+          command.danger ? "text-red-500 hover:bg-red-500/10 hover:text-red-400" : "",
         ].join(" ")}
         onClick={() => {
           setFallbackMenu(undefined);
@@ -2102,6 +2258,7 @@ export function AppShell() {
           void commandRegistry.run(command.commandId, fallbackContext);
         }}
       >
+        {command.icon && <span className="shrink-0 text-text-muted flex items-center">{command.icon}</span>}
         <span className="min-w-0 flex-1 truncate">{command.title}</span>
       </button>
     );
@@ -2217,6 +2374,7 @@ export function AppShell() {
                 setInspectorMinimized(true);
               }}
               onShowError={() => setInspectorMinimized(false)}
+              onCanvasCommandContextChange={setCanvasCommandContext}
             />
           </div>
 
@@ -2290,17 +2448,17 @@ export function AppShell() {
               onWheel={() => setFallbackMenu(undefined)}
             />
             <div
-              className="fixed z-[60] min-w-[230px] overflow-hidden rounded-md border border-border/70 bg-surface-panel/98 p-1 shadow-[0_12px_34px_-14px_rgba(0,0,0,0.65)] ring-1 ring-white/5 backdrop-blur-xl"
+              className={["fixed z-[60]", ContextMenuStyles.content].join(" ")}
               style={{ left: fallbackMenu.x, top: fallbackMenu.y }}
               data-app-context-menu
               onClick={(event) => event.stopPropagation()}
               onPointerDown={(event) => event.stopPropagation()}
               onContextMenu={(event) => event.preventDefault()}
             >
-              <div className="px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-widest text-text-muted/60">
+              <div className={ContextMenuStyles.label}>
                 {contextMenuTitle(fallbackContext.objectType)}
               </div>
-              <div className="mb-1 mx-1.5 h-px bg-border/60" />
+              <div className={ContextMenuStyles.separator} />
               {fallbackMenuItems.length ? (
                 fallbackMenuItems.map(renderFallbackMenuItem)
               ) : (
@@ -2315,6 +2473,8 @@ export function AppShell() {
           menu={editableMenu}
           onClose={() => setEditableMenu(undefined)}
         />
+        <PromptDialog config={promptConfig} />
+        <ConfirmDialog config={confirmConfig} />
       </div>
     </CommandProvider>
   );
@@ -2404,6 +2564,7 @@ function contextMenuTitle(objectType: AppCommandContext["objectType"]) {
     task: "任务操作",
     mcpTool: "MCP 工具操作",
     workflowCanvas: "节点流画布操作",
+    workflowSelection: "节点流选择操作",
     workflowNode: "节点操作",
     workflowEdge: "连线操作",
     videoFlowCanvas: "视频画布操作",

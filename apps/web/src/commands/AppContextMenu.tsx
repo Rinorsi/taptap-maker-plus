@@ -6,7 +6,7 @@ import { formatShortcut } from "./keyboard";
 import { useCommandRegistry } from "./CommandProvider";
 import { cn } from "../lib/utils";
 import { notifyContextMenuOpen, shouldUseNativeContextMenu } from "./contextMenuLayer";
-
+import { ContextMenuStyles } from "../components/ui/ContextMenuStyles";
 type AppContextMenuProps = {
   context: AppCommandContext;
   children: ReactNode;
@@ -140,6 +140,13 @@ const MENU_TEMPLATES: Partial<
     { type: "separator", id: "workflowCanvas:danger" },
     "canvas.clear",
   ],
+  workflowSelection: [
+    "node.copy",
+    "canvas.selectAll",
+    { type: "separator", id: "workflowSelection:danger" },
+    "node.delete",
+    "edge.delete",
+  ],
   workflowNode: [
     "node.run",
     "node.copy",
@@ -199,12 +206,11 @@ export function AppContextMenu({ context, children }: AppContextMenuProps) {
         key={command.commandId}
         onSelect={() => void registry.run(command.commandId, context)}
         className={cn(
-          "group flex h-7 cursor-pointer select-none items-center gap-4 rounded-sm px-2.5 text-[13px] outline-none transition-colors",
-          command.danger
-            ? "text-red-500 data-[highlighted]:bg-red-500/10 data-[highlighted]:text-red-400"
-            : "text-text data-[highlighted]:bg-brand/15 data-[highlighted]:text-brand-strong",
+          ContextMenuStyles.item,
+          command.danger && "text-red-500 data-[highlighted]:bg-red-500/10 data-[highlighted]:text-red-400"
         )}
       >
+        {command.icon && <span className="shrink-0 text-text-muted flex items-center">{command.icon}</span>}
         <span className="min-w-0 flex-1 truncate">{command.title}</span>
         {command.shortcut ? (
           <span
@@ -227,7 +233,7 @@ export function AppContextMenu({ context, children }: AppContextMenuProps) {
       return (
         <ContextMenu.Separator
           key={item.id}
-          className="my-1 mx-1.5 h-px bg-border/60"
+          className={ContextMenuStyles.separator}
         />
       );
     }
@@ -255,10 +261,8 @@ export function AppContextMenu({ context, children }: AppContextMenuProps) {
     return renderCommandItem(item.command);
   }
 
-  const menuContentClasses =
-    "z-50 min-w-[244px] max-h-[min(420px,calc(100vh-24px))] overflow-y-auto overflow-x-hidden overscroll-contain rounded-md border border-border/70 bg-surface-panel/98 p-1 shadow-[0_12px_34px_-14px_rgba(0,0,0,0.65)] ring-1 ring-white/5 origin-top-left animate-in fade-in zoom-in-95 duration-100 scrollbar-thin scrollbar-thumb-white/15 scrollbar-track-transparent";
-  const submenuTriggerClasses =
-    "group flex h-7 cursor-pointer select-none items-center gap-4 rounded-sm px-2.5 text-[13px] text-text outline-none transition-colors data-[highlighted]:bg-brand/15 data-[highlighted]:text-brand-strong";
+  const menuContentClasses = ContextMenuStyles.content;
+  const submenuTriggerClasses = ContextMenuStyles.item;
 
   return (
     <ContextMenu.Root modal={false} onOpenChange={(open) => {
@@ -296,10 +300,10 @@ export function AppContextMenu({ context, children }: AppContextMenuProps) {
           avoidCollisions
           collisionPadding={8}
         >
-          <ContextMenu.Label className="px-3 py-2.5 text-[11px] font-bold uppercase tracking-widest text-text-muted/60">
+          <ContextMenu.Label className={ContextMenuStyles.label}>
             {contextMenuTitle(context.objectType)}
           </ContextMenu.Label>
-          <ContextMenu.Separator className="mb-1 mx-1.5 h-px bg-border/60" />
+          <ContextMenu.Separator className={ContextMenuStyles.separator} />
 
           {primaryMenuItems.map(renderMenuItem)}
         </ContextMenu.Content>
@@ -317,6 +321,7 @@ function contextMenuTitle(objectType: AppCommandContext["objectType"]) {
     task: "任务操作",
     mcpTool: "MCP 工具操作",
     workflowCanvas: "节点流画布操作",
+    workflowSelection: "节点流选择操作",
     workflowNode: "节点操作",
     workflowEdge: "连线操作",
     videoFlowCanvas: "视频画布操作",

@@ -3,9 +3,9 @@ import {
   ArrowLeft,
   Info, Cpu, Terminal, Play, RefreshCw, Activity, 
   Search, Loader2,
-  FileJson, PanelRightClose, Copy, CircleAlert, Trash2, AlertCircle
+  FileJson, PanelRightClose, Copy, CircleAlert, Trash2, AlertCircle, Download
 } from "lucide-react";
-import { assetPreviewUrl, type AssetSummary, type ProjectSummary, type TaskRecord, type ToolSummary } from "../../api";
+import { assetPreviewUrl, getAgentContext, getDesktopReadiness, type AgentContextSnapshot, type AssetSummary, type DesktopReadiness, type ProjectSummary, type TaskRecord, type ToolSummary } from "../../api";
 import type { AssetReferenceScanResult } from "../../api";
 import { RawViewer } from "../developer";
 import { Button } from "../ui/Button";
@@ -381,10 +381,65 @@ function TabIconButton({ active, onClick, icon, label, badgeCount }: { active: b
 
 function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime, onRefreshTools, onStatusLite }: Pick<Props, "project" | "tools" | "tasks" | "busy" | "notice" | "onStartRuntime" | "onRefreshTools" | "onStatusLite">) {
   const runtime = project?.runtime;
+  const [desktopReadiness, setDesktopReadiness] = useState<DesktopReadiness>();
+  const [agentContext, setAgentContext] = useState<AgentContextSnapshot>();
+  const [developerError, setDeveloperError] = useState("");
   const recent = tasks[0];
   const runtimeStatus = runtime?.status ?? "idle";
   const ready = runtimeStatus === "ready";
   const starting = runtimeStatus === "starting";
+  const diagnosticsRaw = useMemo(
+    () =>
+      JSON.stringify(
+        {
+          generatedAt: new Date().toISOString(),
+          desktopReadiness,
+          agentContext,
+          runtime,
+          counts: {
+            tools: tools.length,
+            tasks: tasks.length,
+          },
+          notice,
+        },
+        null,
+        2,
+      ),
+    [agentContext, desktopReadiness, notice, runtime, tasks.length, tools.length],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDeveloperSnapshot() {
+      try {
+        const [readiness, context] = await Promise.all([
+          getDesktopReadiness().catch(() => undefined),
+          getAgentContext(project?.id, { activeTab: "status" }).catch(() => undefined),
+        ]);
+        if (cancelled) return;
+        setDesktopReadiness(readiness);
+        setAgentContext(context);
+        setDeveloperError("");
+      } catch (error) {
+        if (!cancelled) setDeveloperError(error instanceof Error ? error.message : String(error));
+      }
+    }
+    void loadDeveloperSnapshot();
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.id, runtime?.status, runtime?.processId, tools.length, tasks.length]);
+
+  function exportDiagnostics() {
+    const blob = new Blob([diagnosticsRaw], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `taptap-maker-plus-diagnostics-${Date.now()}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="flex flex-col gap-2.5">
       <div className={cn("rounded-panel border p-3", ready ? "border-brand/25 bg-brand/5" : runtimeStatus === "error" ? "border-[#b03939]/25 bg-[#b03939]/5" : "border-border-soft bg-surface-raised")}>
@@ -398,11 +453,11 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
           </span>
         </div>
         <div className="grid gap-1.5">
-          <InfoRowCompact label="本地 API" value="http://127.0.0.1:8787" />
+          <InfoRowCompact label="本地 API" value={desktopReadiness ? `http://${desktopReadiness.server.host}:${desktopReadiness.server.port}` : "http://127.0.0.1:8787"} />
           <InfoRowCompact label="Vite 代理" value="/api -> 127.0.0.1:8787" />
           <InfoRowCompact label="MCP cwd" value={runtime?.cwd ?? project?.rootPath ?? "-"} />
           <InfoRowCompact label="进程 PID" value={runtime?.processId ? String(runtime.processId) : "-"} />
-          <InfoRowCompact label="tools/list" value={runtime?.toolsListUpdatedAt ?? "-"} />
+          <InfoRowCompact label="tools/list" value={agentContext?.toolsListSnapshot?.updatedAt ?? runtime?.toolsListUpdatedAt ?? "-"} />
         </div>
       </div>
 
@@ -413,8 +468,20 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
         <InfoRow label="状态接口" value={project ? `/api/projects/${project.id}/mcp/status` : "-"} />
         <InfoRow label="当前动作" value={busy ? notice || "执行中..." : notice || "空闲"} />
       </div>
+      <div className="rounded-panel border border-border-soft bg-surface-raised divide-y divide-border-soft overflow-hidden">
+        <InfoRow label="桌面模式" value={desktopReadiness?.mode ?? "-"} />
+        <InfoRow label="SQLite" value={desktopReadiness?.paths.databasePath ?? "-"} />
+        <InfoRow label="MCP 日志目录" value={desktopReadiness?.paths.mcpLogDir ?? "-"} />
+        <InfoRow label="npm cache" value={desktopReadiness?.paths.npmCacheDir ?? "-"} />
+        <InfoRow label="tools/list 快照" value={agentContext?.toolsListSnapshot ? `${agentContext.toolsListSnapshot.projectId} / ${agentContext.toolsListSnapshot.updatedAt}` : "-"} />
+      </div>
       {runtime?.lastError ? (
         <CodeEditorPanel title="MCP runtime 错误" language="stderr" value={runtime.lastError} maxHeight="180px" />
+      ) : null}
+      {developerError ? (
+        <p className="m-0 rounded-panel border border-[#b03939]/20 bg-[#b03939]/5 p-2 text-[11px] text-[#b03939]">
+          {developerError}
+        </p>
       ) : null}
       
       <div className="grid gap-2 mt-3.5">
@@ -430,7 +497,21 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
             <Activity className="w-3.5 h-3.5" /> 状态检查
           </Button>
         </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="outline" onClick={() => void copyText(diagnosticsRaw, { successMessage: "诊断 JSON 已复制" })} className="gap-1.5 text-xs h-8 shadow-sm">
+            <Copy className="w-3.5 h-3.5" /> 复制诊断
+          </Button>
+          <Button variant="outline" onClick={exportDiagnostics} className="gap-1.5 text-xs h-8 shadow-sm">
+            <Download className="w-3.5 h-3.5" /> 导出诊断包
+          </Button>
+        </div>
       </div>
+      <RawViewer
+        title="raw agent context"
+        value={agentContext ? JSON.stringify(agentContext, null, 2) : ""}
+        height="220px"
+        emptyText="暂无 agent context"
+      />
     </div>
   );
 }

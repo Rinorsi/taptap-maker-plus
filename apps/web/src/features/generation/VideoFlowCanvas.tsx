@@ -51,9 +51,10 @@ import {
   getFlow,
   autoSaveFlow,
 } from "../../api";
-import { ChevronRight, ChevronLeft } from "lucide-react";
+import { ChevronRight, ChevronLeft, Plus } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { CodeEditorPanel } from "../../components/ui/CodeEditorPanel";
+import { ContextMenuStyles } from "../../components/ui/ContextMenuStyles";
 import {
   clampContextMenuPosition,
   CONTEXT_MENU_CLOSE_EVENT,
@@ -1342,15 +1343,11 @@ function VideoFlowCanvasInner({
       ? edges.find((edge) => edge.id === menuTarget.edgeId)
       : undefined;
   const viewportSize = getViewportSize();
-  const menuContentClasses =
-    "context-menu-container z-[9999] min-w-[160px] max-w-[240px] max-h-[min(420px,calc(100vh-24px))] overflow-y-auto overflow-x-hidden overscroll-contain rounded-xl border border-white/10 bg-surface-panel/95 backdrop-blur-xl p-1.5 shadow-[0_16px_70px_-10px_rgba(0,0,0,0.5)] ring-1 ring-white/5 animate-in fade-in zoom-in-95 duration-100 scrollbar-thin scrollbar-thumb-white/15 scrollbar-track-transparent";
-  const submenuContentClasses =
-    "context-menu-container z-[10000] min-w-[120px] max-w-[260px] max-h-[min(420px,calc(100vh-24px))] overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-surface-panel/95 backdrop-blur-xl p-1.5 shadow-[0_16px_70px_-10px_rgba(0,0,0,0.5)] ring-1 ring-white/5 animate-in fade-in zoom-in-95 duration-100 scrollbar-thin scrollbar-thumb-white/15 scrollbar-track-transparent";
-  const menuItemClasses =
-    "group flex w-full cursor-pointer select-none items-center gap-3 rounded-lg px-2.5 py-2 text-left text-[12px] outline-none transition-all duration-200 text-text hover:bg-brand/15 hover:text-brand-strong";
-  const disabledMenuItemClasses =
-    "flex w-full select-none items-center gap-3 rounded-lg px-2.5 py-2 text-left text-[12px] text-text-muted/50";
-  const menuSeparatorClasses = "h-px bg-border/50 mx-2 my-1.5";
+  const menuContentClasses = ContextMenuStyles.content;
+  const submenuContentClasses = ContextMenuStyles.content;
+  const menuItemClasses = ContextMenuStyles.item;
+  const disabledMenuItemClasses = ContextMenuStyles.disabledItem;
+  const menuSeparatorClasses = ContextMenuStyles.separator;
   const selectPresetFromSubmenu = useCallback(
     (presetId: string) => {
       if (submenuState?.mode === "insert" && activeMenuEdge) {
@@ -1778,6 +1775,7 @@ function VideoFlowCanvasInner({
                     )}
                     onMouseEnter={(event) => showRootSubmenu(event, "add")}
                   >
+                    <Plus className="h-4 w-4 opacity-70" />
                     <span className="min-w-0 flex-1 truncate font-medium">
                       新增节点
                     </span>

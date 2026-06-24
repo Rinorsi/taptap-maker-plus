@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import type { AgentPageState, AssetSummary, ProjectSummary, RuntimeSummary, TaskRecord, ToolSummary } from "../../api";
 import type { InspectorSelection } from "./AgentInspectorPanel";
 import type { WorkbenchModule } from "../../app/routes";
+import type { AppCommandContext } from "../../commands";
 import { ProjectOverview } from "../../features/projects/ProjectOverview";
 import { WelcomeView } from "../../features/projects/WelcomeView";
 import { AssetHub } from "../../features/assets/AssetHub";
@@ -41,6 +42,7 @@ type Props = {
   onOpenModule: (module: WorkbenchModule) => void;
   onCollapseSidebar?: () => void;
   onShowError?: () => void;
+  onCanvasCommandContextChange?: (context?: AppCommandContext) => void;
 };
 
 export function WorkbenchViewport(props: Props) {
@@ -133,7 +135,7 @@ export function WorkbenchViewport(props: Props) {
               onScanAssets={props.onScanAssets}
             />
           ) : null}
-          {props.activeModule === "workflow" ? <WorkflowCanvas project={props.project} tools={props.tools} tasks={props.tasks} onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })} /> : null}
+          {props.activeModule === "workflow" ? <WorkflowCanvas project={props.project} tools={props.tools} tasks={props.tasks} onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })} onCommandContextChange={props.onCanvasCommandContextChange} /> : null}
 
           {props.activeModule === "build" ? (
             <BuildCenter

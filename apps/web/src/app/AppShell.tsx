@@ -997,7 +997,7 @@ export function AppShell() {
           {!sidebarCollapsed && <div className="absolute -right-[5px] top-0 bottom-0 w-[10px] z-10 cursor-col-resize hover:bg-brand/20 transition-colors" role="separator" aria-label="调整项目侧栏宽度" onPointerDown={beginSidebarResize} />}
         </div>
 
-        <div className="flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden bg-surface-app">
+        <div className={["flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden", activeModule === "home" ? "app-background" : "bg-surface-app"].join(" ")}>
           <WorkbenchViewport
             activeModule={activeModule}
             project={selectedProject ? { ...selectedProject, runtime: runtimeView } : undefined}

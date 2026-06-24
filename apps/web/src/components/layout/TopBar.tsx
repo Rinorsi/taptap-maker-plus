@@ -91,9 +91,9 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
         }
       }}
     >
-      <div className="flex items-center min-w-0 shrink-0 w-[520px] pl-1 gap-3" data-no-window-drag>
+      <div className="flex items-center min-w-0 shrink-0 w-[520px] pl-1 gap-3">
         <div className="flex items-center gap-1.5 select-none pointer-events-none mr-2">
-          <img src="/files.png" alt="Plus" className="h-[28px] object-contain" />
+          <img src="/files.png" alt="Plus" className="h-[28px] rounded-lg object-contain" />
         </div>
         <div className="min-w-0">{appMenu}</div>
       </div>

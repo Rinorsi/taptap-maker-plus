@@ -8,11 +8,15 @@ const tauriCliPackagePath = path.join(workspaceRoot, "node_modules", "@tauri-app
 const tauriConfigPath = path.join(workspaceRoot, "src-tauri", "tauri.conf.json");
 const tauriCargoPath = path.join(workspaceRoot, "src-tauri", "Cargo.toml");
 const tauriSrcDir = path.join(workspaceRoot, "src-tauri", "src");
+const webViteConfigPath = path.join(workspaceRoot, "apps", "web", "vite.config.ts");
+const webSourceIndex = path.join(workspaceRoot, "apps", "web", "index.html");
 const webDistIndex = path.join(workspaceRoot, "apps", "web", "dist", "index.html");
 const webDistDesktopLoading = path.join(workspaceRoot, "apps", "web", "dist", "desktop-loading.html");
 const serverDistIndex = path.join(workspaceRoot, "apps", "server", "dist", "index.js");
 const npmCacheDir = path.join(workspaceRoot, "data", "npm-cache");
 const desktopDistDir = path.join(workspaceRoot, "desktop-dist");
+const webIdentityName = 'name="taptap-maker-plus"';
+const webIdentityContent = 'content="web"';
 
 type JsonObject = Record<string, unknown>;
 
@@ -110,9 +114,17 @@ function requirePackageScript(packageJson: JsonObject, scriptName: string, expec
 }
 
 function requireWebAssets() {
+  requireFile(webSourceIndex);
   requireFile(webDistIndex);
   requireFile(webDistDesktopLoading);
+  const sourceHtml = fs.readFileSync(webSourceIndex, "utf8");
+  if (!sourceHtml.includes(webIdentityName) || !sourceHtml.includes(webIdentityContent)) {
+    throw new Error(`${relative(webSourceIndex)} does not include the desktop web identity meta`);
+  }
   const html = fs.readFileSync(webDistIndex, "utf8");
+  if (!html.includes(webIdentityName) || !html.includes(webIdentityContent)) {
+    throw new Error(`${relative(webDistIndex)} does not include the desktop web identity meta`);
+  }
   const assetPaths = Array.from(html.matchAll(/(?:src|href)="([^"]+)"/g), (match) => match[1])
     .filter((assetPath) => assetPath.startsWith("/assets/"));
   if (assetPaths.length === 0) {
@@ -122,6 +134,16 @@ function requireWebAssets() {
     requireFile(path.join(workspaceRoot, "apps", "web", "dist", assetPath));
   }
   return assetPaths;
+}
+
+function requireViteDevServerConfig() {
+  requireFile(webViteConfigPath);
+  const viteConfig = fs.readFileSync(webViteConfigPath, "utf8");
+  for (const requiredText of ['host: "127.0.0.1"', "port: 5173", "strictPort: true"]) {
+    if (!viteConfig.includes(requiredText)) {
+      throw new Error(`${relative(webViteConfigPath)} does not include ${requiredText}`);
+    }
+  }
 }
 
 function requireServerArtifact() {
@@ -198,7 +220,7 @@ function requireTauriConfig(rootPackage: JsonObject, tauriCliPackage: JsonObject
 
   const build = requireObject(tauriConfig.build, "tauri.conf.json build");
   const frontendDist = requireExactString(build.frontendDist, "../apps/web/dist", "tauri.conf.json build.frontendDist");
-  const devUrl = requireExactString(build.devUrl, "http://localhost:5173", "tauri.conf.json build.devUrl");
+  const devUrl = requireExactString(build.devUrl, "http://127.0.0.1:5173", "tauri.conf.json build.devUrl");
   const beforeDevCommand = requireExactString(build.beforeDevCommand, "npm run dev:web", "tauri.conf.json build.beforeDevCommand");
   const beforeBuildCommand = requireExactString(build.beforeBuildCommand, "npm run build:desktop", "tauri.conf.json build.beforeBuildCommand");
   requirePackageScript(rootPackage, "dev:web", "npm run dev --workspace @taptap/web");
@@ -289,6 +311,7 @@ const tauriCliPackage = readJsonObject(tauriCliPackagePath);
 
 requirePackageScript(rootPackage, "verify:desktop", "tsx scripts/verify-desktop-readiness.ts");
 const tauri = requireTauriConfig(rootPackage, tauriCliPackage);
+requireViteDevServerConfig();
 requireServerArtifact();
 const webAssets = requireWebAssets();
 requireNpmCache(npmCacheDir);

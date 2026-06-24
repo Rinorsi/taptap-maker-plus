@@ -1,7 +1,7 @@
 use std::{
   fs,
   fs::OpenOptions,
-  io::Write,
+  io::{Read, Write},
   net::{TcpStream, ToSocketAddrs},
   path::{Path, PathBuf},
   process::{Child, Command, Stdio},
@@ -23,7 +23,9 @@ const SERVER_PORT: &str = "8787";
 const SERVER_PORT_NUMBER: u16 = 8787;
 const SERVER_URL: &str = "http://127.0.0.1:8787";
 const DEV_WEB_PORT_NUMBER: u16 = 5173;
-const DEV_WEB_URL: &str = "http://localhost:5173";
+const DEV_WEB_URL: &str = "http://127.0.0.1:5173";
+const WEB_IDENTITY_NAME: &str = r#"name="taptap-maker-plus""#;
+const WEB_IDENTITY_CONTENT: &str = r#"content="web""#;
 const ASPECT_WIDTH: u32 = 16;
 const ASPECT_HEIGHT: u32 = 9;
 const ASPECT_TOLERANCE: u32 = 3;
@@ -162,21 +164,45 @@ fn hide_command_window(command: &mut Command) {
   }
 }
 
-fn wait_for_local_port(host: &str, port: u16) -> bool {
-  if let Ok(addresses) = (host, port).to_socket_addrs() {
-    for address in addresses {
-      if TcpStream::connect_timeout(&address, Duration::from_millis(250)).is_ok() {
-        return true;
+fn read_local_http_root(host: &str, port: u16) -> Option<String> {
+  let Ok(addresses) = (host, port).to_socket_addrs() else {
+    return None;
+  };
+  for address in addresses {
+    let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_millis(250)) else {
+      continue;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
+    let request = format!(
+      "GET / HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\nAccept: text/html\r\n\r\n"
+    );
+    if stream.write_all(request.as_bytes()).is_err() {
+      continue;
+    }
+    let mut response = Vec::new();
+    let mut buffer = [0; 2048];
+    loop {
+      match stream.read(&mut buffer) {
+        Ok(0) => break,
+        Ok(bytes_read) => {
+          response.extend_from_slice(&buffer[..bytes_read]);
+          let response_text = String::from_utf8_lossy(&response);
+          if response_text.contains(WEB_IDENTITY_NAME) && response_text.contains(WEB_IDENTITY_CONTENT) {
+            return Some(String::from_utf8_lossy(&response).into_owned());
+          }
+        }
+        Err(_) => break,
       }
     }
   }
-  TcpStream::connect((host, port)).is_ok()
+  None
 }
 
-fn wait_for_any_local_port(probes: &[LocalPortProbe]) -> bool {
+fn wait_for_web_identity(probes: &[LocalPortProbe]) -> bool {
   for _ in 0..120 {
     for probe in probes {
-      if wait_for_local_port(probe.host, probe.port) {
+      if read_local_http_root(probe.host, probe.port).is_some() {
         return true;
       }
     }
@@ -381,16 +407,14 @@ pub fn run() {
       app.manage(server.clone());
 
       let dev_web_probes = [
-        LocalPortProbe { host: "localhost", port: DEV_WEB_PORT_NUMBER },
         LocalPortProbe { host: "127.0.0.1", port: DEV_WEB_PORT_NUMBER },
-        LocalPortProbe { host: "::1", port: DEV_WEB_PORT_NUMBER },
       ];
       let production_probe = [LocalPortProbe { host: SERVER_HOST, port: SERVER_PORT_NUMBER }];
       thread::spawn(move || {
         let target_ready = if cfg!(debug_assertions) {
-          wait_for_any_local_port(&dev_web_probes)
+          wait_for_web_identity(&dev_web_probes)
         } else {
-          wait_for_any_local_port(&production_probe)
+          wait_for_web_identity(&production_probe)
         };
         let target_url = if target_ready {
           if cfg!(debug_assertions) { DEV_WEB_URL } else { SERVER_URL }

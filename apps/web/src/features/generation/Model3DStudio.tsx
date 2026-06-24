@@ -495,6 +495,7 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
                      camera-controls
                      auto-rotate
                      shadow-intensity="1"
+                     data-no-app-context-menu
                      class="w-full h-full bg-transparent outline-none"
                    />
                  ) : (
@@ -514,6 +515,7 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
                    camera-controls
                    auto-rotate
                    shadow-intensity="1"
+                   data-no-app-context-menu
                    class="w-full h-full bg-transparent outline-none"
                  />
                ) : displayAssetExtension === "png" || displayAssetExtension === "jpg" || displayAssetExtension === "jpeg" ? (
@@ -630,7 +632,7 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
                                  {pkg.suggestedActions.includes("add_to_resource") && <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2 bg-purple-500/10 text-purple-600 hover:bg-purple-500/20 border-0" onClick={(e) => { e.stopPropagation(); runPackageAction(() => updateModelPackageResource(project?.id ?? "", pkg.id, "add")).catch(err => alert("操作失败: " + (err.message || String(err)))); }}>加资源表</Button>}
                                  {pkg.suggestedActions.includes("remove_from_resource") && <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2 bg-purple-500/10 text-purple-600 hover:bg-purple-500/20 border-0" onClick={(e) => { e.stopPropagation(); runPackageAction(() => updateModelPackageResource(project?.id ?? "", pkg.id, "remove")).catch(err => alert("操作失败: " + (err.message || String(err)))); }}>移出资源表</Button>}
                                  {pkg.suggestedActions.includes("copy_lua") && <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2 bg-surface-muted text-text hover:bg-surface-raised border-0" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(copyLuaSnippet(pkg)).catch(() => undefined); }}>复制 Lua</Button>}
-                                 {pkg.suggestedActions.includes("delete_package") && <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2 bg-red-500/10 text-red-600 hover:bg-red-500/20 border-0" onClick={(e) => { e.stopPropagation(); const paths = pkg.files.filter((file) => file.exists).map((file) => file.relativePath); if(confirm(`永久删除 ${paths.length} 个关联文件？此操作不可恢复。`)) onDeleteAssets(paths).then(() => { refreshPackages(); onScanAssets(); }).catch(err => alert("删除失败: " + (err.message || String(err)))); }}>永久删除</Button>}
+                                 {pkg.suggestedActions.includes("delete_package") && <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2 bg-red-500/10 text-red-600 hover:bg-red-500/20 border-0" onClick={(e) => { e.stopPropagation(); const paths = pkg.files.filter((file) => file.exists).map((file) => file.relativePath); onDeleteAssets(paths).then(() => { refreshPackages(); onScanAssets(); }).catch(err => alert("删除失败: " + (err.message || String(err)))); }}>永久删除</Button>}
                               </div>
                            </motion.div>
                          )}

@@ -2,6 +2,7 @@ export type CommandScope =
   | "global"
   | "project"
   | "asset"
+  | "assetDirectory"
   | "task"
   | "mcpTool"
   | "workflowCanvas"
@@ -16,6 +17,7 @@ export type AppCommandContext =
   | { objectType: "global" }
   | { objectType: "project"; projectId: string }
   | { objectType: "asset"; relativePath: string }
+  | { objectType: "assetDirectory"; directoryPath: string }
   | { objectType: "task"; taskId: string }
   | { objectType: "mcpTool"; toolName: string }
   | { objectType: "workflowCanvas" }
@@ -46,6 +48,11 @@ export type Command = {
   submenu?: string | readonly string[];
   order?: number;
   danger?: boolean;
+  menu?: {
+    primary?: boolean;
+    section?: string;
+    hiddenInContextMenu?: boolean;
+  };
   when?: (context: AppCommandContext) => boolean;
   run: (context: AppCommandContext) => void | Promise<void>;
 };

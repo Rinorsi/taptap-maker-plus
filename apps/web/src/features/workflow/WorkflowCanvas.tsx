@@ -48,7 +48,15 @@ import {
   type WorkflowRunRecord,
 } from "../../api";
 import { Button } from "../../components/ui/Button";
-import { AppContextMenu } from "../../commands";
+import {
+  AppContextMenu,
+  clampContextMenuPosition,
+  CONTEXT_MENU_CLOSE_EVENT,
+  CONTEXT_MENU_OPEN_EVENT,
+  notifyContextMenuOpen,
+  shouldIgnoreContextMenuEvent,
+  shouldUseNativeContextMenu,
+} from "../../commands";
 import { cn } from "../../lib/utils";
 
 type Props = {
@@ -60,6 +68,10 @@ type Props = {
 
 type ToolInputs = Record<string, Record<string, unknown>>;
 type FlowGraph = { nodes: Node[]; edges: Edge[] };
+type WorkflowCommandDetail =
+  | { action: "fitView" | "selectAll" | "clear" }
+  | { action: "copyNode" | "deleteNode" | "runNode" | "toggleNodeCollapse" | "copyNodeId" | "showNodePayload"; nodeId?: string }
+  | { action: "deleteEdge" | "copyEdgeId" | "showEdgePayload"; edgeId?: string };
 type WorkflowMenu =
   | {
       type: "pane";
@@ -182,7 +194,7 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool }: Props) {
     const onContextMenu = (event: MouseEvent) => {
       if (!wrapperRef.current?.contains(event.target as globalThis.Node | null))
         return;
-      if ((event.target as HTMLElement | null)?.closest("input, textarea"))
+      if (shouldUseNativeContextMenu(event.target))
         return;
       event.preventDefault();
       event.stopPropagation();
@@ -193,12 +205,17 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool }: Props) {
       )
         return;
       const hoveredObject = hoveredObjectRef.current;
+      const position = clampContextMenuPosition(
+        { x: event.clientX, y: event.clientY },
+        { width: 260, height: 360 },
+      );
+      notifyContextMenuOpen("workflow");
       if (hoveredObject?.type === "node") {
         setSelectedNodeId(hoveredObject.node.id);
         setWorkflowMenu({
           type: "node",
-          x: event.clientX,
-          y: event.clientY,
+          x: position.x,
+          y: position.y,
           nodeId: hoveredObject.node.id,
         });
         return;
@@ -206,8 +223,8 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool }: Props) {
       if (hoveredObject?.type === "edge") {
         setWorkflowMenu({
           type: "edge",
-          x: event.clientX,
-          y: event.clientY,
+          x: position.x,
+          y: position.y,
           edgeId: hoveredObject.edge.id,
         });
         return;
@@ -218,16 +235,26 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool }: Props) {
       }) ?? { x: 80, y: 80 };
       setWorkflowMenu({
         type: "pane",
-        x: event.clientX,
-        y: event.clientY,
+        x: position.x,
+        y: position.y,
         flowPosition,
       });
     };
+    const onCloseContextMenus = () => setWorkflowMenu(undefined);
+    const onOtherContextMenuOpen = (event: Event) => {
+      if (shouldIgnoreContextMenuEvent(event, "workflow")) return;
+      setWorkflowMenu(undefined);
+    };
     window.addEventListener("contextmenu", onContextMenu, { capture: true });
-    return () =>
+    window.addEventListener(CONTEXT_MENU_CLOSE_EVENT, onCloseContextMenus);
+    window.addEventListener(CONTEXT_MENU_OPEN_EVENT, onOtherContextMenuOpen);
+    return () => {
       window.removeEventListener("contextmenu", onContextMenu, {
         capture: true,
       });
+      window.removeEventListener(CONTEXT_MENU_CLOSE_EVENT, onCloseContextMenus);
+      window.removeEventListener(CONTEXT_MENU_OPEN_EVENT, onOtherContextMenuOpen);
+    };
   }, []);
 
   async function refreshWorkflowData(projectId: string) {
@@ -556,13 +583,61 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool }: Props) {
     const runCurrent = () => {
       void handleRun(executableNodeIds);
     };
+    const runCommand = (event: Event) => {
+      const detail = (event as CustomEvent<WorkflowCommandDetail>).detail;
+      if (!detail) return;
+      if (detail.action === "fitView") {
+        fitCanvas();
+        return;
+      }
+      if (detail.action === "selectAll") {
+        selectAll();
+        return;
+      }
+      if (detail.action === "clear") {
+        clearCanvas();
+        return;
+      }
+      const nodeId = "nodeId" in detail ? detail.nodeId ?? selectedNodeId : "";
+      const edgeId = "edgeId" in detail ? detail.edgeId : "";
+      if (detail.action === "copyNode" && nodeId) copyNode(nodeId);
+      if (detail.action === "deleteNode" && nodeId) deleteNode(nodeId);
+      if (detail.action === "runNode" && nodeId) void handleRun([nodeId]);
+      if (detail.action === "toggleNodeCollapse" && nodeId)
+        toggleNodeCollapse(nodeId);
+      if (detail.action === "copyNodeId" && nodeId)
+        copyTextToClipboard(nodeId, "节点 ID 已复制");
+      if (detail.action === "showNodePayload" && nodeId)
+        showNodePayload(nodeId);
+      if (detail.action === "deleteEdge" && edgeId) deleteEdge(edgeId);
+      if (detail.action === "copyEdgeId" && edgeId)
+        copyTextToClipboard(edgeId, "连线 ID 已复制");
+      if (detail.action === "showEdgePayload" && edgeId)
+        showEdgePayload(edgeId);
+    };
     window.addEventListener("taptap:workflow-save", saveCurrent);
     window.addEventListener("taptap:workflow-run", runCurrent);
+    window.addEventListener("taptap:workflow-command", runCommand);
     return () => {
       window.removeEventListener("taptap:workflow-save", saveCurrent);
       window.removeEventListener("taptap:workflow-run", runCurrent);
+      window.removeEventListener("taptap:workflow-command", runCommand);
     };
-  }, [executableNodeIds, handleSave, handleRun]);
+  }, [
+    clearCanvas,
+    copyNode,
+    deleteEdge,
+    deleteNode,
+    executableNodeIds,
+    fitCanvas,
+    handleRun,
+    handleSave,
+    selectedNodeId,
+    selectAll,
+    showEdgePayload,
+    showNodePayload,
+    toggleNodeCollapse,
+  ]);
 
   function updateNodeInputs(nodeId: string, inputs: Record<string, unknown>) {
     setToolInputs((current) => ({ ...current, [nodeId]: inputs }));
@@ -743,34 +818,46 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool }: Props) {
             <Controls />
           </ReactFlow>
           {workflowMenu ? (
-            <WorkflowContextMenu
-              menu={workflowMenu}
-              clipboardReady={!!clipboardNode}
-              collapsed={
-                workflowMenu.type === "node"
-                  ? collapsedNodeIds.has(workflowMenu.nodeId)
-                  : false
-              }
-              onClose={() => setWorkflowMenu(undefined)}
-              onAddNode={addNode}
-              onPasteNode={pasteNode}
-              onFitCanvas={fitCanvas}
-              onSelectAll={selectAll}
-              onClearCanvas={clearCanvas}
-              onRunNode={(nodeId) => void handleRun([nodeId])}
-              onCopyNode={copyNode}
-              onDeleteNode={deleteNode}
-              onCopyNodeId={(nodeId) =>
-                copyTextToClipboard(nodeId, "节点 ID 已复制")
-              }
-              onShowNodePayload={showNodePayload}
-              onToggleNodeCollapse={toggleNodeCollapse}
-              onDeleteEdge={deleteEdge}
-              onCopyEdgeId={(edgeId) =>
-                copyTextToClipboard(edgeId, "连线 ID 已复制")
-              }
-              onShowEdgePayload={showEdgePayload}
-            />
+            <>
+              <div
+                className="fixed inset-0 z-[69]"
+                data-local-context-menu
+                onPointerDown={() => setWorkflowMenu(undefined)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setWorkflowMenu(undefined);
+                }}
+                onWheel={() => setWorkflowMenu(undefined)}
+              />
+              <WorkflowContextMenu
+                menu={workflowMenu}
+                clipboardReady={!!clipboardNode}
+                collapsed={
+                  workflowMenu.type === "node"
+                    ? collapsedNodeIds.has(workflowMenu.nodeId)
+                    : false
+                }
+                onClose={() => setWorkflowMenu(undefined)}
+                onAddNode={addNode}
+                onPasteNode={pasteNode}
+                onFitCanvas={fitCanvas}
+                onSelectAll={selectAll}
+                onClearCanvas={clearCanvas}
+                onRunNode={(nodeId) => void handleRun([nodeId])}
+                onCopyNode={copyNode}
+                onDeleteNode={deleteNode}
+                onCopyNodeId={(nodeId) =>
+                  copyTextToClipboard(nodeId, "节点 ID 已复制")
+                }
+                onShowNodePayload={showNodePayload}
+                onToggleNodeCollapse={toggleNodeCollapse}
+                onDeleteEdge={deleteEdge}
+                onCopyEdgeId={(edgeId) =>
+                  copyTextToClipboard(edgeId, "连线 ID 已复制")
+                }
+                onShowEdgePayload={showEdgePayload}
+              />
+            </>
           ) : null}
           {payloadDialog ? (
             <PayloadDialogView
@@ -873,9 +960,10 @@ function WorkflowContextMenu({
   const panePosition = menu.type === "pane" ? menu.flowPosition : undefined;
   return (
     <div
-      className="fixed z-[70] min-w-[240px] rounded-xl border border-white/10 bg-surface-panel/95 p-1.5 shadow-[0_16px_70px_-10px_rgba(0,0,0,0.5)] ring-1 ring-white/5 backdrop-blur-xl"
+      className="fixed z-[70] min-w-[240px] rounded-md border border-border/70 bg-surface-panel/98 p-1 shadow-[0_12px_34px_-14px_rgba(0,0,0,0.65)] ring-1 ring-white/5 backdrop-blur-xl"
       data-workflow-menu-surface
       style={{ left: menu.x, top: menu.y }}
+      onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
       onContextMenu={(event) => {
         event.preventDefault();

@@ -37,13 +37,23 @@ import {
 } from "../components/layout/AgentInspectorPanel";
 import {
   AppMenuBar,
+  buildContextMenuItems,
   CommandPalette,
   CommandProvider,
   EditableContextMenu,
+  closeAllContextMenus,
+  clampContextMenuPosition,
   commandShortcuts,
+  CONTEXT_MENU_CLOSE_EVENT,
+  CONTEXT_MENU_OPEN_EVENT,
   createCommandRegistry,
+  getContextMenuCommands,
   isEditableShortcutTarget,
   matchesShortcut,
+  notifyContextMenuOpen,
+  shouldIgnoreContextMenuEvent,
+  shouldUseNativeContextMenu,
+  type MenuItem,
   type AppCommandContext,
   type Command,
 } from "../commands";
@@ -414,6 +424,13 @@ export function AppShell() {
 
   async function handleDeleteAssets(relativePaths: string[]) {
     if (!selectedProject || !relativePaths.length) return;
+    const confirmedDelete = window.confirm(
+      `确认删除 ${relativePaths.length} 个资产？\n\n${relativePaths.join("\n")}`,
+    );
+    if (!confirmedDelete) {
+      setNotice("已取消删除资产");
+      return;
+    }
     setBusy(true);
     try {
       const confirmed = await confirmAssetReferenceMutation(
@@ -488,6 +505,48 @@ export function AppShell() {
       setAssets(nextAssets);
       setSelection(undefined);
       setNotice(`已重命名文件为 ${newName}`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handlePromptRenameAsset(relativePath: string) {
+    const currentName = relativePath.split(/[\\/]/).pop() ?? relativePath;
+    const nextName = window.prompt("输入新的文件名", currentName);
+    if (!nextName || nextName === currentName) return;
+    await handleRenameAsset(relativePath, nextName);
+  }
+
+  async function handlePromptMoveAssets(relativePaths: string[]) {
+    if (!relativePaths.length) return;
+    const currentFolder =
+      relativePaths[0]?.split(/[\\/]/).slice(0, -1).join("/") || "assets";
+    const targetFolder = window.prompt("输入目标目录", currentFolder);
+    if (!targetFolder || targetFolder === currentFolder) return;
+    await handleMoveAssets(relativePaths, targetFolder);
+  }
+
+  async function handleScanAssetReferencesNotice(relativePaths: string[]) {
+    if (!selectedProject || !relativePaths.length) return;
+    setBusy(true);
+    try {
+      const results = await scanAssetReferences(selectedProject.id, relativePaths);
+      const total = results.reduce((sum, result) => sum + result.referenceCount, 0);
+      const title =
+        relativePaths.length === 1
+          ? `引用情况：${relativePaths[0]}`
+          : `目录引用报告：${relativePaths.length} 个资产`;
+      setSelection({
+        type: "assetReferences",
+        title,
+        scannedAt: new Date().toLocaleString(),
+        results,
+      });
+      setRightPanelTab("status");
+      setInspectorMinimized(false);
+      setNotice(total > 0 ? `引用扫描完成：共 ${total} 处引用` : "引用扫描完成：未发现引用");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
@@ -647,6 +706,18 @@ export function AppShell() {
     setNotice("请在画布内操作");
   }
 
+  function runWorkflowCanvasCommand(detail: Record<string, unknown>) {
+    window.dispatchEvent(
+      new CustomEvent("taptap:workflow-command", { detail }),
+    );
+  }
+
+  function runVideoFlowCommand(detail: Record<string, unknown>) {
+    window.dispatchEvent(
+      new CustomEvent("taptap:video-flow-command", { detail }),
+    );
+  }
+
   const commandContext: AppCommandContext = useMemo(() => {
     if (selection?.type === "asset")
       return { objectType: "asset", relativePath: selection.item.relativePath };
@@ -776,11 +847,7 @@ export function AppShell() {
         when: () => selection?.type === "asset" || selection?.type === "task",
         run: () => {
           if (selection?.type === "asset") {
-            const confirmed = window.confirm(
-              `确认删除资产？\n\n${selection.item.relativePath}`,
-            );
-            if (confirmed)
-              void handleDeleteAssets([selection.item.relativePath]);
+            void handleDeleteAssets([selection.item.relativePath]);
             return;
           }
           if (selection?.type === "task") {
@@ -802,6 +869,25 @@ export function AppShell() {
           if (selection?.type !== "asset") return;
           selectModule("assets");
           handleSelectSelection(selection);
+        },
+      },
+      {
+        commandId: "asset.preview",
+        title: "预览资产",
+        description: "打开资产面板并在 Inspector 查看",
+        shortcut: { key: " " },
+        scope: "asset",
+        when: (context) =>
+          context.objectType === "asset" &&
+          assets.some((asset) => asset.relativePath === context.relativePath),
+        run: (context) => {
+          if (context.objectType !== "asset") return;
+          const asset = assets.find(
+            (item) => item.relativePath === context.relativePath,
+          );
+          if (!asset) return;
+          selectModule("assets");
+          handleSelectSelection({ type: "asset", item: asset });
         },
       },
       {
@@ -959,6 +1045,86 @@ export function AppShell() {
         },
       },
       {
+        commandId: "asset.scanReferences",
+        title: "查看引用情况",
+        description: "通过本地引用扫描检查项目内引用",
+        scope: "asset",
+        when: (context) => context.objectType === "asset" && !!selectedProject,
+        run: (context) => {
+          if (context.objectType !== "asset") return;
+          void handleScanAssetReferencesNotice([context.relativePath]);
+        },
+      },
+      {
+        commandId: "asset.rename",
+        title: "重命名",
+        description: "重命名前先做引用扫描确认",
+        scope: "asset",
+        when: (context) => context.objectType === "asset" && !!selectedProject,
+        run: (context) => {
+          if (context.objectType !== "asset") return;
+          void handlePromptRenameAsset(context.relativePath);
+        },
+      },
+      {
+        commandId: "asset.move",
+        title: "移动",
+        description: "移动前先做引用扫描确认",
+        scope: "asset",
+        when: (context) => context.objectType === "asset" && !!selectedProject,
+        run: (context) => {
+          if (context.objectType !== "asset") return;
+          void handlePromptMoveAssets([context.relativePath]);
+        },
+      },
+      {
+        commandId: "asset.openSourceTask",
+        title: "来源任务",
+        description: "定位资产来源任务",
+        scope: "asset",
+        when: (context) =>
+          context.objectType === "asset" &&
+          assets.some((asset) => asset.relativePath === context.relativePath),
+        run: (context) => {
+          if (context.objectType !== "asset") return;
+          const asset = assets.find(
+            (item) => item.relativePath === context.relativePath,
+          );
+          const provenance = asset?.provenance?.find(
+            (source) => source.sourceType === "task",
+          );
+          const task = provenance
+            ? tasks.find((item) => item.taskId === provenance.sourceId)
+            : undefined;
+          if (task) handleSelectSelection({ type: "task", item: task });
+          else setNotice("未找到该资产的来源任务记录");
+        },
+      },
+      {
+        commandId: "asset.setVideoFirstFrame",
+        title: "设为视频首帧",
+        description: "该动作需要视频工作室接入后执行",
+        scope: "asset",
+        when: (context) => context.objectType === "asset",
+        run: () => setNotice("设为视频首帧需要在视频工作室内选择目标节点"),
+      },
+      {
+        commandId: "asset.setVideoLastFrame",
+        title: "设为视频尾帧",
+        description: "该动作需要视频工作室接入后执行",
+        scope: "asset",
+        when: (context) => context.objectType === "asset",
+        run: () => setNotice("设为视频尾帧需要在视频工作室内选择目标节点"),
+      },
+      {
+        commandId: "asset.setModelReference",
+        title: "设为 3D 参考图",
+        description: "该动作需要 3D 工作室接入后执行",
+        scope: "asset",
+        when: (context) => context.objectType === "asset",
+        run: () => setNotice("设为 3D 参考图需要在 3D 工作室内选择目标流程"),
+      },
+      {
         commandId: "asset.delete",
         title: "删除资产",
         description: "删除前确认，并先做引用扫描",
@@ -967,10 +1133,114 @@ export function AppShell() {
         when: (context) => context.objectType === "asset",
         run: (context) => {
           if (context.objectType !== "asset") return;
-          const confirmed = window.confirm(
-            `确认删除资产？\n\n${context.relativePath}`,
+          void handleDeleteAssets([context.relativePath]);
+        },
+      },
+      {
+        commandId: "assetDirectory.open",
+        title: "打开目录",
+        description: "切换资产中心当前目录",
+        scope: "assetDirectory",
+        when: (context) => context.objectType === "assetDirectory",
+        run: (context) => {
+          if (context.objectType !== "assetDirectory") return;
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-directory-command", {
+              detail: { action: "open", directoryPath: context.directoryPath },
+            }),
           );
-          if (confirmed) void handleDeleteAssets([context.relativePath]);
+        },
+      },
+      {
+        commandId: "assetDirectory.copyPath",
+        title: "复制目录路径",
+        description: "复制资产目录相对路径",
+        scope: "assetDirectory",
+        when: (context) => context.objectType === "assetDirectory",
+        run: (context) => {
+          if (context.objectType !== "assetDirectory") return;
+          void copyText(context.directoryPath, {
+            successMessage: "目录路径已复制",
+          });
+        },
+      },
+      {
+        commandId: "assetDirectory.importHere",
+        title: "导入到此目录",
+        description: "将新的资产导入到该目录",
+        scope: "assetDirectory",
+        when: (context) => context.objectType === "assetDirectory",
+        run: (context) => {
+          if (context.objectType !== "assetDirectory") return;
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-directory-command", {
+              detail: {
+                action: "importHere",
+                directoryPath: context.directoryPath,
+              },
+            }),
+          );
+        },
+      },
+      {
+        commandId: "assetDirectory.refresh",
+        title: "刷新资产索引",
+        description: "重新扫描当前项目资产",
+        scope: "assetDirectory",
+        when: () => !!selectedProject,
+        run: () => void handleScanAssets(),
+      },
+      {
+        commandId: "assetDirectory.rename",
+        title: "移动目录内资产",
+        description: "把该目录下的资产移动到新目录",
+        scope: "assetDirectory",
+        when: (context) => context.objectType === "assetDirectory",
+        run: (context) => {
+          if (context.objectType !== "assetDirectory") return;
+          const paths = assets
+            .filter((asset) =>
+              isAssetUnderDirectory(asset.relativePath, context.directoryPath),
+            )
+            .map((asset) => asset.relativePath);
+          void handlePromptMoveAssets(paths);
+        },
+      },
+      {
+        commandId: "assetDirectory.move",
+        title: "查看目录引用",
+        description: "扫描该目录下资产的项目引用",
+        scope: "assetDirectory",
+        when: (context) => context.objectType === "assetDirectory",
+        run: (context) => {
+          if (context.objectType !== "assetDirectory") return;
+          const paths = assets
+            .filter((asset) =>
+              isAssetUnderDirectory(asset.relativePath, context.directoryPath),
+            )
+            .map((asset) => asset.relativePath);
+          void handleScanAssetReferencesNotice(paths);
+        },
+      },
+      {
+        commandId: "assetDirectory.delete",
+        title: "删除目录内资产",
+        description: "删除该目录下所有资产",
+        scope: "assetDirectory",
+        danger: true,
+        when: (context) =>
+          context.objectType === "assetDirectory" &&
+          assets.some((asset) =>
+            isAssetUnderDirectory(asset.relativePath, context.directoryPath),
+          ),
+        run: (context) => {
+          if (context.objectType !== "assetDirectory") return;
+          const paths = assets
+            .filter((asset) =>
+              isAssetUnderDirectory(asset.relativePath, context.directoryPath),
+            )
+            .map((asset) => asset.relativePath);
+          void handleDeleteAssets(paths);
         },
       },
       {
@@ -1022,6 +1292,90 @@ export function AppShell() {
         },
       },
       {
+        commandId: "task.copySummary",
+        title: "复制摘要",
+        description: "复制任务名称与输入摘要",
+        scope: "task",
+        when: (context) =>
+          context.objectType === "task" &&
+          tasks.some((task) => task.taskId === context.taskId),
+        run: (context) => {
+          if (context.objectType !== "task") return;
+          const task = tasks.find((item) => item.taskId === context.taskId);
+          if (!task) return;
+          void copyText(`${task.toolName}\n${task.inputSummary}`, {
+            successMessage: "任务摘要已复制",
+          });
+        },
+      },
+      {
+        commandId: "task.retry",
+        title: "重试",
+        description: "使用原始 inputJson 重新调用工具",
+        scope: "task",
+        when: (context) =>
+          context.objectType === "task" &&
+          tasks.some((task) => task.taskId === context.taskId),
+        run: (context) => {
+          if (context.objectType !== "task") return;
+          const task = tasks.find((item) => item.taskId === context.taskId);
+          if (!task) return;
+          try {
+            const args = JSON.parse(task.inputJson) as Record<string, unknown>;
+            void handleCallTool(task.toolName, args);
+          } catch {
+            setNotice("任务 inputJson 不是可重试的 JSON 对象");
+          }
+        },
+      },
+      {
+        commandId: "task.locateTool",
+        title: "定位相关工具",
+        description: "在 Inspector 中打开任务对应工具",
+        scope: "task",
+        when: (context) =>
+          context.objectType === "task" &&
+          tasks.some((task) => task.taskId === context.taskId),
+        run: (context) => {
+          if (context.objectType !== "task") return;
+          const task = tasks.find((item) => item.taskId === context.taskId);
+          const tool = task
+            ? tools.find((item) => item.name === task.toolName)
+            : undefined;
+          if (tool) handleSelectSelection({ type: "tool", item: tool });
+          else setNotice("未找到该任务对应的 MCP 工具");
+        },
+      },
+      {
+        commandId: "task.locateAssets",
+        title: "定位相关资产",
+        description: "根据 raw result 中的文件名定位资产",
+        scope: "task",
+        when: (context) =>
+          context.objectType === "task" &&
+          tasks.some((task) => task.taskId === context.taskId),
+        run: (context) => {
+          if (context.objectType !== "task") return;
+          const task = tasks.find((item) => item.taskId === context.taskId);
+          const asset = task
+            ? assets.find((item) => task.rawResultJson?.includes(item.fileName))
+            : undefined;
+          if (asset) handleSelectSelection({ type: "asset", item: asset });
+          else setNotice("未在任务 raw result 中定位到资产");
+        },
+      },
+      {
+        commandId: "task.markHandled",
+        title: "标记已处理",
+        description: "当前仅隐藏选中状态，不删除记录",
+        scope: "task",
+        when: (context) => context.objectType === "task",
+        run: () => {
+          setSelection(undefined);
+          setNotice("已从当前选择中移除该任务");
+        },
+      },
+      {
         commandId: "mcpTool.revealInInspector",
         title: "查看 MCP 工具",
         description: "打开工具 Schema 与描述",
@@ -1033,6 +1387,90 @@ export function AppShell() {
           if (context.objectType !== "mcpTool") return;
           const tool = tools.find((item) => item.name === context.toolName);
           if (tool) handleSelectSelection({ type: "tool", item: tool });
+        },
+      },
+      {
+        commandId: "mcpTool.copyName",
+        title: "复制工具名",
+        description: "复制 MCP 工具 name",
+        scope: "mcpTool",
+        when: (context) => context.objectType === "mcpTool",
+        run: (context) => {
+          if (context.objectType !== "mcpTool") return;
+          void copyText(context.toolName, { successMessage: "工具名已复制" });
+        },
+      },
+      {
+        commandId: "mcpTool.copySchema",
+        title: "复制 schema",
+        description: "复制 MCP 工具 inputSchema",
+        scope: "mcpTool",
+        when: (context) =>
+          context.objectType === "mcpTool" &&
+          tools.some((tool) => tool.name === context.toolName),
+        run: (context) => {
+          if (context.objectType !== "mcpTool") return;
+          const tool = tools.find((item) => item.name === context.toolName);
+          if (!tool) return;
+          void copyText(JSON.stringify(tool.inputSchema, null, 2), {
+            successMessage: "工具 schema 已复制",
+          });
+        },
+      },
+      {
+        commandId: "mcpTool.execute",
+        title: "执行工具",
+        description: "打开工具面板执行当前 MCP 工具",
+        scope: "mcpTool",
+        when: (context) =>
+          context.objectType === "mcpTool" &&
+          tools.some((tool) => tool.name === context.toolName),
+        run: (context) => {
+          if (context.objectType !== "mcpTool") return;
+          const tool = tools.find((item) => item.name === context.toolName);
+          if (!tool) return;
+          handleSelectSelection({ type: "tool", item: tool });
+          selectModule("agent");
+        },
+      },
+      {
+        commandId: "mcpTool.addToWorkflow",
+        title: "加入节点流",
+        description: "切换到节点流后从工具库加入",
+        scope: "mcpTool",
+        when: (context) => context.objectType === "mcpTool",
+        run: () => {
+          selectModule("workflow");
+          setNotice("已打开节点流，请从左侧工具库加入节点");
+        },
+      },
+      {
+        commandId: "mcpTool.showHistory",
+        title: "调用历史",
+        description: "打开该工具相关任务记录",
+        scope: "mcpTool",
+        when: (context) => context.objectType === "mcpTool",
+        run: (context) => {
+          if (context.objectType !== "mcpTool") return;
+          const task = tasks.find((item) => item.toolName === context.toolName);
+          if (task) handleSelectSelection({ type: "task", item: task });
+          else setNotice("未找到该工具的调用历史");
+        },
+      },
+      {
+        commandId: "mcpTool.copyRawResult",
+        title: "复制最近 raw result",
+        description: "复制该工具最近一次任务 raw result",
+        scope: "mcpTool",
+        when: (context) => context.objectType === "mcpTool",
+        run: (context) => {
+          if (context.objectType !== "mcpTool") return;
+          const task = tasks.find((item) => item.toolName === context.toolName);
+          if (task)
+            void copyText(getTaskCopyPayload(task), {
+              successMessage: "最近 raw result 已复制",
+            });
+          else setNotice("未找到该工具的 raw result");
         },
       },
       {
@@ -1053,7 +1491,13 @@ export function AppShell() {
         when: (context) =>
           context.objectType === "workflowCanvas" ||
           context.objectType === "videoFlowCanvas",
-        run: promptCanvasOperation,
+        run: (context) => {
+          if (context.objectType === "workflowCanvas") {
+            runWorkflowCanvasCommand({ action: "fitView" });
+            return;
+          }
+          runVideoFlowCommand({ action: "fitView" });
+        },
       },
       {
         commandId: "canvas.toggleGrid",
@@ -1066,7 +1510,13 @@ export function AppShell() {
         when: (context) =>
           context.objectType === "workflowCanvas" ||
           context.objectType === "videoFlowCanvas",
-        run: promptCanvasOperation,
+        run: (context) => {
+          if (context.objectType === "workflowCanvas") {
+            setNotice("普通节点流当前没有网格切换");
+            return;
+          }
+          runVideoFlowCommand({ action: "toggleGrid" });
+        },
       },
       {
         commandId: "canvas.selectAll",
@@ -1080,7 +1530,13 @@ export function AppShell() {
         when: (context) =>
           context.objectType === "workflowCanvas" ||
           context.objectType === "videoFlowCanvas",
-        run: promptCanvasOperation,
+        run: (context) => {
+          if (context.objectType === "workflowCanvas") {
+            runWorkflowCanvasCommand({ action: "selectAll" });
+            return;
+          }
+          runVideoFlowCommand({ action: "selectAll" });
+        },
       },
       {
         commandId: "canvas.clear",
@@ -1094,7 +1550,13 @@ export function AppShell() {
         when: (context) =>
           context.objectType === "workflowCanvas" ||
           context.objectType === "videoFlowCanvas",
-        run: promptCanvasOperation,
+        run: (context) => {
+          if (context.objectType === "workflowCanvas") {
+            runWorkflowCanvasCommand({ action: "clear" });
+            return;
+          }
+          runVideoFlowCommand({ action: "clear" });
+        },
       },
       {
         commandId: "videoFlow.openCanvas",
@@ -1138,7 +1600,23 @@ export function AppShell() {
           context.objectType === "workflowNode" ||
           context.objectType === "videoFlowNode" ||
           context.objectType === "videoFlowSelection",
-        run: promptCanvasOperation,
+        run: (context) => {
+          if (context.objectType === "workflowNode") {
+            runWorkflowCanvasCommand({
+              action: "copyNode",
+              nodeId: context.nodeId,
+            });
+            return;
+          }
+          if (context.objectType === "videoFlowNode") {
+            runVideoFlowCommand({
+              action: "copyNode",
+              nodeId: context.nodeId,
+            });
+            return;
+          }
+          promptCanvasOperation();
+        },
       },
       {
         commandId: "node.delete",
@@ -1155,7 +1633,23 @@ export function AppShell() {
           context.objectType === "videoFlowNode" ||
           (context.objectType === "videoFlowSelection" &&
             context.nodeIds.length > 0),
-        run: promptCanvasOperation,
+        run: (context) => {
+          if (context.objectType === "workflowNode") {
+            runWorkflowCanvasCommand({
+              action: "deleteNode",
+              nodeId: context.nodeId,
+            });
+            return;
+          }
+          if (context.objectType === "videoFlowNode") {
+            runVideoFlowCommand({
+              action: "deleteNode",
+              nodeId: context.nodeId,
+            });
+            return;
+          }
+          promptCanvasOperation();
+        },
       },
       {
         commandId: "node.collapseToggle",
@@ -1168,7 +1662,23 @@ export function AppShell() {
         when: (context) =>
           context.objectType === "workflowNode" ||
           context.objectType === "videoFlowNode",
-        run: promptCanvasOperation,
+        run: (context) => {
+          if (context.objectType === "workflowNode") {
+            runWorkflowCanvasCommand({
+              action: "toggleNodeCollapse",
+              nodeId: context.nodeId,
+            });
+            return;
+          }
+          if (context.objectType === "videoFlowNode") {
+            runVideoFlowCommand({
+              action: "toggleNodeCollapse",
+              nodeId: context.nodeId,
+            });
+            return;
+          }
+          promptCanvasOperation();
+        },
       },
       {
         commandId: "node.run",
@@ -1182,7 +1692,23 @@ export function AppShell() {
         when: (context) =>
           context.objectType === "workflowNode" ||
           context.objectType === "videoFlowNode",
-        run: promptCanvasOperation,
+        run: (context) => {
+          if (context.objectType === "workflowNode") {
+            runWorkflowCanvasCommand({
+              action: "runNode",
+              nodeId: context.nodeId,
+            });
+            return;
+          }
+          if (context.objectType === "videoFlowNode") {
+            runVideoFlowCommand({
+              action: "runNode",
+              nodeId: context.nodeId,
+            });
+            return;
+          }
+          promptCanvasOperation();
+        },
       },
       {
         commandId: "edge.delete",
@@ -1199,7 +1725,23 @@ export function AppShell() {
           context.objectType === "videoFlowEdge" ||
           (context.objectType === "videoFlowSelection" &&
             context.edgeIds.length > 0),
-        run: promptCanvasOperation,
+        run: (context) => {
+          if (context.objectType === "workflowEdge") {
+            runWorkflowCanvasCommand({
+              action: "deleteEdge",
+              edgeId: context.edgeId,
+            });
+            return;
+          }
+          if (context.objectType === "videoFlowEdge") {
+            runVideoFlowCommand({
+              action: "deleteEdge",
+              edgeId: context.edgeId,
+            });
+            return;
+          }
+          promptCanvasOperation();
+        },
       },
       {
         commandId: "edge.copyId",
@@ -1231,7 +1773,23 @@ export function AppShell() {
         when: (context) =>
           context.objectType === "workflowEdge" ||
           context.objectType === "videoFlowEdge",
-        run: promptCanvasOperation,
+        run: (context) => {
+          if (context.objectType === "workflowEdge") {
+            runWorkflowCanvasCommand({
+              action: "showEdgePayload",
+              edgeId: context.edgeId,
+            });
+            return;
+          }
+          if (context.objectType === "videoFlowEdge") {
+            runVideoFlowCommand({
+              action: "showEdgePayload",
+              edgeId: context.edgeId,
+            });
+            return;
+          }
+          promptCanvasOperation();
+        },
       },
     ],
     [
@@ -1310,24 +1868,55 @@ export function AppShell() {
 
   useEffect(() => {
     const onContextMenu = (event: MouseEvent) => {
+      closeAllContextMenus();
       if (isLocalContextMenuTarget(event.target)) {
         setFallbackMenu(undefined);
         setEditableMenu(undefined);
         return;
       }
-      event.preventDefault();
+      if (shouldUseNativeContextMenu(event.target)) {
+        setFallbackMenu(undefined);
+        setEditableMenu(undefined);
+        return;
+      }
       const editableTarget = getEditableMenuTarget(event.target);
       if (editableTarget) {
+        event.preventDefault();
+        notifyContextMenuOpen("editable");
         setFallbackMenu(undefined);
         setEditableMenu({
-          x: event.clientX,
-          y: event.clientY,
+          ...clampContextMenuPosition(
+            { x: event.clientX, y: event.clientY },
+            { width: 190, height: 160 },
+          ),
           target: editableTarget,
         });
         return;
       }
+      if (!isFallbackContextMenuTarget(event.target)) {
+        setEditableMenu(undefined);
+        setFallbackMenu(undefined);
+        return;
+      }
+      event.preventDefault();
+      notifyContextMenuOpen("app");
       setEditableMenu(undefined);
-      setFallbackMenu({ x: event.clientX, y: event.clientY });
+      setFallbackMenu(
+        clampContextMenuPosition(
+          { x: event.clientX, y: event.clientY },
+          { width: 246, height: 330 },
+        ),
+      );
+    };
+    const onCloseContextMenus = () => {
+      setFallbackMenu(undefined);
+      setEditableMenu(undefined);
+    };
+    const onOtherContextMenuOpen = (event: Event) => {
+      if (shouldIgnoreContextMenuEvent(event, "app")) return;
+      if (shouldIgnoreContextMenuEvent(event, "editable")) return;
+      setFallbackMenu(undefined);
+      setEditableMenu(undefined);
     };
     const stopNavigationDrop = (event: DragEvent) => {
       if (!event.dataTransfer) return;
@@ -1360,6 +1949,8 @@ export function AppShell() {
       }
     };
     document.addEventListener("contextmenu", onContextMenu, { capture: true });
+    window.addEventListener(CONTEXT_MENU_CLOSE_EVENT, onCloseContextMenus);
+    window.addEventListener(CONTEXT_MENU_OPEN_EVENT, onOtherContextMenuOpen);
     window.addEventListener("dragenter", stopNavigationDrop, { capture: true });
     window.addEventListener("dragover", stopNavigationDrop, { capture: true });
     window.addEventListener("dragend", clearAssetDragData, { capture: true });
@@ -1369,6 +1960,8 @@ export function AppShell() {
       document.removeEventListener("contextmenu", onContextMenu, {
         capture: true,
       });
+      window.removeEventListener(CONTEXT_MENU_CLOSE_EVENT, onCloseContextMenus);
+      window.removeEventListener(CONTEXT_MENU_OPEN_EVENT, onOtherContextMenuOpen);
       window.removeEventListener("dragenter", stopNavigationDrop, {
         capture: true,
       });
@@ -1475,12 +2068,44 @@ export function AppShell() {
     }),
     [rightPanelTab, selection],
   );
-  const fallbackCommands = commandRegistry
-    .list(commandContext)
-    .filter(
-      (command) =>
-        !command.commandId.startsWith("app.copyCurrent") || !!selection,
+  const fallbackContext: AppCommandContext = { objectType: "global" };
+  const fallbackMenuItems = buildContextMenuItems(
+    fallbackContext.objectType,
+    getContextMenuCommands(commandRegistry.list(fallbackContext)),
+  );
+
+  function renderFallbackMenuItem(item: MenuItem): React.ReactNode {
+    if (item.type === "separator")
+      return <div key={item.id} className="my-1.5 mx-2 h-px bg-border/50" />;
+    if (item.type === "submenu") {
+      return (
+        <div key={item.id} className="px-1 py-1">
+          <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-text-muted/60">
+            {item.title}
+          </div>
+          {item.items.map(renderFallbackMenuItem)}
+        </div>
+      );
+    }
+    const command = item.command;
+    return (
+      <button
+        key={command.commandId}
+        type="button"
+        className={[
+          "flex h-7 w-full cursor-pointer select-none items-center gap-3 rounded-sm px-2.5 text-left text-[13px] font-medium outline-none transition-all hover:bg-brand/15 hover:text-brand-strong",
+          command.danger ? "text-red-500" : "text-text",
+        ].join(" ")}
+        onClick={() => {
+          setFallbackMenu(undefined);
+          closeAllContextMenus();
+          void commandRegistry.run(command.commandId, fallbackContext);
+        }}
+      >
+        <span className="min-w-0 flex-1 truncate">{command.title}</span>
+      </button>
     );
+  }
 
   return (
     <CommandProvider registry={commandRegistry}>
@@ -1555,6 +2180,7 @@ export function AppShell() {
               "flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden",
               "app-background",
             ].join(" ")}
+            data-workbench-fallback-menu-zone
           >
             <WorkbenchViewport
               activeModule={activeModule}
@@ -1652,41 +2278,38 @@ export function AppShell() {
           onSelect={handleSelectSelection}
         />
         {fallbackMenu ? (
-          <div
-            className="fixed z-[60] min-w-[230px] overflow-hidden rounded-xl border border-white/10 bg-surface-panel/95 p-1.5 shadow-[0_16px_70px_-10px_rgba(0,0,0,0.5)] ring-1 ring-white/5 backdrop-blur-xl"
-            style={{ left: fallbackMenu.x, top: fallbackMenu.y }}
-            onClick={(event) => event.stopPropagation()}
-            onContextMenu={(event) => event.preventDefault()}
-          >
-            <div className="px-3 py-2.5 text-[11px] font-bold uppercase tracking-widest text-text-muted/60">
-              {contextMenuTitle(commandContext.objectType)}
-            </div>
-            <div className="mb-1.5 mx-2 h-px bg-border/50" />
-            {fallbackCommands.length ? (
-              fallbackCommands.map((command) => (
-                <button
-                  key={command.commandId}
-                  type="button"
-                  className={[
-                    "flex w-full cursor-pointer select-none items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] font-medium outline-none transition-all hover:bg-brand/15 hover:text-brand-strong",
-                    command.danger ? "text-red-500" : "text-text",
-                  ].join(" ")}
-                  onClick={() => {
-                    setFallbackMenu(undefined);
-                    void commandRegistry.run(command.commandId, commandContext);
-                  }}
-                >
-                  <span className="min-w-0 flex-1 truncate">
-                    {command.title}
-                  </span>
-                </button>
-              ))
-            ) : (
-              <div className="px-3 py-2.5 text-xs text-text-muted">
-                暂无可用命令
+          <>
+            <div
+              className="fixed inset-0 z-[59]"
+              data-app-context-menu
+              onPointerDown={() => setFallbackMenu(undefined)}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                setFallbackMenu(undefined);
+              }}
+              onWheel={() => setFallbackMenu(undefined)}
+            />
+            <div
+              className="fixed z-[60] min-w-[230px] overflow-hidden rounded-md border border-border/70 bg-surface-panel/98 p-1 shadow-[0_12px_34px_-14px_rgba(0,0,0,0.65)] ring-1 ring-white/5 backdrop-blur-xl"
+              style={{ left: fallbackMenu.x, top: fallbackMenu.y }}
+              data-app-context-menu
+              onClick={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
+              onContextMenu={(event) => event.preventDefault()}
+            >
+              <div className="px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-widest text-text-muted/60">
+                {contextMenuTitle(fallbackContext.objectType)}
               </div>
-            )}
-          </div>
+              <div className="mb-1 mx-1.5 h-px bg-border/60" />
+              {fallbackMenuItems.length ? (
+                fallbackMenuItems.map(renderFallbackMenuItem)
+              ) : (
+                <div className="px-2.5 py-2 text-xs text-text-muted">
+                  暂无可用命令
+                </div>
+              )}
+            </div>
+          </>
         ) : null}
         <EditableContextMenu
           menu={editableMenu}
@@ -1752,6 +2375,11 @@ function getEditableMenuTarget(
   return undefined;
 }
 
+function isFallbackContextMenuTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return !!target.closest("[data-workbench-fallback-menu-zone]");
+}
+
 function isLocalContextMenuTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
   return !!target.closest(
@@ -1772,6 +2400,7 @@ function contextMenuTitle(objectType: AppCommandContext["objectType"]) {
     global: "工作台操作",
     project: "项目操作",
     asset: "资产操作",
+    assetDirectory: "目录操作",
     task: "任务操作",
     mcpTool: "MCP 工具操作",
     workflowCanvas: "节点流画布操作",
@@ -1783,6 +2412,20 @@ function contextMenuTitle(objectType: AppCommandContext["objectType"]) {
     videoFlowSelection: "视频画布选择操作",
   };
   return titles[objectType];
+}
+
+function isAssetUnderDirectory(relativePath: string, directoryPath: string) {
+  const normalizedPath = relativePath
+    .replace(/\\/g, "/")
+    .replace(/^\/+|\/+$/g, "");
+  const normalizedDirectory = directoryPath
+    .replace(/\\/g, "/")
+    .replace(/^\/+|\/+$/g, "");
+  if (!normalizedDirectory) return true;
+  return (
+    normalizedPath === normalizedDirectory ||
+    normalizedPath.startsWith(`${normalizedDirectory}/`)
+  );
 }
 
 function DesktopAspectResizeHandles({
@@ -1897,6 +2540,7 @@ function toAgentSelectionReference(
     return { type: "tool", toolName: selection.item.name };
   if (selection.type === "task")
     return { type: "task", taskId: selection.item.taskId };
+  if (selection.type === "assetReferences") return undefined;
   return { type: "asset", relativePath: selection.item.relativePath };
 }
 

@@ -54,6 +54,15 @@ import {
 import { ChevronRight, ChevronLeft } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { CodeEditorPanel } from "../../components/ui/CodeEditorPanel";
+import {
+  clampContextMenuPosition,
+  CONTEXT_MENU_CLOSE_EVENT,
+  CONTEXT_MENU_OPEN_EVENT,
+  isEditableShortcutTarget,
+  notifyContextMenuOpen,
+  shouldIgnoreContextMenuEvent,
+  shouldUseNativeContextMenu,
+} from "../../commands";
 import { NodeLibraryDrawer } from "./NodeLibraryDrawer";
 import { getPresetById, NODE_PRESETS, type NodePreset } from "./nodeRegistry";
 import { buildVideoPayloadFromGraph } from "./VideoFlowPayloadBuilder";
@@ -304,11 +313,37 @@ function VideoFlowCanvasInner({
   const [isCanvasMenuOpen, setIsCanvasMenuOpen] = useState(false);
   const [submenuState, setSubmenuState] = useState<CanvasSubmenuState>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  function selectAllCanvasElements() {
+    setNodes((nds) => nds.map((n) => ({ ...n, selected: true })));
+    setEdges((eds) => eds.map((edge) => ({ ...edge, selected: true })));
+  }
+
+  function deleteSelectedCanvasElements() {
+    const selectedNodes = reactFlow.getNodes().filter((node) => node.selected);
+    const selectedEdges = reactFlow
+      .getEdges()
+      .filter((edge) => edge.selected || edge.id === selectedEdge);
+    if (selectedNodes.length === 0 && selectedEdges.length === 0) return;
+    const selectedNodeIds = new Set(selectedNodes.map((node) => node.id));
+    const selectedEdgeIds = new Set(selectedEdges.map((edge) => edge.id));
+    setNodes((nds) => nds.filter((node) => !selectedNodeIds.has(node.id)));
+    setEdges((eds) =>
+      eds.filter(
+        (edge) =>
+          !selectedEdgeIds.has(edge.id) &&
+          !selectedNodeIds.has(edge.source) &&
+          !selectedNodeIds.has(edge.target),
+      ),
+    );
+    setSelectedEdge(null);
+    setIsCanvasMenuOpen(false);
+    setSubmenuState(null);
+  }
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if typing in input/textarea
-      const activeTagName = document.activeElement?.tagName.toLowerCase();
-      if (activeTagName === "input" || activeTagName === "textarea") return;
+      if (isEditableShortcutTarget(e.target) || isEditableShortcutTarget(document.activeElement)) return;
       if (e.key === "Escape") {
         if (isCanvasMenuOpen) {
           e.preventDefault();
@@ -372,31 +407,10 @@ function VideoFlowCanvasInner({
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
         e.preventDefault();
-        setNodes((nds) => nds.map((n) => ({ ...n, selected: true })));
-        setEdges((eds) => eds.map((edge) => ({ ...edge, selected: true })));
+        selectAllCanvasElements();
       } else if (e.key === "Delete" || e.key === "Backspace") {
-        const selectedNodes = reactFlow
-          .getNodes()
-          .filter((node) => node.selected);
-        const selectedEdges = reactFlow
-          .getEdges()
-          .filter((edge) => edge.selected || edge.id === selectedEdge);
-        if (selectedNodes.length === 0 && selectedEdges.length === 0) return;
         e.preventDefault();
-        const selectedNodeIds = new Set(selectedNodes.map((node) => node.id));
-        const selectedEdgeIds = new Set(selectedEdges.map((edge) => edge.id));
-        setNodes((nds) => nds.filter((node) => !selectedNodeIds.has(node.id)));
-        setEdges((eds) =>
-          eds.filter(
-            (edge) =>
-              !selectedEdgeIds.has(edge.id) &&
-              !selectedNodeIds.has(edge.source) &&
-              !selectedNodeIds.has(edge.target),
-          ),
-        );
-        setSelectedEdge(null);
-        setIsCanvasMenuOpen(false);
-        setSubmenuState(null);
+        deleteSelectedCanvasElements();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -417,45 +431,64 @@ function VideoFlowCanvasInner({
       if (!wrapperRef.current) return;
       const target = event.target as HTMLElement | null;
       if (!target || !wrapperRef.current.contains(target)) return;
-      if (target.closest("input, textarea")) return;
+      if (shouldUseNativeContextMenu(target) || isEditableShortcutTarget(target)) return;
+      if (!target.closest(".react-flow")) return;
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
+      const position = clampContextMenuPosition(
+        { x: event.clientX, y: event.clientY },
+        { width: 260, height: 380 },
+      );
       const edgeElement = target.closest(".react-flow__edge");
       const nodeElement = target.closest(".react-flow__node");
       const edgeId = edgeElement?.getAttribute("data-id");
       const nodeId = nodeElement?.getAttribute("data-id");
+      notifyContextMenuOpen("videoFlow");
       if (edgeId && edges.some((edge) => edge.id === edgeId)) {
         setMenuTarget({
           kind: "edge",
           edgeId,
-          screenX: event.clientX,
-          screenY: event.clientY,
+          screenX: position.x,
+          screenY: position.y,
         });
         setSelectedEdge(edgeId);
       } else if (nodeId && nodes.some((node) => node.id === nodeId)) {
         setMenuTarget({
           kind: "node",
           nodeId,
-          screenX: event.clientX,
-          screenY: event.clientY,
+          screenX: position.x,
+          screenY: position.y,
         });
       } else {
         setMenuTarget({
           kind: "pane",
-          screenX: event.clientX,
-          screenY: event.clientY,
+          screenX: position.x,
+          screenY: position.y,
         });
       }
       setIsCanvasMenuOpen(true);
     };
+    const onCloseContextMenus = () => {
+      setIsCanvasMenuOpen(false);
+      setSubmenuState(null);
+    };
+    const onOtherContextMenuOpen = (event: Event) => {
+      if (shouldIgnoreContextMenuEvent(event, "videoFlow")) return;
+      setIsCanvasMenuOpen(false);
+      setSubmenuState(null);
+    };
     window.addEventListener("contextmenu", handleCanvasContextMenu, {
       capture: true,
     });
+    window.addEventListener(CONTEXT_MENU_CLOSE_EVENT, onCloseContextMenus);
+    window.addEventListener(CONTEXT_MENU_OPEN_EVENT, onOtherContextMenuOpen);
     return () => {
       window.removeEventListener("contextmenu", handleCanvasContextMenu, {
         capture: true,
       });
+      window.removeEventListener(CONTEXT_MENU_CLOSE_EVENT, onCloseContextMenus);
+      window.removeEventListener(CONTEXT_MENU_OPEN_EVENT, onOtherContextMenuOpen);
     };
   }, [edges, nodes]);
   // Auto-load on mount
@@ -1120,6 +1153,71 @@ function VideoFlowCanvasInner({
     },
     [handleRun, handleShowPayloadPanel, reactFlow],
   );
+  useEffect(() => {
+    const runCommand = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          action: string;
+          nodeId?: string;
+          edgeId?: string;
+        }>
+      ).detail;
+      if (!detail) return;
+      if (detail.action === "fitView") {
+        void reactFlow.fitView({ padding: 0.18, duration: 180 });
+        return;
+      }
+      if (detail.action === "selectAll") {
+        selectAllCanvasElements();
+        return;
+      }
+      if (detail.action === "toggleGrid") {
+        setSnapToGrid((value) => !value);
+        return;
+      }
+      if (detail.action === "clear") {
+        handleClearCanvas();
+        return;
+      }
+      if (detail.action === "copyNode" && detail.nodeId) {
+        handleCopyNode(detail.nodeId);
+        return;
+      }
+      if (detail.action === "deleteNode" && detail.nodeId) {
+        handleDeleteNode(detail.nodeId);
+        return;
+      }
+      if (detail.action === "runNode" && detail.nodeId) {
+        handleRunNode(detail.nodeId);
+        return;
+      }
+      if (detail.action === "toggleNodeCollapse" && detail.nodeId) {
+        handleToggleNodeCollapsed(detail.nodeId);
+        return;
+      }
+      if (detail.action === "deleteEdge" && detail.edgeId) {
+        handleDeleteEdge(detail.edgeId);
+        return;
+      }
+      if (detail.action === "showEdgePayload" && detail.edgeId) {
+        handleCopyConnectionData(detail.edgeId);
+      }
+    };
+    window.addEventListener("taptap:video-flow-command", runCommand);
+    return () =>
+      window.removeEventListener("taptap:video-flow-command", runCommand);
+  }, [
+    handleClearCanvas,
+    handleCopyConnectionData,
+    handleCopyNode,
+    handleDeleteEdge,
+    handleDeleteNode,
+    handleRunNode,
+    handleToggleNodeCollapsed,
+    reactFlow,
+    selectAllCanvasElements,
+    setSnapToGrid,
+  ]);
   const closeCanvasMenu = useCallback(() => {
     setIsCanvasMenuOpen(false);
     setSubmenuState(null);
@@ -1644,15 +1742,27 @@ function VideoFlowCanvasInner({
           </div>
         )}
         {isCanvasMenuOpen && (
-          <div
-            className={cn(menuContentClasses, "fixed")}
-            style={{
-              left: Math.min(menuTarget.screenX, viewportSize.width - 260),
-              top: Math.min(menuTarget.screenY, viewportSize.height - 420),
-            }}
-            onClick={(event) => event.stopPropagation()}
-            onContextMenu={(event) => event.preventDefault()}
-          >
+          <>
+            <div
+              className="fixed inset-0 z-[9998]"
+              data-local-context-menu
+              onPointerDown={() => closeCanvasMenu()}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                closeCanvasMenu();
+              }}
+              onWheel={() => closeCanvasMenu()}
+            />
+            <div
+              className={cn(menuContentClasses, "fixed")}
+              style={{
+                left: menuTarget.screenX,
+                top: menuTarget.screenY,
+              }}
+              onClick={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
+              onContextMenu={(event) => event.preventDefault()}
+            >
             {menuTarget.kind === "pane" && (
               <>
                 <div className="px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-text-muted/60">
@@ -1907,7 +2017,8 @@ function VideoFlowCanvasInner({
                 </button>
               </>
             )}
-          </div>
+            </div>
+          </>
         )}
         {isCanvasMenuOpen && submenuState && (
           <div

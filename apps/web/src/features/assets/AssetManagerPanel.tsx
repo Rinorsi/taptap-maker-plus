@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DndContext } from "@dnd-kit/core";
 import { motion, AnimatePresence } from "framer-motion";
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
@@ -105,6 +105,8 @@ export function AssetManagerPanel({
   const [recursive, setRecursive] = useState(false);
   const [treeOpen, setTreeOpen] = useState(false);
   const [collapsedDirectories, setCollapsedDirectories] = useState<string[]>([]);
+  const importTargetDirectoryRef = useRef<string | null>(null);
+  const importOpenRef = useRef<(() => void) | null>(null);
 
   const scopedAssets = useMemo(() => assetTypeFilter ? assets.filter((asset) => asset.assetType === assetTypeFilter) : assets, [assetTypeFilter, assets]);
   const tree = useMemo(() => buildAssetDirectoryTree(scopedAssets, rootPath), [rootPath, scopedAssets]);
@@ -157,8 +159,6 @@ export function AssetManagerPanel({
 
   async function deleteSelected() {
     if (disabled || selectedPaths.length === 0) return;
-    const confirmed = window.confirm(`确认删除选中的 ${selectedPaths.length} 个资产？`);
-    if (!confirmed) return;
     await onDeleteAssets(selectedPaths);
     setSelectedPaths([]);
   }
@@ -174,6 +174,10 @@ export function AssetManagerPanel({
     setTargetFolder(directory.path);
     setSelectedPaths([]);
     setTreeOpen(false);
+  }
+
+  function selectDirectoryPath(directoryPath: string) {
+    selectDirectory(directories.find((directory) => directory.path === directoryPath) ?? tree);
   }
 
   function toggleDirectoryCollapse(directory: AssetDirectoryNode) {
@@ -206,12 +210,36 @@ export function AssetManagerPanel({
 
   function importFiles(files: File[]) {
     if (files.length === 0 || !onImportAssets || disabled) return;
-    void onImportAssets(files, activeNode.path);
+    const directoryPath = importTargetDirectoryRef.current ?? activeNode.path;
+    importTargetDirectoryRef.current = null;
+    void onImportAssets(files, directoryPath);
+  }
+
+  function openImportDialog(open: () => void, directoryPath?: string) {
+    importTargetDirectoryRef.current = directoryPath ?? activeNode.path;
+    open();
   }
 
   async function copyPath(relativePath: string) {
     await copyText(relativePath, { successMessage: "资产路径已复制" });
   }
+
+  useEffect(() => {
+    const onDirectoryCommand = (event: Event) => {
+      const detail = (event as CustomEvent<{ action?: string; directoryPath?: string }>).detail;
+      if (!detail?.directoryPath) return;
+      if (detail.action === "open") {
+        selectDirectoryPath(detail.directoryPath);
+        return;
+      }
+      if (detail.action === "importHere") {
+        importTargetDirectoryRef.current = detail.directoryPath;
+        importOpenRef.current?.();
+      }
+    };
+    window.addEventListener("taptap:asset-directory-command", onDirectoryCommand);
+    return () => window.removeEventListener("taptap:asset-directory-command", onDirectoryCommand);
+  }, [directories, tree]);
 
   function handleAssetKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     if (disabled || isEditableShortcutTarget(event.target)) return;
@@ -262,6 +290,9 @@ export function AssetManagerPanel({
       })}
     >
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden relative">
+        <RefBinder bind={() => {
+          importOpenRef.current = open;
+        }} />
         <div className="shrink-0 border-b border-border bg-surface-panel p-2">
           <AnimatePresence mode="wait">
             {selectedPaths.length > 0 ? (
@@ -328,11 +359,12 @@ export function AssetManagerPanel({
                     </Button>
                     {onImportAssets ? (
                       <>
-                        <Button variant="ghost" size="icon" disabled={disabled} className="h-7 w-7 rounded-md hover:bg-surface-raised" title="导入到当前目录" onClick={open}>
+                        <Button variant="ghost" size="icon" disabled={disabled} className="h-7 w-7 rounded-md hover:bg-surface-raised" title="导入到当前目录" onClick={() => openImportDialog(open)}>
                           <Upload className="h-3.5 w-3.5 text-text-muted" />
                         </Button>
                         <input
                           {...getInputProps()}
+                          data-asset-import-input="true"
                           className="hidden"
                         />
                       </>
@@ -430,15 +462,16 @@ export function AssetManagerPanel({
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto p-2 scrollbar-thin">
                   {visibleDirectories.map((directory) => (
-                    <DirectoryRow
-                      key={directory.path}
-                      directory={directory}
-                      active={directory.path === activeNode.path}
-                      collapsed={collapsedDirectories.includes(directory.path)}
-                      onClick={() => selectDirectory(directory)}
-                      onToggleCollapse={() => toggleDirectoryCollapse(directory)}
-                      onDrop={(event) => handleDropOnDirectory(event, directory.path)}
-                    />
+                    <AppContextMenu key={directory.path} context={{ objectType: "assetDirectory", directoryPath: directory.path }}>
+                      <DirectoryRow
+                        directory={directory}
+                        active={directory.path === activeNode.path}
+                        collapsed={collapsedDirectories.includes(directory.path)}
+                        onClick={() => selectDirectory(directory)}
+                        onToggleCollapse={() => toggleDirectoryCollapse(directory)}
+                        onDrop={(event) => handleDropOnDirectory(event, directory.path)}
+                      />
+                    </AppContextMenu>
                   ))}
                 </div>
               </motion.aside>
@@ -530,6 +563,11 @@ export function AssetManagerPanel({
       </AssetDropzone>
     </DndContext>
   );
+}
+
+function RefBinder({ bind }: { bind: () => void }) {
+  useEffect(bind, [bind]);
+  return null;
 }
 
 function DirectoryRow({
@@ -631,23 +669,24 @@ function AssetGrid({
   return (
     <div className="grid content-start gap-3 p-4 [grid-template-columns:repeat(auto-fill,minmax(112px,1fr))]">
       {directories.map((directory) => (
-        <button
-          key={directory.path}
-          type="button"
-          title={directory.path}
-          onClick={() => onSelectDirectory(directory)}
-          onDragOver={(event) => event.preventDefault()}
-          onDrop={(event) => onDropOnDirectory(event, directory.path)}
-          className="group flex cursor-pointer flex-col overflow-hidden rounded-xl border border-border-soft bg-surface-app text-left transition-all hover:border-brand/40 hover:bg-surface-raised hover:shadow-md"
-        >
-          <div className="flex aspect-square w-full items-center justify-center border-b border-border-soft bg-surface-muted">
-            <Folder className="h-10 w-10 text-text-subtle transition-colors group-hover:text-brand" />
-          </div>
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5 bg-surface-panel p-2 transition-colors group-hover:bg-surface-raised">
-            <span className="truncate text-[11px] font-semibold leading-tight text-text" title={directory.name}>{directory.name}</span>
-            <span className="truncate text-[9px] text-text-subtle">{directory.totalAssetCount} 项</span>
-          </div>
-        </button>
+        <AppContextMenu key={directory.path} context={{ objectType: "assetDirectory", directoryPath: directory.path }}>
+          <button
+            type="button"
+            title={directory.path}
+            onClick={() => onSelectDirectory(directory)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => onDropOnDirectory(event, directory.path)}
+            className="group flex cursor-pointer flex-col overflow-hidden rounded-xl border border-border-soft bg-surface-app text-left transition-all hover:border-brand/40 hover:bg-surface-raised hover:shadow-md"
+          >
+            <div className="flex aspect-square w-full items-center justify-center border-b border-border-soft bg-surface-muted">
+              <Folder className="h-10 w-10 text-text-subtle transition-colors group-hover:text-brand" />
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5 bg-surface-panel p-2 transition-colors group-hover:bg-surface-raised">
+              <span className="truncate text-[11px] font-semibold leading-tight text-text" title={directory.name}>{directory.name}</span>
+              <span className="truncate text-[9px] text-text-subtle">{directory.totalAssetCount} 项</span>
+            </div>
+          </button>
+        </AppContextMenu>
       ))}
       {assets.map((asset) => {
         const isSelected = selectedSet.has(asset.relativePath);
@@ -891,35 +930,36 @@ function AssetTable({
       </div>
       <div className="flex min-w-[400px] flex-col">
         {directories.map((directory) => (
-          <button
-            key={directory.path}
-            type="button"
-            title={directory.path}
-            onClick={() => onSelectDirectory(directory)}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => onDropOnDirectory(event, directory.path)}
-            className="group flex min-h-[48px] items-center border-b border-border-soft bg-transparent px-4 py-2 text-left transition-colors hover:bg-surface-raised"
-          >
-            <div className="w-8 shrink-0" />
-            <div className="flex min-w-[140px] flex-1 items-center gap-2.5 pr-4">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] bg-surface-raised ring-1 ring-border-soft">
-                <Folder className="h-4 w-4 text-text-subtle transition-colors group-hover:text-brand" />
+          <AppContextMenu key={directory.path} context={{ objectType: "assetDirectory", directoryPath: directory.path }}>
+            <button
+              type="button"
+              title={directory.path}
+              onClick={() => onSelectDirectory(directory)}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => onDropOnDirectory(event, directory.path)}
+              className="group flex min-h-[48px] items-center border-b border-border-soft bg-transparent px-4 py-2 text-left transition-colors hover:bg-surface-raised"
+            >
+              <div className="w-8 shrink-0" />
+              <div className="flex min-w-[140px] flex-1 items-center gap-2.5 pr-4">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] bg-surface-raised ring-1 ring-border-soft">
+                  <Folder className="h-4 w-4 text-text-subtle transition-colors group-hover:text-brand" />
+                </div>
+                <div className="min-w-0">
+                  <span className="block truncate text-[12px] font-semibold text-text">{directory.name}</span>
+                  <span className="block truncate text-[9px] text-text-subtle">{directory.path}</span>
+                </div>
               </div>
-              <div className="min-w-0">
-                <span className="block truncate text-[12px] font-semibold text-text">{directory.name}</span>
-                <span className="block truncate text-[9px] text-text-subtle">{directory.path}</span>
+              <div className="w-16 shrink-0 px-3">
+                <span className="text-[10px] font-mono font-bold uppercase text-text-subtle">folder</span>
               </div>
-            </div>
-            <div className="w-16 shrink-0 px-3">
-              <span className="text-[10px] font-mono font-bold uppercase text-text-subtle">folder</span>
-            </div>
-            <div className="w-16 shrink-0 px-3 text-right">
-              <span className="font-mono text-[10px] text-text-subtle">-</span>
-            </div>
-            <div className="w-20 shrink-0 px-3 text-right">
-              <span className="font-mono text-[10px] text-text-subtle">{directory.totalAssetCount} 项</span>
-            </div>
-          </button>
+              <div className="w-16 shrink-0 px-3 text-right">
+                <span className="font-mono text-[10px] text-text-subtle">-</span>
+              </div>
+              <div className="w-20 shrink-0 px-3 text-right">
+                <span className="font-mono text-[10px] text-text-subtle">{directory.totalAssetCount} 项</span>
+              </div>
+            </button>
+          </AppContextMenu>
         ))}
         <VirtualList
           items={table.getRowModel().rows}

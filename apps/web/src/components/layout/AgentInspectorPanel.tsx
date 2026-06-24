@@ -6,6 +6,7 @@ import {
   FileJson, PanelRightClose, Copy, CircleAlert, Trash2, AlertCircle
 } from "lucide-react";
 import { assetPreviewUrl, type AssetSummary, type ProjectSummary, type TaskRecord, type ToolSummary } from "../../api";
+import type { AssetReferenceScanResult } from "../../api";
 import { RawViewer } from "../developer";
 import { Button } from "../ui/Button";
 import { CodeEditorPanel } from "../ui/CodeEditorPanel";
@@ -21,6 +22,12 @@ export type InspectorSelection =
   | { type: "tool"; item: ToolSummary }
   | { type: "task"; item: TaskRecord }
   | { type: "asset"; item: AssetSummary }
+  | {
+      type: "assetReferences";
+      title: string;
+      scannedAt: string;
+      results: AssetReferenceScanResult[];
+    }
   | undefined;
 
 type Props = {
@@ -72,6 +79,9 @@ export function AgentInspectorPanel({
   const [selectedStatusSelection, setSelectedStatusSelection] = useState<Extract<InspectorSelection, { type: "project" | "asset" }> | undefined>(
     selection?.type === "project" || selection?.type === "asset" ? selection : undefined
   );
+  const [selectedReferenceReport, setSelectedReferenceReport] = useState<Extract<InspectorSelection, { type: "assetReferences" }> | undefined>(
+    selection?.type === "assetReferences" ? selection : undefined
+  );
   const [selectedLogTask, setSelectedLogTask] = useState<TaskRecord | undefined>(selection?.type === "task" ? selection.item : undefined);
   const [selectedErrorTask, setSelectedErrorTask] = useState<TaskRecord | undefined>(
     selection?.type === "task" && isTaskError(selection.item) ? selection.item : undefined
@@ -80,6 +90,7 @@ export function AgentInspectorPanel({
   useEffect(() => {
     if (!selection) {
       setSelectedStatusSelection(undefined);
+      setSelectedReferenceReport(undefined);
       setSelectedLogTask(undefined);
       setSelectedErrorTask(undefined);
       return;
@@ -92,6 +103,13 @@ export function AgentInspectorPanel({
 
     if (selection.type === "project" || selection.type === "asset") {
       setSelectedStatusSelection(selection);
+      setSelectedReferenceReport(undefined);
+      return;
+    }
+
+    if (selection.type === "assetReferences") {
+      setSelectedReferenceReport(selection);
+      setSelectedStatusSelection(undefined);
       return;
     }
 
@@ -135,6 +153,16 @@ export function AgentInspectorPanel({
         }
       };
     }
+    if (activeTab === "status" && selectedReferenceReport) {
+      return {
+        label: selectedReferenceReport.title,
+        title: "返回 MCP 状态",
+        onBack: () => {
+          setSelectedReferenceReport(undefined);
+          onSelectSelection(undefined);
+        }
+      };
+    }
     if (activeTab === "tools" && selectedTool) {
       return {
         label: selectedTool.name,
@@ -163,7 +191,7 @@ export function AgentInspectorPanel({
       };
     }
     return undefined;
-  }, [activeTab, currentErrorTask, currentLogTask, currentStatusSelection, onSelectSelection, selectedTool]);
+  }, [activeTab, currentErrorTask, currentLogTask, currentStatusSelection, onSelectSelection, selectedReferenceReport, selectedTool]);
 
   const handleTabClick = (tab: "status" | "tools" | "logs" | "errors") => {
     if (minimized) {
@@ -275,7 +303,9 @@ export function AgentInspectorPanel({
           <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
             {activeTab === "status" && (
               <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-3.5 scrollbar-thin">
-                {currentStatusSelection?.type === "asset" ? (
+                {selectedReferenceReport ? (
+                  <AssetReferenceReportView report={selectedReferenceReport} />
+                ) : currentStatusSelection?.type === "asset" ? (
                   <AssetInspector asset={currentStatusSelection.item} projectId={project?.id} />
                 ) : currentStatusSelection?.type === "project" ? (
                   <ProjectInspector project={currentStatusSelection.item} />
@@ -671,6 +701,102 @@ function AssetInspector({ asset, projectId }: { asset: AssetSummary; projectId?:
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function AssetReferenceReportView({
+  report,
+}: {
+  report: Extract<InspectorSelection, { type: "assetReferences" }>;
+}) {
+  const referencedAssets = report.results.filter((result) => result.referenceCount > 0);
+  const totalReferences = report.results.reduce((sum, result) => sum + result.referenceCount, 0);
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="rounded-panel border border-border-soft bg-surface-raised p-3">
+        <div className="mb-2 flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="m-0 truncate text-sm font-bold text-text">{report.title}</h3>
+            <p className="m-0 mt-1 text-[10px] text-text-subtle">{report.scannedAt}</p>
+          </div>
+          <span className="shrink-0 rounded-pill bg-brand/10 px-2 py-0.5 text-[10px] font-bold text-brand-strong">
+            {totalReferences} 处引用
+          </span>
+        </div>
+        <div className="grid grid-cols-3 overflow-hidden rounded-card border border-border-soft bg-surface-panel text-center">
+          <ReferenceMetric label="扫描资产" value={report.results.length} />
+          <ReferenceMetric label="被引用" value={referencedAssets.length} />
+          <ReferenceMetric label="引用总数" value={totalReferences} />
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin">
+        {report.results.length === 0 ? (
+          <p className="m-0 rounded-panel border border-border-soft bg-surface-raised p-3 text-xs text-text-muted">
+            没有可展示的扫描结果。
+          </p>
+        ) : (
+          <div className="grid gap-2.5">
+            {report.results.map((result) => (
+              <div key={result.relativePath} className="rounded-panel border border-border-soft bg-surface-raised p-3">
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <strong className="block truncate text-[12px] text-text" title={result.relativePath}>
+                      {result.relativePath}
+                    </strong>
+                    <span className="mt-0.5 block text-[10px] text-text-subtle">
+                      {result.referenceCount > 0 ? `${result.referenceCount} 处引用` : "未发现引用"}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-control border border-border-soft bg-surface-panel px-2 py-1 text-[10px] font-semibold text-text-muted hover:text-brand"
+                    onClick={() => void copyText(result.relativePath, { successMessage: "资产路径已复制" })}
+                  >
+                    复制路径
+                  </button>
+                </div>
+                {result.references.length > 0 ? (
+                  <div className="grid gap-2">
+                    {result.references.map((reference, index) => (
+                      <div
+                        key={`${reference.sourcePath}:${reference.line}:${reference.column}:${index}`}
+                        className="rounded-card border border-border-soft bg-surface-panel p-2"
+                      >
+                        <div className="mb-1 flex items-center justify-between gap-2">
+                          <span className="min-w-0 truncate font-mono text-[10px] text-text" title={`${reference.sourcePath}:${reference.line}:${reference.column}`}>
+                            {reference.sourcePath}:{reference.line}:{reference.column}
+                          </span>
+                          <span className="shrink-0 rounded-pill bg-surface-muted px-1.5 py-0.5 text-[8px] font-bold uppercase text-text-subtle">
+                            {reference.sourceType}
+                          </span>
+                        </div>
+                        <pre className="m-0 max-h-24 overflow-auto whitespace-pre-wrap break-words rounded bg-surface-app p-2 text-[10px] leading-relaxed text-text-muted scrollbar-thin">
+                          {reference.lineText.trim() || "(空行)"}
+                        </pre>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="m-0 rounded-card border border-border-soft bg-surface-panel p-2 text-[11px] text-text-muted">
+                    当前扫描范围内没有发现引用。
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ReferenceMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="border-r border-border-soft px-2 py-2 last:border-r-0">
+      <span className="block text-[15px] font-black text-text">{value}</span>
+      <span className="block text-[9px] font-bold text-text-subtle">{label}</span>
     </div>
   );
 }

@@ -179,6 +179,24 @@ fn wait_for_any_local_port(probes: &[LocalPortProbe]) -> bool {
   false
 }
 
+#[tauri::command]
+fn open_devtools(app: tauri::AppHandle) -> Result<(), String> {
+  let Some(window) = app.get_webview_window("main") else {
+    return Err("Unable to find main window".to_string());
+  };
+
+  #[cfg(any(debug_assertions, feature = "devtools"))]
+  {
+    window.open_devtools();
+    return Ok(());
+  }
+
+  #[cfg(not(any(debug_assertions, feature = "devtools")))]
+  {
+    Err("DevTools is only available in debug builds.".to_string())
+  }
+}
+
 fn rounded_div(value: u64, divisor: u64) -> u32 {
   ((value + (divisor / 2)) / divisor) as u32
 }
@@ -287,6 +305,7 @@ pub fn run() {
       });
       Ok(())
     })
+    .invoke_handler(tauri::generate_handler![open_devtools])
     .build(tauri::generate_context!())
     .expect("error while building tauri application");
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DndContext } from "@dnd-kit/core";
 import { motion, AnimatePresence } from "framer-motion";
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
@@ -7,7 +7,7 @@ import { assetPreviewUrl, type AssetSummary } from "../../api";
 import { AssetDraggable } from "../../components/interaction/AssetDraggable";
 import { AssetDropzone } from "../../components/interaction/AssetDropzone";
 import { VirtualList } from "../../components/interaction/VirtualList";
-import { readAssetDragPath, writeAssetDragData } from "../../components/interaction/assetDragData";
+import { clearAssetDragData, readAssetDragPath, writeAssetDragData } from "../../components/interaction/assetDragData";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { SelectionBox, StudioBulkActionBar, StudioSearchInput } from "../../components/studio/StudioKit";
@@ -43,6 +43,40 @@ const typeIcons: Record<string, React.ElementType> = {
   other: File
 };
 
+function formatDuration(seconds?: number) {
+  if (!seconds || !Number.isFinite(seconds) || seconds <= 0) return "-";
+  const totalSeconds = Math.round(seconds);
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainingSeconds = totalSeconds % 60;
+  return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+}
+
+function AudioDuration({ asset }: { asset: AssetSummary }) {
+  const [duration, setDuration] = useState<number>();
+
+  useEffect(() => {
+    if (asset.assetType !== "audio") return;
+    const audio = new Audio();
+    audio.preload = "metadata";
+    const handleLoadedMetadata = () => setDuration(audio.duration);
+    const handleError = () => setDuration(undefined);
+    audio.addEventListener("loadedmetadata", handleLoadedMetadata);
+    audio.addEventListener("error", handleError);
+    audio.src = assetPreviewUrl(asset.projectId, asset.relativePath);
+    return () => {
+      audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      audio.removeEventListener("error", handleError);
+      audio.src = "";
+    };
+  }, [asset.assetType, asset.projectId, asset.relativePath]);
+
+  return (
+    <span className="block text-right font-mono text-[10px] text-text-subtle">
+      {formatDuration(duration)}
+    </span>
+  );
+}
+
 export function AssetManagerPanel({
   assets,
   disabled,
@@ -65,6 +99,7 @@ export function AssetManagerPanel({
   const [query, setQuery] = useState("");
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
   const [playingAsset, setPlayingAsset] = useState<AssetSummary | null>(null);
+  const [previewAsset, setPreviewAsset] = useState<AssetSummary | null>(null);
   const [targetFolder, setTargetFolder] = useState(defaultTargetFolder);
   const [activeDirectory, setActiveDirectory] = useState(rootPath);
   const [recursive, setRecursive] = useState(false);
@@ -107,6 +142,14 @@ export function AssetManagerPanel({
   }, {});
 
   const allVisibleSelected = filteredAssets.length > 0 && filteredAssets.every((asset) => selectedSet.has(asset.relativePath));
+
+  function selectAsset(asset: AssetSummary) {
+    if (asset.assetType === "audio") {
+      setPlayingAsset((current) => current?.relativePath === asset.relativePath ? null : asset);
+      return;
+    }
+    onSelectAsset(asset);
+  }
 
   function toggleAsset(asset: AssetSummary) {
     setSelectedPaths((current) => current.includes(asset.relativePath) ? current.filter((path) => path !== asset.relativePath) : [...current, asset.relativePath]);
@@ -200,7 +243,7 @@ export function AssetManagerPanel({
     if (event.key === " " && selectedPaths.length > 0) {
       event.preventDefault();
       const selectedAsset = filteredAssets.find((asset) => asset.relativePath === selectedPaths[0]) ?? scopedAssets.find((asset) => asset.relativePath === selectedPaths[0]);
-      if (selectedAsset) onSelectAsset(selectedAsset);
+      if (selectedAsset) selectAsset(selectedAsset);
     }
   }
 
@@ -412,10 +455,11 @@ export function AssetManagerPanel({
               onSelectDirectory={selectDirectory}
               onDropOnDirectory={handleDropOnDirectory}
               onToggleAsset={toggleAsset}
-              onSelectAsset={onSelectAsset}
+              onSelectAsset={selectAsset}
               onCopyPath={copyPath}
               onAssetDragStart={onAssetDragStart}
               onPlayAudio={setPlayingAsset}
+              onPreviewAsset={setPreviewAsset}
               playingAssetPath={playingAsset?.relativePath}
             />
           ) : (
@@ -426,14 +470,35 @@ export function AssetManagerPanel({
               onSelectDirectory={selectDirectory}
               onDropOnDirectory={handleDropOnDirectory}
               onToggleAsset={toggleAsset}
-              onSelectAsset={onSelectAsset}
+              onSelectAsset={selectAsset}
               onCopyPath={copyPath}
               onAssetDragStart={onAssetDragStart}
               onPlayAudio={setPlayingAsset}
+              onPreviewAsset={setPreviewAsset}
               playingAssetPath={playingAsset?.relativePath}
             />
           )}
         </div>
+
+        <AnimatePresence>
+          {previewAsset && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm"
+              onClick={() => setPreviewAsset(null)}
+            >
+              <video
+                src={assetPreviewUrl(previewAsset.projectId, previewAsset.relativePath)}
+                controls
+                autoPlay
+                className="max-h-[95vh] max-w-[95vw] rounded-xl bg-black object-contain shadow-2xl"
+                onClick={(event) => event.stopPropagation()}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <AnimatePresence>
           {playingAsset && (
@@ -441,23 +506,21 @@ export function AssetManagerPanel({
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
-              className="sticky bottom-0 left-0 right-0 z-20 flex h-14 shrink-0 items-center justify-between border-t border-border-soft bg-surface-panel/95 px-4 shadow-[0_-8px_30px_rgba(0,0,0,0.12)] backdrop-blur-md"
+              className="sticky bottom-0 left-0 right-0 z-20 flex shrink-0 flex-col gap-2 border-t border-border-soft bg-surface-panel/95 px-3 py-2 shadow-[0_-8px_30px_rgba(0,0,0,0.12)] backdrop-blur-md"
             >
-              <div className="flex min-w-0 flex-1 items-center gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-brand/10">
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-brand/10">
                   <FileAudio className="h-4 w-4 text-brand" />
                 </div>
-                <div className="flex min-w-0 flex-col">
-                  <span className="truncate text-[12px] font-semibold text-text">{playingAsset.fileName}</span>
-                  <span className="truncate text-[9px] text-text-subtle">{getAssetDirectory(playingAsset.relativePath) || "/"}</span>
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate text-[12px] font-semibold text-text">{playingAsset.fileName}</span>
+                  <span className="block truncate text-[9px] text-text-subtle">{getAssetDirectory(playingAsset.relativePath) || "/"}</span>
                 </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <audio controls autoPlay src={assetPreviewUrl(playingAsset.projectId, playingAsset.relativePath)} className="h-8 w-[200px] xl:w-[260px] opacity-90" />
-                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full hover:bg-surface-raised ml-1" onClick={() => setPlayingAsset(null)} title="关闭播放器">
+                <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 rounded-full hover:bg-surface-raised" onClick={() => setPlayingAsset(null)} title="关闭播放器">
                   <X className="h-4 w-4 text-text-muted" />
                 </Button>
               </div>
+              <audio controls autoPlay src={assetPreviewUrl(playingAsset.projectId, playingAsset.relativePath)} className="h-9 w-full min-w-0 opacity-90" />
             </motion.div>
           )}
         </AnimatePresence>
@@ -547,6 +610,7 @@ function AssetGrid({
   onCopyPath,
   onAssetDragStart,
   onPlayAudio,
+  onPreviewAsset,
   playingAssetPath
 }: {
   assets: AssetSummary[];
@@ -559,6 +623,7 @@ function AssetGrid({
   onCopyPath: (relativePath: string) => void;
   onAssetDragStart?: (event: React.DragEvent, asset: AssetSummary) => void;
   onPlayAudio?: (asset: AssetSummary | null) => void;
+  onPreviewAsset?: (asset: AssetSummary) => void;
   playingAssetPath?: string;
 }) {
   if (assets.length === 0 && directories.length === 0) return <EmptyState />;
@@ -611,37 +676,62 @@ function AssetGrid({
                 role="button"
                 tabIndex={0}
                 className="flex h-full w-full flex-col text-left"
-                onClick={() => onSelectAsset(asset)}
+                onClick={() => {
+                  if (asset.assetType === "audio") {
+                    onPlayAudio?.(isPlaying ? null : asset);
+                    return;
+                  }
+                  onSelectAsset(asset);
+                }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") onSelectAsset(asset);
                 }}
               >
               <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden border-b border-border-soft bg-surface-muted">
                 {asset.assetType === "image" ? (
-                  <img draggable onDragStart={draggableProps.onDragStart} src={assetPreviewUrl(asset.projectId, asset.relativePath)} alt={asset.fileName} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" />
+                  <img draggable={false} src={assetPreviewUrl(asset.projectId, asset.relativePath)} alt={asset.fileName} className="pointer-events-none max-h-[84%] max-w-[84%] object-contain transition-transform duration-300 group-hover:scale-105" loading="lazy" />
                 ) : asset.assetType === "video" ? (
-                  <div className="h-full w-full bg-black/10">
+                  <div className="group/video relative h-full w-full bg-black/10">
                     <video
-                      draggable
-                      onDragStart={draggableProps.onDragStart}
                       src={assetPreviewUrl(asset.projectId, asset.relativePath)}
                       className="h-full w-full object-cover"
                       muted
-                      loop
+                      playsInline
                       preload="metadata"
-                      onMouseEnter={(event) => void event.currentTarget.play()}
-                      onMouseLeave={(event) => {
-                        event.currentTarget.pause();
-                        event.currentTarget.currentTime = 0;
-                      }}
                     />
+                    <button
+                      type="button"
+                      className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 transition-opacity group-hover/video:opacity-100"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onPreviewAsset?.(asset);
+                      }}
+                      title="播放视频"
+                    >
+                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-white shadow-lg backdrop-blur-sm">
+                        <Play className="ml-0.5 h-4 w-4 fill-current" />
+                      </span>
+                    </button>
                   </div>
                 ) : isAudio ? (
                   <div className={cn("group/preview relative flex h-full w-full flex-col items-center justify-center gap-1.5 transition-all", isPlaying ? "bg-brand/10" : "bg-gradient-to-br from-surface-raised to-surface-muted group-hover:to-surface-panel")}>
                     <FileAudio className={cn("h-8 w-8 transition-all", isPlaying ? "text-brand opacity-100" : "text-text-muted opacity-40 group-hover/preview:text-brand group-hover/preview:opacity-80")} />
                     <span className={cn("text-[9px] font-bold uppercase tracking-widest transition-opacity", isPlaying ? "text-brand opacity-100" : "text-text-subtle opacity-40 group-hover/preview:opacity-100")}>{asset.extension.replace(".", "") || "audio"}</span>
                     <div className={cn("absolute inset-0 flex items-center justify-center backdrop-blur-[2px] transition-opacity", isPlaying ? "bg-brand/10 opacity-100" : "bg-black/40 opacity-0 group-hover/preview:opacity-100")}>
-                      <button type="button" onClick={(e) => { e.stopPropagation(); isPlaying ? onPlayAudio?.(null) : onPlayAudio?.(asset); }} className={cn("flex h-10 w-10 items-center justify-center rounded-full text-white shadow-lg transition-all hover:scale-110 active:scale-95", isPlaying ? "bg-surface-panel ring-2 ring-brand animate-pulse" : "bg-brand")} title={isPlaying ? "正在播放 (点击关闭)" : "播放音频"}>
+                      <button
+                        type="button"
+                        draggable={false}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onMouseDown={(event) => event.stopPropagation()}
+                        onDragStart={(event) => event.preventDefault()}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onPlayAudio?.(isPlaying ? null : asset);
+                        }}
+                        className={cn("flex h-10 w-10 items-center justify-center rounded-full text-white shadow-lg transition-all hover:scale-110 active:scale-95", isPlaying ? "bg-surface-panel ring-2 ring-brand animate-pulse" : "bg-brand")}
+                        title={isPlaying ? "正在播放 (点击关闭)" : "播放音频"}
+                      >
                         {isPlaying ? <Activity className="h-5 w-5 text-brand" /> : <Play className="h-4 w-4 ml-0.5 fill-current" />}
                       </button>
                     </div>
@@ -693,6 +783,7 @@ function AssetTable({
   onCopyPath,
   onAssetDragStart,
   onPlayAudio,
+  onPreviewAsset,
   playingAssetPath
 }: {
   assets: AssetSummary[];
@@ -705,6 +796,7 @@ function AssetTable({
   onCopyPath: (relativePath: string) => void;
   onAssetDragStart?: (event: React.DragEvent, asset: AssetSummary) => void;
   onPlayAudio?: (asset: AssetSummary | null) => void;
+  onPreviewAsset?: (asset: AssetSummary) => void;
   playingAssetPath?: string;
 }) {
   const columnHelper = createColumnHelper<AssetSummary>();
@@ -730,12 +822,20 @@ function AssetTable({
         const Icon = typeIcons[asset.assetType] || File;
         const isSelected = selectedSet.has(asset.relativePath);
         const isImage = asset.assetType === "image";
+        const isVideo = asset.assetType === "video";
         const isAudio = asset.assetType === "audio";
         const isPlaying = playingAssetPath === asset.relativePath;
         return (
           <div className="flex min-w-0 w-full items-start gap-2.5 text-left py-1" onClick={() => onSelectAsset(asset)}>
             {isImage ? (
-              <img draggable onDragStart={(event) => { writeAssetDragData(event, asset); onAssetDragStart?.(event, asset); }} src={assetPreviewUrl(asset.projectId, asset.relativePath)} className={cn("h-7 w-7 shrink-0 rounded-[4px] object-cover ring-1 mt-0.5", isSelected ? "ring-brand" : "ring-border-soft")} alt="" loading="lazy" />
+              <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] bg-surface-muted ring-1 mt-0.5", isSelected ? "ring-brand" : "ring-border-soft")}>
+                <img draggable={false} src={assetPreviewUrl(asset.projectId, asset.relativePath)} className="pointer-events-none max-h-[82%] max-w-[82%] object-contain" alt="" loading="lazy" />
+              </span>
+            ) : isVideo ? (
+              <button type="button" onClick={(e) => { e.stopPropagation(); onPreviewAsset?.(asset); }} className={cn("group/play flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] ring-1 mt-0.5 transition-all hover:bg-brand hover:ring-brand", isSelected ? "ring-border-soft bg-brand/10" : "ring-border-soft bg-surface-raised")} title="播放视频">
+                <Icon className="h-4 w-4 text-text-muted group-hover/play:hidden" />
+                <Play className="h-3.5 w-3.5 text-white hidden group-hover/play:block fill-current" />
+              </button>
             ) : isAudio ? (
               <button type="button" onClick={(e) => { e.stopPropagation(); isPlaying ? onPlayAudio?.(null) : onPlayAudio?.(asset); }} className={cn("group/play flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] ring-1 mt-0.5 transition-all hover:bg-brand hover:ring-brand", isPlaying ? "ring-brand bg-brand/20 animate-pulse" : isSelected ? "ring-border-soft bg-brand/10" : "ring-border-soft bg-surface-raised")} title={isPlaying ? "正在播放" : "播放音频"}>
                 {isPlaying ? <Activity className="h-4 w-4 text-brand" /> : (
@@ -765,13 +865,18 @@ function AssetTable({
     }),
     columnHelper.accessor("assetType", {
       header: "类型",
-      cell: ({ row, getValue }) => <span className="text-[10px] font-mono uppercase font-bold text-text-subtle">{row.original.extension.replace(".", "") || getValue()}</span>
+      cell: ({ row, getValue }) => <span className="block text-center text-[10px] font-mono uppercase font-bold text-text-subtle">{row.original.extension.replace(".", "") || getValue()}</span>
+    }),
+    columnHelper.display({
+      id: "duration",
+      header: "时长",
+      cell: ({ row }) => <AudioDuration asset={row.original} />
     }),
     columnHelper.accessor("sizeBytes", {
       header: "大小",
       cell: ({ getValue }) => <span className="block text-right font-mono text-[10px] text-text-subtle">{formatBytes(getValue())}</span>
     })
-  ], [columnHelper, onAssetDragStart, onCopyPath, onSelectAsset, onToggleAsset, selectedSet]);
+  ], [columnHelper, onAssetDragStart, onCopyPath, onPlayAudio, onPreviewAsset, onSelectAsset, onToggleAsset, playingAssetPath, selectedSet]);
   const table = useReactTable({ data: assets, columns, getCoreRowModel: getCoreRowModel() });
   if (assets.length === 0 && directories.length === 0) return <EmptyState />;
 
@@ -779,7 +884,7 @@ function AssetTable({
     <div className="flex w-full flex-col bg-surface-panel text-left overflow-x-auto scrollbar-thin">
       <div className="sticky top-0 z-10 flex h-9 min-w-[400px] items-center border-b border-border bg-surface-panel/90 px-4 text-[10px] font-bold uppercase tracking-widest text-text-subtle backdrop-blur-md">
         {table.getHeaderGroups()[0]?.headers.map((header) => (
-          <div key={header.id} className={cn(header.id === "select" ? "w-8 shrink-0" : header.id === "assetType" ? "w-16 shrink-0 px-3" : header.id === "sizeBytes" ? "w-20 shrink-0 px-3 text-right" : "min-w-[140px] flex-1 pr-4")}>
+          <div key={header.id} className={tableColumnClass(header.id)}>
             {flexRender(header.column.columnDef.header, header.getContext())}
           </div>
         ))}
@@ -808,6 +913,9 @@ function AssetTable({
             <div className="w-16 shrink-0 px-3">
               <span className="text-[10px] font-mono font-bold uppercase text-text-subtle">folder</span>
             </div>
+            <div className="w-16 shrink-0 px-3 text-right">
+              <span className="font-mono text-[10px] text-text-subtle">-</span>
+            </div>
             <div className="w-20 shrink-0 px-3 text-right">
               <span className="font-mono text-[10px] text-text-subtle">{directory.totalAssetCount} 项</span>
             </div>
@@ -829,6 +937,7 @@ function AssetTable({
                   writeAssetDragData(event, asset);
                   onAssetDragStart?.(event, asset);
                 }}
+                onDragEnd={clearAssetDragData}
                 className={cn(
                   "group flex min-h-[48px] py-2 items-center border-b px-4 text-left transition-colors hover:bg-surface-raised cursor-pointer",
                   isPlaying ? "bg-brand/5 border-brand/30" : isSelected ? "border-brand/20 bg-brand/5 hover:bg-brand/10" : "border-border-soft bg-transparent"
@@ -836,7 +945,7 @@ function AssetTable({
                 onClick={() => onSelectAsset(asset)}
               >
                 {row.getVisibleCells().map((cell) => (
-                  <div key={cell.id} className={cn(cell.column.id === "select" ? "w-8 shrink-0" : cell.column.id === "assetType" ? "w-16 shrink-0 px-3" : cell.column.id === "sizeBytes" ? "w-20 shrink-0 px-3" : "min-w-[140px] flex-1 pr-4")} onClick={(e) => { if (cell.column.id === "select") e.stopPropagation(); }}>
+                  <div key={cell.id} className={tableColumnClass(cell.column.id)} onClick={(e) => { if (cell.column.id === "select") e.stopPropagation(); }}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </div>
                 ))}
@@ -847,6 +956,20 @@ function AssetTable({
         />
       </div>
     </div>
+  );
+}
+
+function tableColumnClass(columnId: string) {
+  return cn(
+    columnId === "select"
+      ? "w-8 shrink-0"
+      : columnId === "assetType"
+        ? "w-16 shrink-0 px-3 text-center"
+        : columnId === "duration"
+          ? "w-16 shrink-0 px-3 text-right"
+          : columnId === "sizeBytes"
+            ? "w-20 shrink-0 px-3 text-right"
+            : "min-w-[140px] flex-1 pr-4",
   );
 }
 

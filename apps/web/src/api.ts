@@ -346,6 +346,20 @@ export type DesktopReadiness = {
   env: Record<string, string | undefined>;
 };
 
+export type FrontendDiagnosticEntry = {
+  id: string;
+  timestamp: string;
+  level: "info" | "warn" | "error";
+  source: "console" | "window" | "promise" | "fetch" | "devtools";
+  message: string;
+  detail?: string;
+};
+
+export type FrontendDiagnosticsResponse = {
+  logPath: string;
+  entries: FrontendDiagnosticEntry[];
+};
+
 export type StatusLiteResponse = {
   projectId: string;
   task: TaskRecord;
@@ -660,6 +674,32 @@ export async function getAgentContext(projectId?: string, page?: AgentPageState)
 
 export async function getDesktopReadiness(): Promise<DesktopReadiness> {
   return json<DesktopReadiness>(await fetch("/api/desktop/readiness"));
+}
+
+export async function listFrontendDiagnostics() {
+  return json<FrontendDiagnosticsResponse>(
+    await fetch("/api/developer/frontend-diagnostics"),
+  );
+}
+
+export async function appendFrontendDiagnostics(entries: FrontendDiagnosticEntry[]) {
+  const res = await fetch("/api/developer/frontend-diagnostics", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ entries }),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to append frontend diagnostics: ${res.statusText}`);
+  }
+}
+
+export async function clearFrontendDiagnostics() {
+  const res = await fetch("/api/developer/frontend-diagnostics", {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to clear frontend diagnostics: ${res.statusText}`);
+  }
 }
 
 export async function saveWorkflow(projectId: string, name: string, graph: MakerWorkflowGraph, id?: string) {

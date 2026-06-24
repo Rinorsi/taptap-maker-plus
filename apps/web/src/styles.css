@@ -211,6 +211,17 @@
     box-shadow: 0 0 0 2px rgba(0, 217, 197, 0.16);
   }
 
+  .video-flow-canvas .react-flow__node,
+  .video-flow-canvas .react-flow__node.draggable,
+  .video-flow-canvas .react-flow__node.selectable,
+  .video-flow-canvas .react-flow__node * {
+    cursor: default !important;
+  }
+
+  .video-flow-canvas .react-flow__pane.draggable {
+    cursor: default !important;
+  }
+
   .workflow-flow .react-flow__controls,
   .workflow-flow .react-flow__minimap {
     border: 1px solid var(--color-border);

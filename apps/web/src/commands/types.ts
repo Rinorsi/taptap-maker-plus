@@ -1,4 +1,16 @@
-export type CommandScope = "global" | "project" | "asset" | "task" | "mcpTool" | "workflowCanvas" | "workflowNode";
+export type CommandScope =
+  | "global"
+  | "project"
+  | "asset"
+  | "task"
+  | "mcpTool"
+  | "workflowCanvas"
+  | "workflowNode"
+  | "workflowEdge"
+  | "videoFlowCanvas"
+  | "videoFlowNode"
+  | "videoFlowEdge"
+  | "videoFlowSelection";
 
 export type AppCommandContext =
   | { objectType: "global" }
@@ -7,7 +19,12 @@ export type AppCommandContext =
   | { objectType: "task"; taskId: string }
   | { objectType: "mcpTool"; toolName: string }
   | { objectType: "workflowCanvas" }
-  | { objectType: "workflowNode"; nodeId: string };
+  | { objectType: "workflowNode"; nodeId: string }
+  | { objectType: "workflowEdge"; edgeId: string }
+  | { objectType: "videoFlowCanvas" }
+  | { objectType: "videoFlowNode"; nodeId: string }
+  | { objectType: "videoFlowEdge"; edgeId: string }
+  | { objectType: "videoFlowSelection"; nodeIds: string[]; edgeIds: string[] };
 
 export type CommandShortcut = {
   key: string;
@@ -23,7 +40,11 @@ export type Command = {
   description?: string;
   shortcut?: CommandShortcut;
   shortcuts?: CommandShortcut[];
-  scope: CommandScope;
+  scope: CommandScope | readonly CommandScope[];
+  group?: string;
+  category?: string;
+  submenu?: string | readonly string[];
+  order?: number;
   danger?: boolean;
   when?: (context: AppCommandContext) => boolean;
   run: (context: AppCommandContext) => void | Promise<void>;

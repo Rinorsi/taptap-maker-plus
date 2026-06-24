@@ -86,6 +86,17 @@ const flowAutoSaveSchema = z.object({
   data: z.any()
 });
 
+const frontendDiagnosticSchema = z.object({
+  entries: z.array(z.object({
+    id: z.string().min(1),
+    timestamp: z.string().min(1),
+    level: z.enum(["info", "warn", "error"]),
+    source: z.enum(["console", "window", "promise", "fetch", "devtools"]),
+    message: z.string().max(20000),
+    detail: z.string().max(50000).optional()
+  })).min(1).max(50)
+});
+
 const workflowGraphSchema = z.object({
   nodes: z.array(z.unknown()),
   edges: z.array(z.unknown()),
@@ -138,6 +149,30 @@ function pageStateFromQuery(query: z.infer<typeof agentContextQuerySchema>) {
 
 function extractArguments(body: z.infer<typeof callToolSchema>): Record<string, unknown> {
   return body.toolArgs ?? body.arguments ?? {};
+}
+
+function frontendDiagnosticsPath() {
+  return path.join(config.dataDir, "logs", "frontend-diagnostics.log");
+}
+
+function serializeDiagnosticEntry(entry: z.infer<typeof frontendDiagnosticSchema>["entries"][number]) {
+  return JSON.stringify(entry);
+}
+
+function readRecentFrontendDiagnostics(limit = 200) {
+  const logPath = frontendDiagnosticsPath();
+  if (!fs.existsSync(logPath)) return { logPath, entries: [] as unknown[] };
+
+  const text = fs.readFileSync(logPath, "utf8");
+  const lines = text.split(/\r?\n/).filter(Boolean).slice(-limit);
+  const entries = lines.map((line) => {
+    try {
+      return JSON.parse(line) as unknown;
+    } catch {
+      return { timestamp: new Date().toISOString(), level: "warn", source: "server", message: line };
+    }
+  });
+  return { logPath, entries };
 }
 
 function requireProject(projectId: string): ProjectSummary {
@@ -257,22 +292,76 @@ function decodeDataUrl(dataUrl: string) {
   return match[2] ? Buffer.from(encoded, "base64") : Buffer.from(decodeURIComponent(encoded));
 }
 
-function sendAssetFile(reply: FastifyReply, filePath: string) {
+function assetContentType(filePath: string) {
   const ext = path.extname(filePath).toLowerCase();
-  const contentType = ext === ".png" ? "image/png"
+  return ext === ".png" ? "image/png"
     : ext === ".jpg" || ext === ".jpeg" ? "image/jpeg"
       : ext === ".webp" ? "image/webp"
         : ext === ".gif" ? "image/gif"
-          : ext === ".gltf" ? "model/gltf+json"
-            : ext === ".glb" ? "model/gltf-binary"
-              : ext === ".bin" ? "application/octet-stream"
-                : "application/octet-stream";
+          : ext === ".mp4" ? "video/mp4"
+            : ext === ".webm" ? "video/webm"
+              : ext === ".mov" ? "video/quicktime"
+                : ext === ".mp3" ? "audio/mpeg"
+                  : ext === ".ogg" ? "audio/ogg"
+                    : ext === ".wav" ? "audio/wav"
+                      : ext === ".m4a" ? "audio/mp4"
+                        : ext === ".gltf" ? "model/gltf+json"
+                          : ext === ".glb" ? "model/gltf-binary"
+                            : ext === ".bin" ? "application/octet-stream"
+                              : "application/octet-stream";
+}
+
+function sendAssetFile(reply: FastifyReply, filePath: string, range?: string) {
+  const contentType = assetContentType(filePath);
+  const stat = fs.statSync(filePath);
+  reply.header("Accept-Ranges", "bytes");
   reply.header("Content-Type", contentType);
+
+  if (range) {
+    const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+    if (match) {
+      const start = match[1] ? Number(match[1]) : 0;
+      const end = match[2] ? Number(match[2]) : stat.size - 1;
+      if (Number.isFinite(start) && Number.isFinite(end) && start <= end && start < stat.size) {
+        const boundedEnd = Math.min(end, stat.size - 1);
+        reply
+          .code(206)
+          .header("Content-Length", String(boundedEnd - start + 1))
+          .header("Content-Range", `bytes ${start}-${boundedEnd}/${stat.size}`);
+        return reply.send(fs.createReadStream(filePath, { start, end: boundedEnd }));
+      }
+    }
+    reply.header("Content-Range", `bytes */${stat.size}`);
+    return reply.code(416).send();
+  }
+
+  reply.header("Content-Length", String(stat.size));
   return reply.send(fs.createReadStream(filePath));
 }
 
 export async function registerApiRoutes(app: FastifyInstance) {
   app.get("/api/health", async () => ({ ok: true, name: "taptap-maker-plus" }));
+
+  app.get("/api/developer/frontend-diagnostics", async () => {
+    const { logPath, entries } = readRecentFrontendDiagnostics();
+    return { logPath, entries };
+  });
+
+  app.post<{ Body: unknown }>("/api/developer/frontend-diagnostics", async (request, reply) => {
+    const parsed = frontendDiagnosticSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+
+    const logPath = frontendDiagnosticsPath();
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.appendFileSync(logPath, `${parsed.data.entries.map(serializeDiagnosticEntry).join("\n")}\n`, "utf8");
+    return { ok: true, logPath };
+  });
+
+  app.delete("/api/developer/frontend-diagnostics", async () => {
+    const logPath = frontendDiagnosticsPath();
+    if (fs.existsSync(logPath)) fs.writeFileSync(logPath, "", "utf8");
+    return { ok: true, logPath };
+  });
 
   app.get("/api/desktop/readiness", async () => ({
     ok: true,
@@ -528,7 +617,7 @@ export async function registerApiRoutes(app: FastifyInstance) {
     if (!isSafeProjectPath(project.rootPath, asset.absolutePath) || !fs.existsSync(asset.absolutePath)) {
       return reply.code(404).send({ error: "Asset file unavailable" });
     }
-    return sendAssetFile(reply, asset.absolutePath);
+    return sendAssetFile(reply, asset.absolutePath, request.headers.range);
   });
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/model-packages", async (request) => {

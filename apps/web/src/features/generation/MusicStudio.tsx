@@ -213,16 +213,24 @@ export function MusicStudio({
   }
 
   return (
-    <div className="flex flex-col gap-5 p-6 h-full min-h-0 w-full max-w-[1600px] mx-auto overflow-hidden">
-      <StudioHeader icon={<Music className="w-3.5 h-3.5" />} eyebrow="Music Studio" title="音频生成工作室" projectName={project?.name} />
-
-      <div className="flex-1 flex gap-5 min-h-0 overflow-hidden">
+    <div className="flex flex-col gap-5 p-6 h-full min-h-0 w-full max-w-[1600px] mx-auto relative">
+      <StudioHeader 
+        icon={<Music className="w-3.5 h-3.5" />} 
+        eyebrow="Music Studio" 
+        title="音乐创作工坊" 
+        projectName={project?.name} 
+      />
+      
+      <div className="flex-1 flex gap-5 min-h-0 relative">
         
         {/* Left Parameters Panel */}
-        <div className="w-[280px] md:w-[320px] lg:w-[360px] xl:w-[420px] shrink-0 bg-surface-app/40 backdrop-blur-2xl border border-white/5 rounded-3xl flex flex-col min-h-0 shadow-[0_8px_30px_rgb(0,0,0,0.12)] overflow-hidden relative">
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[80%] h-32 bg-brand/10 blur-[60px] rounded-full pointer-events-none" />
-          
-          <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 min-h-0 relative z-10 scrollbar-thin">
+        <div className="w-[280px] md:w-[320px] lg:w-[360px] xl:w-[420px] shrink-0 relative rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] flex flex-col min-h-0">
+          <div className="absolute inset-0 bg-surface-app/40 backdrop-blur-2xl border border-white/5 rounded-3xl overflow-hidden [mask-image:linear-gradient(white,white)] pointer-events-none" />
+
+          <div className="relative z-10 flex flex-col h-full min-h-0 rounded-3xl">
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[80%] h-32 bg-brand/10 blur-[60px] rounded-full pointer-events-none" />
+            
+            <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 min-h-0 relative z-10 scrollbar-thin">
             <div className="flex items-center justify-between border-b border-white/5 pb-4 shrink-0">
               <div className="flex items-center gap-2">
                  <Wand2 className="w-4 h-4 text-brand" />
@@ -347,7 +355,7 @@ export function MusicStudio({
             </div>
           </div>
 
-          <div className="p-6 bg-surface-raised/40 border-t border-white/5 backdrop-blur-xl relative z-10 shrink-0 flex flex-col gap-4">
+          <div className="p-6 bg-surface-raised/40 border-t border-white/5 shrink-0 relative z-10 flex flex-col gap-4 rounded-b-3xl">
              {/* Bottom Bar Options */}
              <div className="grid grid-cols-2 gap-4 w-full">
                <div className="col-span-1">
@@ -382,6 +390,7 @@ export function MusicStudio({
             </Button>
           </div>
         </div>
+      </div>
 
         <AssetManagerPanel
           assets={audioAssets}

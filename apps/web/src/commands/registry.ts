@@ -22,17 +22,24 @@ export function createCommandRegistry(commands: Command[]) {
       const command = byId.get(commandId);
       if (!command || !isCommandAvailable(command, context)) return undefined;
       return command.run(context);
-    }
+    },
   };
 }
 
 export type CommandRegistry = ReturnType<typeof createCommandRegistry>;
 
-export function isCommandAvailable(command: Command, context: AppCommandContext) {
+export function isCommandAvailable(
+  command: Command,
+  context: AppCommandContext,
+) {
   if (!scopeMatches(command.scope, context.objectType)) return false;
   return command.when ? command.when(context) : true;
 }
 
-function scopeMatches(scope: Command["scope"], objectType: AppCommandContext["objectType"]) {
+function scopeMatches(
+  scope: Command["scope"],
+  objectType: AppCommandContext["objectType"],
+) {
+  if (Array.isArray(scope)) return scope.includes(objectType);
   return scope === "global" || scope === objectType;
 }

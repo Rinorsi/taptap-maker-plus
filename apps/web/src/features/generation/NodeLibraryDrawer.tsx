@@ -15,6 +15,12 @@ const CATEGORIES: { id: NodeCategory; label: string }[] = [
   { id: "executor", label: "执行器 (Executor)" }
 ];
 
+declare global {
+  interface Window {
+    __taptapNodePresetDrag?: string;
+  }
+}
+
 export function NodeLibraryDrawer({ isOpen, project, onLoaded }: { isOpen: boolean, project?: ProjectSummary, onLoaded?: (data: any) => void }) {
   const [activeTab, setActiveTab] = useState<"presets" | "saved">("presets");
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
@@ -49,8 +55,14 @@ export function NodeLibraryDrawer({ isOpen, project, onLoaded }: { isOpen: boole
   };
 
   const onDragStart = (event: React.DragEvent, nodeType: string) => {
+    window.__taptapNodePresetDrag = nodeType;
     event.dataTransfer.setData('application/reactflow', nodeType);
-    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', `taptap-node-preset:${nodeType}`);
+    event.dataTransfer.effectAllowed = 'copy';
+  };
+
+  const onDragEnd = () => {
+    window.__taptapNodePresetDrag = undefined;
   };
 
   const handleSaveCurrent = async () => {
@@ -115,10 +127,16 @@ export function NodeLibraryDrawer({ isOpen, project, onLoaded }: { isOpen: boole
     e.target.value = ""; // reset
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="w-[320px] h-full bg-surface-panel border-r border-border-soft flex flex-col overflow-hidden shrink-0 transition-all duration-300 relative z-50">
+    <div
+      className={cn(
+        "h-full bg-surface-panel border-r border-border-soft flex flex-col overflow-hidden shrink-0 transition-[width,opacity,transform] duration-300 ease-out relative z-50",
+        isOpen
+          ? "w-[320px] opacity-100 translate-x-0"
+          : "w-0 opacity-0 -translate-x-3 pointer-events-none border-r-0"
+      )}
+      aria-hidden={!isOpen}
+    >
       <div className="p-4 border-b border-border-soft bg-surface-app/30 flex flex-col gap-3">
         <div>
           <h3 className="font-bold text-text">节点与布局</h3>
@@ -163,6 +181,7 @@ export function NodeLibraryDrawer({ isOpen, project, onLoaded }: { isOpen: boole
                         key={preset.id}
                         draggable
                         onDragStart={(e) => onDragStart(e, preset.id)}
+                        onDragEnd={onDragEnd}
                         className="flex flex-col p-2.5 bg-surface-app/50 hover:bg-surface-app border border-transparent hover:border-brand/30 rounded-lg cursor-grab active:cursor-grabbing transition-all group"
                       >
                         <div className="flex items-center gap-2 mb-1">

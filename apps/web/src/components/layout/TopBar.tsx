@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { Settings, Moon, Sun, Search, Boxes, FolderOpen, Wrench, File, Activity, Minus, Square, X, Copy } from "lucide-react";
 import { Button } from "../ui/Button";
 import type { AssetSummary, ProjectSummary, RuntimeSummary, TaskRecord, ToolSummary } from "../../api";
@@ -31,10 +31,20 @@ type SearchResult =
   | { id: string; type: "asset"; title: string; subtitle: string; asset: AssetSummary }
   | { id: string; type: "task"; title: string; subtitle: string; task: TaskRecord };
 
+const TITLEBAR_DRAG_THRESHOLD_PX = 4;
+
+function isWindowDragTarget(target: EventTarget | null) {
+  return !(
+    target instanceof HTMLElement &&
+    target.closest("button, input, label, a, [data-no-window-drag]")
+  );
+}
+
 export function TopBar({ project, runtime, notice, toolCount, theme, projects = [], tools = [], assets = [], tasks = [], onThemeToggle, onOpenSettings, onSelectProject, onOpenModule, onSelect, appMenu, searchFocusSignal = 0 }: Props) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const titlebarDragRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const searchSources = useMemo(() => ({
     projects: Array.isArray(projects) ? projects : [],
     tools: Array.isArray(tools) ? tools : [],
@@ -73,23 +83,52 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
     setOpen(true);
   }, [searchFocusSignal]);
 
+  function handleTitlebarPointerDown(event: ReactPointerEvent<HTMLElement>) {
+    if (event.button !== 0) return;
+    if (!isWindowDragTarget(event.target)) return;
+    if (event.detail >= 2) return;
+    titlebarDragRef.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY
+    };
+  }
+
+  function handleTitlebarPointerMove(event: ReactPointerEvent<HTMLElement>) {
+    const dragState = titlebarDragRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+    const movedX = Math.abs(event.clientX - dragState.x);
+    const movedY = Math.abs(event.clientY - dragState.y);
+    if (movedX < TITLEBAR_DRAG_THRESHOLD_PX && movedY < TITLEBAR_DRAG_THRESHOLD_PX) return;
+    titlebarDragRef.current = null;
+    dragDesktopWindow().catch(() => undefined);
+  }
+
+  function clearTitlebarPointer(event: ReactPointerEvent<HTMLElement>) {
+    if (titlebarDragRef.current?.pointerId === event.pointerId) {
+      titlebarDragRef.current = null;
+    }
+  }
+
+  async function handleTitlebarDoubleClick(event: ReactPointerEvent<HTMLElement>) {
+    if (!isWindowDragTarget(event.target)) return;
+    titlebarDragRef.current = null;
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().toggleMaximize();
+    } catch {
+      // ignore
+    }
+  }
+
   return (
     <header
       className="flex items-center gap-4 px-4 h-[52px] border-b border-border bg-surface-panel z-10 shrink-0 relative select-none"
-      onMouseDown={(event) => {
-        if (event.button !== 0) return;
-        if ((event.target as HTMLElement).closest("button, input, label, a, [data-no-window-drag]")) return;
-        dragDesktopWindow().catch(() => undefined);
-      }}
-      onDoubleClick={async (event) => {
-        if ((event.target as HTMLElement).closest("[data-no-window-drag]")) return;
-        try {
-          const { getCurrentWindow } = await import("@tauri-apps/api/window");
-          await getCurrentWindow().toggleMaximize();
-        } catch {
-          // ignore
-        }
-      }}
+      onPointerDown={handleTitlebarPointerDown}
+      onPointerMove={handleTitlebarPointerMove}
+      onPointerUp={clearTitlebarPointer}
+      onPointerCancel={clearTitlebarPointer}
+      onDoubleClick={handleTitlebarDoubleClick}
     >
       <div className="flex items-center min-w-0 shrink-0 w-[520px] pl-1 gap-3">
         <div className="flex items-center gap-1.5 select-none pointer-events-none mr-2">
@@ -158,7 +197,12 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
 
 async function dragDesktopWindow() {
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
-  await getCurrentWindow().startDragging();
+  const appWindow = getCurrentWindow();
+  if (await appWindow.isMaximized()) {
+    await appWindow.toggleMaximize();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  }
+  await appWindow.startDragging();
 }
 
 function DesktopWindowControls() {

@@ -1,13 +1,104 @@
-import { Cpu, Database, FileJson, ServerCog, Settings } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  Bug,
+  Copy,
+  Cpu,
+  Database,
+  FileJson,
+  ServerCog,
+  Settings,
+  Trash2,
+} from "lucide-react";
 import type { ProjectSummary, RuntimeSummary, ToolSummary } from "../../api";
+import {
+  clearFrontendDiagnostics,
+  listFrontendDiagnostics,
+  type FrontendDiagnosticEntry,
+} from "../../api";
+import { RawViewer } from "../../components/developer";
+import { Button } from "../../components/ui/Button";
+import {
+  clearDeveloperLogEntries,
+  formatDeveloperLogsForDisplay,
+  getDeveloperLogEntries,
+  isDeveloperModeEnabled,
+  openDesktopDevtools,
+  setDeveloperModeEnabled,
+  subscribeDeveloperLogs,
+  subscribeDeveloperMode,
+} from "../../lib/developerMode";
+import { copyText } from "../../lib/clipboard";
 
 type Props = { project?: ProjectSummary; runtime?: RuntimeSummary; tools: ToolSummary[] };
 
 export function SettingsView({ project, runtime, tools }: Props) {
+  const [developerMode, setDeveloperMode] = useState(isDeveloperModeEnabled);
+  const [developerLogVersion, setDeveloperLogVersion] = useState(0);
+  const [serverLogPath, setServerLogPath] = useState("");
+  const [serverLogEntries, setServerLogEntries] = useState<
+    FrontendDiagnosticEntry[]
+  >([]);
   const categories = tools.reduce<Record<string, number>>((acc, tool) => {
     acc[tool.category] = (acc[tool.category] ?? 0) + 1;
     return acc;
   }, {});
+  const developerLogs = formatDeveloperLogsForDisplay();
+  const serverLogs = formatDiagnosticEntries(serverLogEntries);
+  const visibleLogs = serverLogs || developerLogs;
+  const developerLogCount = Math.max(
+    getDeveloperLogEntries().length,
+    serverLogEntries.length,
+  );
+
+  useEffect(() => {
+    const unsubscribeMode = subscribeDeveloperMode(setDeveloperMode);
+    const unsubscribeLogs = subscribeDeveloperLogs(() =>
+      setDeveloperLogVersion((version) => version + 1),
+    );
+    return () => {
+      unsubscribeMode();
+      unsubscribeLogs();
+    };
+  }, []);
+
+  const refreshServerLogs = async () => {
+    try {
+      const response = await listFrontendDiagnostics();
+      setServerLogPath(response.logPath);
+      setServerLogEntries(response.entries);
+    } catch {
+      setServerLogPath("");
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    const refreshLogs = async () => {
+      try {
+        const response = await listFrontendDiagnostics();
+        if (cancelled) return;
+        setServerLogPath(response.logPath);
+        setServerLogEntries(response.entries);
+      } catch {
+        if (!cancelled) setServerLogPath("");
+      }
+    };
+    void refreshLogs();
+    const timer = window.setInterval(refreshLogs, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const handleClearLogs = async () => {
+    clearDeveloperLogEntries();
+    setServerLogEntries([]);
+    await clearFrontendDiagnostics().catch(() => undefined);
+    await refreshServerLogs();
+  };
+
+  void developerLogVersion;
 
   return (
     <section className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-4 md:p-6">
@@ -50,7 +141,86 @@ export function SettingsView({ project, runtime, tools }: Props) {
           <SettingRow label="Workflow Canvas" value="@xyflow/react" />
           <SettingRow label="Asset Table" value="@tanstack/react-table" />
         </SettingsPanel>
+
+        <SettingsPanel icon={<Bug className="h-4 w-4" />} title="开发者模式">
+          <div className="flex items-center justify-between gap-3 rounded-control px-3 py-2 hover:bg-surface-muted">
+            <div className="min-w-0">
+              <div className="text-xs font-semibold text-text">允许 F12 打开 DevTools</div>
+              <div className="mt-0.5 text-[11px] text-text-muted">
+                仅用于本地调试；关闭后会拦截 F12 / Ctrl+Shift+I。
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={developerMode}
+              className={`flex h-6 w-11 shrink-0 items-center rounded-full border p-0.5 transition-colors ${
+                developerMode
+                  ? "border-brand/40 bg-brand/70"
+                  : "border-border bg-surface-muted"
+              }`}
+              onClick={() => setDeveloperModeEnabled(!developerMode)}
+            >
+              <span
+                className={`block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+                  developerMode ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+          <SettingRow label="前端诊断日志" value={`${developerLogCount} 条`} />
+          <SettingRow label="日志文件" value={serverLogPath || "等待 Fastify 连接"} />
+          <SettingRow label="DevTools 状态" value={developerMode ? "F12 可用" : "F12 已拦截"} />
+          <div className="flex flex-wrap gap-2 px-3 py-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              disabled={!developerMode}
+              onClick={() => void openDesktopDevtools()}
+            >
+              <Bug className="h-3.5 w-3.5" />
+              打开 DevTools
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={() =>
+                void copyText(visibleLogs, {
+                  successMessage: "诊断日志已复制",
+                  errorMessage: "复制诊断日志失败",
+                })
+              }
+            >
+              <Copy className="h-3.5 w-3.5" />
+              复制日志
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="gap-1.5 text-text-muted"
+              onClick={() => void handleClearLogs()}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              清空
+            </Button>
+          </div>
+        </SettingsPanel>
       </div>
+
+      <RawViewer
+        title="前端诊断日志"
+        language="log"
+        value={visibleLogs}
+        emptyText="暂无前端错误、警告或请求失败日志。"
+        copyLabel="复制日志"
+        copySuccessMessage="诊断日志已复制"
+        height="260px"
+      />
 
       {runtime?.lastError ? (
         <div className="rounded-large border border-[#b03939]/25 bg-[#b03939]/5 p-4">
@@ -60,6 +230,18 @@ export function SettingsView({ project, runtime, tools }: Props) {
       ) : null}
     </section>
   );
+}
+
+function formatDiagnosticEntries(entries: FrontendDiagnosticEntry[]) {
+  if (entries.length === 0) return "";
+  return entries
+    .slice()
+    .reverse()
+    .map((entry) => {
+      const header = `[${entry.timestamp}] ${entry.level.toUpperCase()} ${entry.source}: ${entry.message}`;
+      return entry.detail ? `${header}\n${entry.detail}` : header;
+    })
+    .join("\n\n");
 }
 
 function SettingsPanel({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {

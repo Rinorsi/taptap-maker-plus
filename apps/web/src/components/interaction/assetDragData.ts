@@ -10,6 +10,12 @@ export type AssetDragData = {
   assetType?: string;
 };
 
+declare global {
+  interface Window {
+    __taptapAssetDrag?: AssetDragData;
+  }
+}
+
 export function toAssetDragData(asset: AssetSummary): Required<AssetDragData> {
   return {
     projectId: asset.projectId,
@@ -21,9 +27,14 @@ export function toAssetDragData(asset: AssetSummary): Required<AssetDragData> {
 
 export function writeAssetDragData(event: DragEvent, asset: AssetSummary) {
   const data = toAssetDragData(asset);
+  window.__taptapAssetDrag = data;
   event.dataTransfer.setData(ASSET_DRAG_MIME, JSON.stringify(data));
   event.dataTransfer.setData("text/plain", asset.relativePath);
   event.dataTransfer.effectAllowed = "copyMove";
+}
+
+export function clearAssetDragData() {
+  window.__taptapAssetDrag = undefined;
 }
 
 export function readAssetDragData(dataTransfer: DataTransfer): AssetDragData | undefined {
@@ -45,7 +56,8 @@ export function readAssetDragData(dataTransfer: DataTransfer): AssetDragData | u
   }
 
   const plain = dataTransfer.getData("text/plain");
-  return plain ? { relativePath: plain } : undefined;
+  if (plain) return { relativePath: plain };
+  return window.__taptapAssetDrag;
 }
 
 export function readAssetDragPath(dataTransfer: DataTransfer) {

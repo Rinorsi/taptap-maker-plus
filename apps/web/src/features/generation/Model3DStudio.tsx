@@ -332,7 +332,7 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
   }
 
   return (
-    <div className="flex flex-col gap-5 p-6 h-full min-h-0 w-full max-w-[1600px] mx-auto overflow-hidden">
+    <div className="flex flex-col gap-5 p-6 h-full min-h-0 w-full max-w-[1600px] mx-auto relative">
       {/* Top Header */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shrink-0">
         <div>
@@ -354,12 +354,15 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
         </div>
       </div>
 
-      <div className="flex-1 flex gap-5 min-h-0 overflow-hidden">
+      <div className="flex-1 flex gap-5 min-h-0 relative">
         {/* Left Parameters Panel (Exactly matching ImageStudio glass UI) */}
-        <div className="w-[280px] md:w-[320px] lg:w-[360px] xl:w-[420px] shrink-0 bg-surface-app/40 backdrop-blur-2xl border border-white/5 rounded-3xl flex flex-col min-h-0 shadow-[0_8px_30px_rgb(0,0,0,0.12)] overflow-hidden relative">
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[80%] h-32 bg-brand/10 blur-[60px] rounded-full pointer-events-none" />
-          
-          <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 min-h-0 relative z-10 custom-scrollbar">
+        <div className="w-[280px] md:w-[320px] lg:w-[360px] xl:w-[420px] shrink-0 relative rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] flex flex-col min-h-0">
+          <div className="absolute inset-0 bg-surface-app/40 backdrop-blur-2xl border border-white/5 rounded-3xl overflow-hidden [mask-image:linear-gradient(white,white)] pointer-events-none" />
+
+          <div className="relative z-10 flex flex-col h-full min-h-0 overflow-hidden rounded-3xl">
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[80%] h-32 bg-brand/10 blur-[60px] rounded-full pointer-events-none" />
+            
+            <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 min-h-0 relative z-10 custom-scrollbar">
             <div className="flex items-center justify-between border-b border-white/5 pb-4 shrink-0">
               <div className="flex items-center gap-2">
                  <Wand2 className="w-4 h-4 text-brand" />
@@ -467,6 +470,7 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
             )}
           </div>
         </div>
+      </div>
 
         {/* Center: Canvas Area */}
         <div className="flex-1 bg-surface-panel border border-border rounded-large flex flex-col min-h-0 overflow-hidden shadow-sm relative">

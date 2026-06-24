@@ -35,17 +35,17 @@ export function CodeEditorPanel({
 
   return (
     <section className={cn("flex min-h-0 flex-col overflow-hidden rounded-panel border border-border bg-[#1f1f1f] shadow-sm", className)}>
-      <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border-soft bg-[#242424] px-3">
+      <div className="flex min-h-10 shrink-0 items-center justify-between gap-3 border-b border-[#343434] bg-[#242424] px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          <Terminal className="h-3.5 w-3.5 shrink-0 text-text-subtle" />
-          <span className="truncate text-[11px] font-bold text-text">{title}</span>
+          <Terminal className="h-3.5 w-3.5 shrink-0 text-[#8FDAD2]" />
+          <span className="min-w-0 whitespace-normal break-words text-[11px] font-bold leading-4 text-[#F3F4F6]">{title}</span>
         </div>
         <div className="flex min-w-0 items-center gap-2">
           {language ? <span className="truncate rounded-control bg-[#303030] px-2 py-0.5 font-mono text-[10px] text-[#C7C7C7]">{language}</span> : null}
           <button
             type="button"
             onClick={handleCopy}
-            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-control px-2 text-[10px] font-semibold text-text-muted hover:bg-surface-muted hover:text-text"
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-control px-2 text-[10px] font-semibold text-[#C7C7C7] hover:bg-[#303030] hover:text-[#FFFFFF]"
             title={copyLabel}
           >
             {copied ? <Check className="h-3.5 w-3.5 text-brand" /> : <Copy className="h-3.5 w-3.5" />}
@@ -54,11 +54,11 @@ export function CodeEditorPanel({
         </div>
       </div>
       <div className={cn("min-h-0 overflow-auto bg-[#181818] font-mono text-[11px] leading-5 text-[#E8E8E8] scrollbar-thin", bodyClassName)} style={{ maxHeight }}>
-        <div className="min-w-max py-2">
+        <div className="min-w-0 py-2">
           {lines.map((line, index) => (
-            <div key={`${index}-${line.slice(0, 12)}`} className="grid grid-cols-[44px_1fr] px-0">
-              <span className="select-none border-r border-white/8 pr-2 text-right text-[#808080]">{index + 1}</span>
-              <pre className="m-0 whitespace-pre px-3 text-inherit">{renderHighlightedLine(line)}</pre>
+            <div key={`${index}-${line.slice(0, 12)}`} className="grid grid-cols-[44px_minmax(0,1fr)] px-0">
+              <span className="select-none border-r border-white/8 pr-2 text-right align-top text-[#808080]">{index + 1}</span>
+              <pre className="m-0 min-w-0 whitespace-pre-wrap break-words px-3 text-inherit [overflow-wrap:anywhere]">{renderHighlightedLine(line)}</pre>
             </div>
           ))}
         </div>

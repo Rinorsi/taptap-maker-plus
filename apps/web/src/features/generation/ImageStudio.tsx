@@ -226,7 +226,7 @@ export function ImageStudio({
   }
 
   return (
-    <div className="flex flex-col gap-5 p-6 h-full min-h-0 w-full max-w-[1600px] mx-auto overflow-hidden">
+    <div className="flex flex-col gap-5 p-6 h-full min-h-0 w-full max-w-[1600px] mx-auto relative">
       <StudioHeader
         icon={<ImageIcon className="w-3.5 h-3.5" />}
         eyebrow="Image Studio"
@@ -242,13 +242,18 @@ export function ImageStudio({
       />
 
       {(mode === "generate" || mode === "batch" || mode === "edit") && (
-        <div className="flex-1 flex gap-5 min-h-0 overflow-hidden">
+        <div className="flex-1 flex gap-5 min-h-0 relative">
 
           {/* Left Parameters Panel */}
-          <div className="w-[280px] md:w-[320px] lg:w-[360px] xl:w-[420px] shrink-0 bg-surface-app/40 backdrop-blur-2xl border border-white/5 rounded-3xl flex flex-col min-h-0 shadow-[0_8px_30px_rgb(0,0,0,0.12)] overflow-hidden relative">
-  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[80%] h-32 bg-brand/10 blur-[60px] rounded-full pointer-events-none" />
+          <div className="w-[280px] md:w-[320px] lg:w-[360px] xl:w-[420px] shrink-0 relative rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] flex flex-col min-h-0">
+            {/* The Glass Layer with mask-image to fix Chromium bug */}
+            <div className="absolute inset-0 bg-surface-app/40 backdrop-blur-2xl border border-white/5 rounded-3xl overflow-hidden [mask-image:linear-gradient(white,white)] pointer-events-none" />
 
-  <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 min-h-0 relative z-10">
+            {/* The clipping layer for children */}
+            <div className="relative z-10 flex flex-col h-full min-h-0 overflow-hidden rounded-3xl">
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[80%] h-32 bg-brand/10 blur-[60px] rounded-full pointer-events-none" />
+
+              <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 min-h-0 relative z-10">
     <div className="flex items-center justify-between border-b border-white/5 pb-4 shrink-0">
       <div className="flex items-center gap-2">
          <Wand2 className="w-4 h-4 text-brand" />
@@ -382,7 +387,7 @@ export function ImageStudio({
 
   </div>
 
-  <div className="flex flex-col gap-4 p-6 pt-5 border-t border-white/5 bg-surface-panel/40 backdrop-blur-md shrink-0 relative z-10">
+  <div className="flex flex-col gap-4 p-6 pt-5 border-t border-white/5 bg-surface-panel/40 shrink-0 relative z-10 rounded-b-3xl">
     <div className="flex items-end justify-between gap-4">
       <div className="flex-1">
         <StudioSelectField label="生成模型" value={model} onChange={(v) => setModel(v as ImageModelValue)} options={modelOptions} />
@@ -411,7 +416,8 @@ export function ImageStudio({
       {activeGenerationTask ? "执行跃迁中..." : mode === "generate" ? "启动生成" : mode === "batch" ? "批量生成" : "启动编辑"}
     </Button>
   </div>
-</div>
+            </div>
+          </div>
           {/* Right Gallery & File Manager Panel */}
           <div className="flex-1 bg-surface-panel border border-border rounded-large flex flex-col min-h-0 overflow-hidden shadow-sm">
             <div className="px-4 py-2.5 border-b border-border flex items-center justify-between gap-4 shrink-0 bg-surface-raised/40">

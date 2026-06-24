@@ -212,33 +212,40 @@ export function AgentInspectorPanel({
       {!minimized && (
         <div className="flex-1 min-w-0 p-3.5 flex flex-col gap-3.5 overflow-hidden h-full">
           {/* Header */}
-          <div className="flex items-center justify-between gap-3 shrink-0">
-            <div className="min-w-0 flex items-center gap-3 flex-1">
+          <div className="flex items-start justify-between gap-3 shrink-0">
+            <div className="min-w-0 flex items-start gap-2 flex-1">
               {headerDetail ? (
-                <Button variant="ghost" size="icon" onClick={headerDetail.onBack} className="h-7 w-7 shrink-0 rounded-control" title={headerDetail.title}>
+                <Button variant="ghost" size="icon" onClick={headerDetail.onBack} className="h-7 w-7 shrink-0 rounded-control mt-0.5" title={headerDetail.title}>
                   <ArrowLeft className="h-4 w-4" />
                 </Button>
               ) : null}
-              <div className="min-w-0">
-                <span className="block text-[10px] uppercase tracking-wider text-text-subtle font-semibold mb-0.5 leading-none">
-                  {activeTab.toUpperCase()} PANEL
-                </span>
-                <h2 className="text-sm font-bold text-text truncate m-0 leading-tight">
-                  {activeTab === "status" && "MCP 状态 / 上下文"}
-                  {activeTab === "tools" && "MCP 工具箱"}
-                  {activeTab === "logs" && "任务日志"}
-                  {activeTab === "errors" && "错误详情"}
-                </h2>
+              <div className="min-w-0 flex flex-col gap-1.5 mt-0.5">
+                <div>
+                  <span className="block text-[10px] uppercase tracking-wider text-text-subtle font-semibold mb-0.5 leading-none">
+                    {activeTab.toUpperCase()} PANEL
+                  </span>
+                  <h2 className="text-sm font-bold text-text truncate m-0 leading-tight">
+                    {activeTab === "status" && "MCP 状态 / 上下文"}
+                    {activeTab === "tools" && "MCP 工具箱"}
+                    {activeTab === "logs" && "任务日志"}
+                    {activeTab === "errors" && "错误详情"}
+                  </h2>
+                </div>
+                {headerDetail ? (
+                  <span className="max-w-[180px] truncate rounded-pill bg-surface-muted px-2 py-0.5 text-[10px] text-text-subtle" title={headerDetail.label}>
+                    {headerDetail.label}
+                  </span>
+                ) : null}
               </div>
               {activeTab === "logs" && (
-                <div className="flex items-center gap-1.5 ml-auto mr-1">
+                <div className="flex items-center gap-1.5 ml-auto shrink-0 mt-1">
                   {tasks.filter(t => t.status === "running").length > 0 && (
-                    <span className="text-[9px] font-semibold text-[#0a7f72] bg-[#0a7f72]/15 px-1.5 py-0.5 rounded-pill flex items-center gap-1 animate-pulse mr-2">
-                      <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                    <span className="text-[9px] font-semibold text-[#0a7f72] bg-[#0a7f72]/15 px-1.5 py-0.5 rounded-pill flex items-center gap-1 animate-pulse shrink-0 whitespace-nowrap">
+                      <Loader2 className="w-2.5 h-2.5 animate-spin shrink-0" />
                       <span>{tasks.filter(t => t.status === "running").length} 正在运行</span>
                     </span>
                   )}
-                  <button onClick={onRefreshTasks} className="p-1 rounded hover:bg-surface-muted text-text-muted hover:text-text transition-colors" title="刷新日志">
+                  <button onClick={onRefreshTasks} className="p-1 rounded hover:bg-surface-muted text-text-muted hover:text-text transition-colors shrink-0" title="刷新日志">
                     <RefreshCw className="w-3.5 h-3.5" />
                   </button>
                   <button
@@ -251,22 +258,15 @@ export function AgentInspectorPanel({
                       }
                       onClearTasks();
                     }}
-                    className="p-1 rounded hover:bg-surface-muted text-text-muted hover:text-red-400 transition-colors"
+                    className="p-1 rounded hover:bg-surface-muted text-text-muted hover:text-red-400 transition-colors shrink-0"
                     title={currentLogTask ? "清空当前日志" : "清空全部日志"}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
               )}
-              {headerDetail ? (
-                <div className="ml-auto mr-1 flex min-w-0 items-center gap-2">
-                  <span className="max-w-[190px] truncate rounded-pill bg-surface-muted px-2 py-0.5 text-[10px] text-text-subtle" title={headerDetail.label}>
-                    {headerDetail.label}
-                  </span>
-                </div>
-              ) : null}
             </div>
-            <Button variant="ghost" size="icon" className="w-7 h-7 shrink-0 rounded-control" onClick={onToggleMinimized} title="收起面板">
+            <Button variant="ghost" size="icon" className="w-7 h-7 shrink-0 rounded-control mt-1" onClick={onToggleMinimized} title="收起面板">
               <PanelRightClose className="w-4 h-4" />
             </Button>
           </div>
@@ -376,11 +376,13 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
         </div>
       </div>
 
-      <InfoRow label="工具数量" value={`${tools.length} 个`} />
-      <InfoRow label="最近任务" value={recent ? `${recent.toolName} / ${recent.status}` : "-"} />
-      <InfoRow label="启动接口" value={project ? `/api/projects/${project.id}/mcp/start` : "-"} />
-      <InfoRow label="状态接口" value={project ? `/api/projects/${project.id}/mcp/status` : "-"} />
-      <InfoRow label="当前动作" value={busy ? notice || "执行中..." : notice || "空闲"} />
+      <div className="rounded-panel border border-border-soft bg-surface-raised divide-y divide-border-soft overflow-hidden">
+        <InfoRow label="工具数量" value={`${tools.length} 个`} />
+        <InfoRow label="最近任务" value={recent ? `${recent.toolName} / ${recent.status}` : "-"} />
+        <InfoRow label="启动接口" value={project ? `/api/projects/${project.id}/mcp/start` : "-"} />
+        <InfoRow label="状态接口" value={project ? `/api/projects/${project.id}/mcp/status` : "-"} />
+        <InfoRow label="当前动作" value={busy ? notice || "执行中..." : notice || "空闲"} />
+      </div>
       {runtime?.lastError ? (
         <CodeEditorPanel title="MCP runtime 错误" language="stderr" value={runtime.lastError} maxHeight="180px" />
       ) : null}
@@ -422,8 +424,10 @@ function ToolInspector({ tool }: { tool: ToolSummary }) {
         <span className="mt-1 block truncate font-mono text-[10px] text-text-subtle">{tool.name}</span>
         <p className="m-0 mt-2 text-[11px] leading-relaxed text-text-muted">{display.summary}</p>
       </div>
-      <InfoRow label="类别" value={getToolCategoryLabel(tool.category)} />
-      <InfoRow label="必填字段" value={tool.required.length ? tool.required.join(", ") : "-"} />
+      <div className="rounded-panel border border-border-soft bg-surface-raised divide-y divide-border-soft overflow-hidden">
+        <InfoRow label="类别" value={getToolCategoryLabel(tool.category)} />
+        <InfoRow label="必填字段" value={tool.required.length ? tool.required.join(", ") : "-"} />
+      </div>
       {tool.description && (
         <section className="rounded-panel border border-border-soft bg-surface-raised p-3">
           <div className="mb-3 flex items-center justify-between gap-2">
@@ -591,11 +595,13 @@ function TaskInspector({
 
   return (
     <div className="flex flex-col gap-2.5 h-full">
-      <InfoRow label="状态" value={statusDisplay} />
-      <InfoRow label="任务 ID" value={task.taskId} />
-      <InfoRow label="工具" value={task.toolName} />
-      <InfoRow label="开始时间" value={task.startedAt} />
-      <InfoRow label="结束时间" value={task.finishedAt ?? "-"} />
+      <div className="rounded-panel border border-border-soft bg-surface-raised divide-y divide-border-soft overflow-hidden">
+        <InfoRow label="状态" value={statusDisplay} />
+        <InfoRow label="任务 ID" value={task.taskId} />
+        <InfoRow label="工具" value={task.toolName} />
+        <InfoRow label="开始时间" value={task.startedAt} />
+        <InfoRow label="结束时间" value={task.finishedAt ?? "-"} />
+      </div>
       {task.errorMessage && (
         <RawViewer
           title="错误详情"
@@ -636,11 +642,13 @@ function AssetInspector({ asset, projectId }: { asset: AssetSummary; projectId?:
           <img className="w-full aspect-square object-contain bg-surface-muted" src={assetPreviewUrl(projectId, asset.relativePath)} alt={asset.fileName} />
         </div>
       )}
-      <InfoRow label="文件" value={asset.fileName} />
-      <InfoRow label="类型" value={asset.assetType} />
-      <InfoRow label="路径" value={asset.relativePath} />
-      <InfoRow label="大小" value={`${Math.round(asset.sizeBytes / 1024)} KB`} />
-      <InfoRow label="更新时间" value={asset.updatedAt} />
+      <div className="rounded-panel border border-border-soft bg-surface-raised divide-y divide-border-soft overflow-hidden mt-2">
+        <InfoRow label="文件" value={asset.fileName} />
+        <InfoRow label="类型" value={asset.assetType} />
+        <InfoRow label="路径" value={asset.relativePath} />
+        <InfoRow label="大小" value={`${Math.round(asset.sizeBytes / 1024)} KB`} />
+        <InfoRow label="更新时间" value={asset.updatedAt} />
+      </div>
       <div className="mt-2 rounded-panel border border-border-soft bg-surface-raised p-3">
         <div className="mb-2 flex items-center justify-between gap-2">
           <span className="text-[10px] font-bold uppercase tracking-wide text-text-subtle">来源</span>
@@ -671,13 +679,15 @@ function ProjectInspector({ project }: { project: ProjectSummary }) {
   const runtime = project.runtime;
   return (
     <div className="flex flex-col gap-2.5">
-      <InfoRow label="项目" value={project.name} />
-      <InfoRow label="路径" value={project.rootPath} />
-      <InfoRow label="配置文件" value={project.configPath} />
-      <InfoRow label="makerProjectId" value={project.makerProjectId} />
-      <InfoRow label="MCP 状态" value={runtime?.status ?? "idle"} />
-      <InfoRow label="工具数量" value={runtime?.toolCount !== undefined ? `${runtime.toolCount} 个` : "-"} />
-      <InfoRow label="MCP cwd" value={runtime?.cwd ?? project.rootPath} />
+      <div className="rounded-panel border border-border-soft bg-surface-raised divide-y divide-border-soft overflow-hidden">
+        <InfoRow label="项目" value={project.name} />
+        <InfoRow label="路径" value={project.rootPath} />
+        <InfoRow label="配置文件" value={project.configPath} />
+        <InfoRow label="makerProjectId" value={project.makerProjectId} />
+        <InfoRow label="MCP 状态" value={runtime?.status ?? "idle"} />
+        <InfoRow label="工具数量" value={runtime?.toolCount !== undefined ? `${runtime.toolCount} 个` : "-"} />
+        <InfoRow label="MCP cwd" value={runtime?.cwd ?? project.rootPath} />
+      </div>
       {runtime?.lastError ? (
         <CodeEditorPanel title="MCP runtime 错误" language="stderr" value={runtime.lastError} maxHeight="220px" />
       ) : null}
@@ -687,9 +697,9 @@ function ProjectInspector({ project }: { project: ProjectSummary }) {
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 p-2.5 bg-surface-raised border border-border-soft rounded-card hover:border-border transition-colors">
+    <div className="flex items-center justify-between gap-3 px-3 py-2.5 bg-transparent hover:bg-surface-app/50 transition-colors">
       <span className="text-xs font-semibold text-text-subtle shrink-0">{label}</span>
-      <strong className="text-[12px] font-semibold text-text truncate text-right">{value}</strong>
+      <strong className="text-[12px] font-semibold text-text truncate text-right" title={value}>{value}</strong>
     </div>
   );
 }

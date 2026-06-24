@@ -33,6 +33,7 @@ export function AssetDropzone({ accept, disabled, multiple = true, onDropFiles, 
     disabled,
     multiple,
     noClick: true,
+    noDrag: true,
     noKeyboard: true,
     onDropAccepted: (acceptedFiles) => {
       if (acceptedFiles.length > 0) onDropFiles(acceptedFiles);

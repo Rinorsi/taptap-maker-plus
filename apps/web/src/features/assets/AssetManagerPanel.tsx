@@ -155,6 +155,10 @@ export function AssetManagerPanel({
       setPlayingAsset((current) => current?.relativePath === asset.relativePath ? null : asset);
       return;
     }
+    if (asset.assetType === "image" || asset.assetType === "video") {
+      setPreviewAsset(asset);
+      return;
+    }
     onSelectAsset(asset);
   }
 
@@ -266,6 +270,15 @@ export function AssetManagerPanel({
     return () =>
       window.removeEventListener("taptap:asset-list-command", onAssetListCommand);
   }, []);
+
+  useEffect(() => {
+    if (!previewAsset) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPreviewAsset(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [previewAsset]);
 
   function assetListCommandContext(): AppCommandContext {
     return {
@@ -549,16 +562,45 @@ export function AssetManagerPanel({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm"
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-6 backdrop-blur-sm"
               onClick={() => setPreviewAsset(null)}
             >
-              <video
-                src={assetPreviewUrl(previewAsset.projectId, previewAsset.relativePath)}
-                controls
-                autoPlay
-                className="max-h-[95vh] max-w-[95vw] rounded-xl bg-black object-contain shadow-2xl"
+              <div
+                className="flex max-h-[96vh] max-w-[96vw] flex-col overflow-hidden rounded-lg border border-white/10 bg-black shadow-2xl"
                 onClick={(event) => event.stopPropagation()}
-              />
+              >
+                <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-white/10 bg-black/80 px-3 text-white">
+                  <div className="min-w-0">
+                    <span className="block truncate text-xs font-semibold" title={previewAsset.fileName}>{previewAsset.fileName}</span>
+                    <span className="block truncate text-[10px] text-white/55" title={previewAsset.relativePath}>{previewAsset.relativePath}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white/70 hover:bg-white/10 hover:text-white"
+                    onClick={() => setPreviewAsset(null)}
+                    title="关闭预览"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-black">
+                  {previewAsset.assetType === "image" ? (
+                    <img
+                      draggable={false}
+                      src={assetPreviewUrl(previewAsset.projectId, previewAsset.relativePath)}
+                      alt={previewAsset.fileName}
+                      className="max-h-[calc(96vh-40px)] max-w-[96vw] object-contain"
+                    />
+                  ) : (
+                    <video
+                      src={assetPreviewUrl(previewAsset.projectId, previewAsset.relativePath)}
+                      controls
+                      autoPlay
+                      className="max-h-[calc(96vh-40px)] max-w-[96vw] bg-black object-contain"
+                    />
+                  )}
+                </div>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -735,7 +777,6 @@ function AssetGrid({
                 isDragging && "opacity-70",
                 isPlaying ? "border-brand bg-brand/5 ring-1 ring-brand shadow-[0_0_15px_rgba(0,0,0,0.1)]" : isSelected ? "border-brand ring-1 ring-brand bg-surface-app" : "border-border-soft bg-surface-app"
               )}
-              onClick={() => onSelectAsset(asset)}
             >
               <label className={cn("absolute left-1.5 top-1.5 z-10 flex h-5 w-5 cursor-pointer items-center justify-center rounded border bg-surface-panel/90 shadow-sm backdrop-blur-sm transition-opacity", isSelected ? "border-brand opacity-100" : "border-border opacity-0 hover:border-brand group-hover:opacity-100")}>
                 {isSelected && <CheckCircle2 className="h-3.5 w-3.5 text-brand" />}
@@ -746,14 +787,13 @@ function AssetGrid({
                 tabIndex={0}
                 className="flex h-full w-full flex-col text-left"
                 onClick={() => {
-                  if (asset.assetType === "audio") {
-                    onPlayAudio?.(isPlaying ? null : asset);
-                    return;
-                  }
                   onSelectAsset(asset);
                 }}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") onSelectAsset(asset);
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onSelectAsset(asset);
+                  }
                 }}
               >
               <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden border-b border-border-soft bg-surface-muted">
@@ -925,7 +965,7 @@ function AssetTable({
         const isAudio = asset.assetType === "audio";
         const isPlaying = playingAssetPath === asset.relativePath;
         return (
-          <div className="flex min-w-0 w-full items-start gap-2.5 text-left py-1" onClick={() => onSelectAsset(asset)}>
+          <div className="flex min-w-0 w-full items-start gap-2.5 text-left py-1">
             {isImage ? (
               <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] bg-surface-muted ring-1 mt-0.5", isSelected ? "ring-brand" : "ring-border-soft")}>
                 <AssetImageThumb asset={asset} compact />
@@ -1045,7 +1085,13 @@ function AssetTable({
                 onClick={() => onSelectAsset(asset)}
               >
                 {row.getVisibleCells().map((cell) => (
-                  <div key={cell.id} className={tableColumnClass(cell.column.id)} onClick={(e) => { if (cell.column.id === "select") e.stopPropagation(); }}>
+                  <div
+                    key={cell.id}
+                    className={tableColumnClass(cell.column.id)}
+                    onClick={(event) => {
+                      if (cell.column.id === "select") event.stopPropagation();
+                    }}
+                  >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </div>
                 ))}

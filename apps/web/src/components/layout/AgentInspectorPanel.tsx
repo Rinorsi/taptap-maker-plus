@@ -418,6 +418,8 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
       ),
     [agentContext, desktopReadiness, notice, runtime, tasks.length, tools.length],
   );
+  const agentContextRaw = useMemo(() => agentContext ? JSON.stringify(agentContext, null, 2) : "", [agentContext]);
+  const hasAgentContextRaw = agentContextRaw.trim() !== "" && agentContextRaw.trim() !== "{}";
 
   useEffect(() => {
     let cancelled = false;
@@ -467,29 +469,13 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
             {runtimeStatus}
           </span>
         </div>
-        <div className="grid gap-1.5">
-          <InfoRowCompact label="本地 API" value={localApiUrl} />
-          <InfoRowCompact label="Vite 代理" value={viteProxyTarget} />
-          <InfoRowCompact label="MCP cwd" value={runtime?.cwd ?? project?.rootPath ?? "-"} />
-          <InfoRowCompact label="进程 PID" value={runtime?.processId ? String(runtime.processId) : "-"} />
-          <InfoRowCompact label="tools/list" value={agentContext?.toolsListSnapshot?.updatedAt ?? runtime?.toolsListUpdatedAt ?? "-"} />
-        </div>
       </div>
 
       <div className="rounded-panel border border-border-soft bg-surface-raised divide-y divide-border-soft overflow-hidden">
-        <InfoRow label="工具数量" value={`${tools.length} 个`} />
-        <InfoRow label="最近任务" value={recent ? `${recent.toolName} / ${recent.status}` : "-"} />
-        <InfoRow label="启动接口" value={project ? `/api/projects/${project.id}/mcp/start` : "-"} />
-        <InfoRow label="状态接口" value={project ? `/api/projects/${project.id}/mcp/status` : "-"} />
         <InfoRow label="当前动作" value={currentAction} />
+        <InfoRow label="工具箱状态" value={`${tools.length} 个可用`} />
       </div>
-      <div className="rounded-panel border border-border-soft bg-surface-raised divide-y divide-border-soft overflow-hidden">
-        <InfoRow label="桌面模式" value={desktopReadiness?.mode ?? "-"} />
-        <InfoRow label="SQLite" value={desktopReadiness?.paths.databasePath ?? "-"} />
-        <InfoRow label="MCP 日志目录" value={desktopReadiness?.paths.mcpLogDir ?? "-"} />
-        <InfoRow label="npm cache" value={desktopReadiness?.paths.npmCacheDir ?? "-"} />
-        <InfoRow label="tools/list 快照" value={agentContext?.toolsListSnapshot ? `${agentContext.toolsListSnapshot.projectId} / ${agentContext.toolsListSnapshot.updatedAt}` : "-"} />
-      </div>
+
       {runtime?.lastError ? (
         <CodeEditorPanel title="MCP runtime 错误" language="stderr" value={runtime.lastError} maxHeight="180px" />
       ) : null}
@@ -499,7 +485,7 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
         </p>
       ) : null}
       
-      <div className="grid gap-2 mt-3.5">
+      <div className="grid gap-2 mt-2">
         <Button onClick={onStartRuntime} disabled={!project || starting || busy} className="w-full gap-2 text-xs h-9 shadow-sm">
           {starting || busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-current" />}
           {starting ? "MCP 启动中..." : busy ? "正在执行..." : ready ? "重启 / 刷新 MCP" : "启动 MCP"}
@@ -512,26 +498,49 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
             <Activity className="w-3.5 h-3.5" /> 状态检查
           </Button>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <Button variant="outline" onClick={() => void copyText(diagnosticsRaw, { successMessage: "诊断 JSON 已复制" })} className="gap-1.5 text-xs h-8 shadow-sm">
-            <Copy className="w-3.5 h-3.5" /> 复制诊断
-          </Button>
-          <Button variant="outline" onClick={exportDiagnostics} className="gap-1.5 text-xs h-8 shadow-sm">
-            <Download className="w-3.5 h-3.5" /> 导出诊断包
-          </Button>
-        </div>
       </div>
-      <details className="rounded-panel border border-border-soft bg-surface-raised">
-        <summary className="cursor-pointer px-3 py-2 text-[11px] font-bold text-text-muted hover:text-text">
-          raw agent context
+
+      <details className="mt-2 rounded-panel border border-border-soft bg-surface-raised overflow-hidden">
+        <summary className="cursor-pointer px-3 py-2 text-[11px] font-bold text-text-muted hover:text-text bg-surface-muted/30">
+          高级诊断选项卡 (Developer)
         </summary>
-        <RawViewer
-          title="raw agent context"
-          value={agentContext ? JSON.stringify(agentContext, null, 2) : ""}
-          height="180px"
-          emptyText="暂无 agent context"
-          className="rounded-t-none border-x-0 border-b-0"
-        />
+        <div className="p-3 grid gap-1.5 border-t border-border-soft text-[10px]">
+          <InfoRowCompact label="本地 API" value={localApiUrl} />
+          <InfoRowCompact label="Vite 代理" value={viteProxyTarget} />
+          <InfoRowCompact label="MCP cwd" value={runtime?.cwd ?? project?.rootPath ?? "-"} />
+          <InfoRowCompact label="进程 PID" value={runtime?.processId ? String(runtime.processId) : "-"} />
+          <InfoRowCompact label="tools/list" value={agentContext?.toolsListSnapshot?.updatedAt ?? runtime?.toolsListUpdatedAt ?? "-"} />
+          <InfoRowCompact label="桌面模式" value={desktopReadiness?.mode ?? "-"} />
+          <InfoRowCompact label="SQLite" value={desktopReadiness?.paths.databasePath ?? "-"} />
+          <InfoRowCompact label="MCP 日志目录" value={desktopReadiness?.paths.mcpLogDir ?? "-"} />
+          <InfoRowCompact label="npm cache" value={desktopReadiness?.paths.npmCacheDir ?? "-"} />
+          <InfoRowCompact label="启动接口" value={project ? `/api/projects/${project.id}/mcp/start` : "-"} />
+          <InfoRowCompact label="最近任务" value={recent ? `${recent.toolName} / ${recent.status}` : "-"} />
+
+          <div className="grid grid-cols-2 gap-2 mt-3 mb-1">
+            <Button variant="outline" onClick={() => void copyText(diagnosticsRaw, { successMessage: "诊断 JSON 已复制" })} className="gap-1.5 text-xs h-8 shadow-sm">
+              <Copy className="w-3.5 h-3.5" /> 复制诊断
+            </Button>
+            <Button variant="outline" onClick={exportDiagnostics} className="gap-1.5 text-xs h-8 shadow-sm">
+              <Download className="w-3.5 h-3.5" /> 导出诊断包
+            </Button>
+          </div>
+        </div>
+
+        {hasAgentContextRaw ? (
+          <details className="border-t border-border-soft">
+            <summary className="cursor-pointer px-3 py-2 text-[11px] font-bold text-text-muted hover:text-text bg-surface-muted/20">
+              raw agent context
+            </summary>
+            <RawViewer
+              title="raw agent context"
+              value={agentContextRaw}
+              height="180px"
+              emptyText="暂无 agent context"
+              className="rounded-t-none border-x-0 border-b-0"
+            />
+          </details>
+        ) : null}
       </details>
     </div>
   );

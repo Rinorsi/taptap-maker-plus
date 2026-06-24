@@ -68,6 +68,7 @@ export function WorkbenchViewport(props: Props) {
             />
           ) : null}
           {props.activeModule === "assets" ? <AssetHub project={props.project} assets={props.assets} onScanAssets={props.onScanAssets} onDeleteAssets={props.onDeleteAssets} onMoveAssets={props.onMoveAssets} onCopyAssets={props.onCopyAssets}
+              onImportAssets={props.onImportAssets}
               onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })} /> : null}
           {props.activeModule === "studio-image" ? (
             <ImageStudio

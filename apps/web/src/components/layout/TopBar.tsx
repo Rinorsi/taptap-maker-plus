@@ -128,7 +128,7 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
 
   return (
     <header
-      className="flex items-center gap-4 px-4 h-[52px] border-b border-border bg-surface-panel z-10 shrink-0 relative select-none"
+      className="flex items-center gap-4 px-4 h-[52px] border-b border-border bg-surface-panel z-[80] shrink-0 relative select-none"
       onPointerDown={handleTitlebarPointerDown}
       onPointerMove={handleTitlebarPointerMove}
       onPointerUp={clearTitlebarPointer}
@@ -162,7 +162,7 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
           />
         </label>
         {open && query.trim() ? (
-          <div className="absolute left-0 right-0 top-[50px] z-30 overflow-hidden rounded-large border border-border bg-surface-panel shadow-popover">
+          <div className="absolute left-0 right-0 top-[50px] z-[90] overflow-hidden rounded-large border border-border bg-surface-panel shadow-popover">
             <div className="max-h-[360px] overflow-y-auto p-2">
               {results.length === 0 ? (
                 <div className="p-4 text-center text-xs text-text-muted">没有匹配结果</div>

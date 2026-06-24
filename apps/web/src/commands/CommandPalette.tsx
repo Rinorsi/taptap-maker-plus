@@ -55,10 +55,10 @@ export function CommandPalette({
       label="命令面板"
       loop
       vimBindings={false}
-      overlayClassName="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm transition-opacity"
-      contentClassName="fixed left-1/2 top-[12vh] z-50 w-[min(680px,calc(100vw-32px))] -translate-x-1/2 overflow-hidden rounded-2xl border border-white/10 bg-[#1a1a1e]/95 backdrop-blur-xl shadow-[0_16px_70px_-10px_rgba(0,0,0,0.5)] ring-1 ring-white/5"
+      overlayClassName="fixed inset-0 z-[100] bg-black/35 backdrop-blur-sm transition-opacity"
+      contentClassName="fixed left-1/2 top-[12vh] z-[101] w-[min(680px,calc(100vw-32px))] -translate-x-1/2 overflow-hidden rounded-2xl border border-border bg-surface-panel/95 backdrop-blur-xl shadow-popover"
     >
-      <div className="flex h-14 items-center gap-3 border-b border-white/5 px-5">
+      <div className="flex h-14 items-center gap-3 border-b border-border-soft px-5">
         <Search
           className="h-5 w-5 shrink-0 text-text-muted"
           strokeWidth={2.5}
@@ -68,11 +68,11 @@ export function CommandPalette({
           placeholder="搜索命令或资源..."
           className="h-full min-w-0 flex-1 bg-transparent text-[15px] font-medium text-text outline-none placeholder:text-text-muted/60"
         />
-        <span className="rounded-md bg-white/5 px-2 py-1 font-mono text-[10px] font-bold tracking-wider text-text-subtle shadow-sm border border-white/5">
+        <span className="rounded-md bg-surface-muted px-2 py-1 font-mono text-[10px] font-bold tracking-wider text-text-subtle shadow-sm border border-border-soft">
           ESC
         </span>
       </div>
-      <CommandMenu.List className="max-h-[500px] overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+      <CommandMenu.List className="max-h-[500px] overflow-y-auto p-2 custom-scrollbar">
         <CommandMenu.Empty className="px-3 py-12 text-center text-sm text-text-muted">
           无相关匹配项
         </CommandMenu.Empty>
@@ -118,7 +118,7 @@ export function CommandPalette({
                 )}
               </div>
               {command.shortcut && (
-                <span className="shrink-0 rounded bg-black/20 border border-white/5 px-2 py-1 font-mono text-[10px] font-bold text-text-subtle group-aria-selected:bg-brand/20 group-aria-selected:text-brand group-aria-selected:border-brand/20 transition-all">
+                <span className="shrink-0 rounded bg-surface-muted border border-border-soft px-2 py-1 font-mono text-[10px] font-bold text-text-subtle group-aria-selected:bg-brand/20 group-aria-selected:text-brand group-aria-selected:border-brand/20 transition-all">
                   {formatShortcut(command.shortcut)}
                 </span>
               )}
@@ -238,7 +238,7 @@ function PaletteItem({
       onSelect={onSelect}
       className="group flex cursor-pointer items-center gap-3.5 rounded-xl px-3 py-3 text-left outline-none aria-selected:bg-brand/15 transition-colors"
     >
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/5 border border-white/5 text-text-muted group-aria-selected:bg-brand/20 group-aria-selected:text-brand group-aria-selected:border-brand/20 transition-all shadow-sm">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface-muted border border-border-soft text-text-muted group-aria-selected:bg-brand/20 group-aria-selected:text-brand group-aria-selected:border-brand/20 transition-all shadow-sm">
         {icon}
       </div>
       <div className="min-w-0 flex-1">
@@ -249,7 +249,7 @@ function PaletteItem({
           {subtitle}
         </span>
       </div>
-      <span className="shrink-0 rounded-md bg-black/20 border border-white/5 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-text-subtle group-aria-selected:bg-brand/20 group-aria-selected:text-brand group-aria-selected:border-brand/20 transition-all">
+      <span className="shrink-0 rounded-md bg-surface-muted border border-border-soft px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-text-subtle group-aria-selected:bg-brand/20 group-aria-selected:text-brand group-aria-selected:border-brand/20 transition-all">
         {tag}
       </span>
     </CommandMenu.Item>

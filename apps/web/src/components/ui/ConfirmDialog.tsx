@@ -1,10 +1,11 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { Button } from "./Button";
+import type { ReactNode } from "react";
 
 export type ConfirmConfig = {
   isOpen: boolean;
   title: string;
-  body?: string;
+  body?: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;

@@ -459,6 +459,7 @@ pub fn run() {
   let aspect_ratio_lock = Arc::new(Mutex::new(AspectRatioLock::default()));
   let aspect_ratio_lock_for_run = aspect_ratio_lock.clone();
   let app = tauri::Builder::default()
+    .plugin(tauri_plugin_dialog::init())
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(

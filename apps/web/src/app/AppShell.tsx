@@ -8,6 +8,7 @@ import {
   getRuntimeStatus,
   getStatusLite,
   importAsset,
+  importLocalAssetPaths,
   listAssets,
   listProjects,
   listTasks,
@@ -40,7 +41,6 @@ import {
 } from "../components/layout/AgentInspectorPanel";
 import {
   AppMenuBar,
-  buildContextMenuItems,
   CommandPalette,
   CommandProvider,
   COMMAND_RUN_EVENT,
@@ -673,13 +673,20 @@ export function AppShell() {
     if (!selectedProject || !files.length) return;
     setBusy(true);
     try {
-      for (const file of files) {
-        const dataUrl = await readFileAsDataUrl(file);
-        await importAsset(selectedProject.id, file.name, targetFolder, dataUrl);
+      const localPaths = files
+        .map((file) => (file as File & { localPath?: unknown }).localPath)
+        .filter((localPath): localPath is string => typeof localPath === "string" && localPath.length > 0);
+      if (localPaths.length === files.length) {
+        await importLocalAssetPaths(selectedProject.id, localPaths, targetFolder);
+      } else {
+        for (const file of files) {
+          const dataUrl = await readFileAsDataUrl(file);
+          await importAsset(selectedProject.id, file.name, targetFolder, dataUrl);
+        }
       }
       const nextAssets = await listAssets(selectedProject.id);
       setAssets(nextAssets);
-      setNotice(`已导入 ${files.length} 张图片到 ${targetFolder}`);
+      setNotice(`已导入 ${files.length} 个资源到 ${targetFolder}`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
@@ -1394,6 +1401,40 @@ export function AppShell() {
         },
       },
       {
+        commandId: "assetList.importFilesHere",
+        title: "导入文件到当前目录",
+        icon: <Download className="h-4 w-4" />,
+        description: "打开文件选择器并导入到当前资产目录",
+        scope: "assetList",
+        when: (context) => context.objectType === "assetList",
+        run: (context) => {
+          if (context.objectType !== "assetList") return;
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-list-command", {
+              detail: { action: "importFilesHere" },
+            }),
+          );
+          setNotice("正在打开文件选择器...");
+        },
+      },
+      {
+        commandId: "assetList.importFolderHere",
+        title: "导入文件夹到当前目录",
+        icon: <FolderOpen className="h-4 w-4" />,
+        description: "打开文件夹选择器并导入到当前资产目录",
+        scope: "assetList",
+        when: (context) => context.objectType === "assetList",
+        run: (context) => {
+          if (context.objectType !== "assetList") return;
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-list-command", {
+              detail: { action: "importFolderHere" },
+            }),
+          );
+          setNotice("正在打开文件夹选择器...");
+        },
+      },
+      {
         commandId: "assetList.copyToDirectory",
         title: "复制到...",
         icon: <Copy className="h-4 w-4" />,
@@ -1526,10 +1567,10 @@ export function AppShell() {
         },
       },
       {
-        commandId: "assetDirectory.importHere",
-        title: "导入到此目录",
+        commandId: "assetDirectory.importFilesHere",
+        title: "导入文件到此目录",
         icon: <Download className="h-4 w-4" />,
-        description: "将新的资产导入到该目录",
+        description: "打开文件选择器并导入到该目录",
         scope: "assetDirectory",
         when: (context) => context.objectType === "assetDirectory",
         run: (context) => {
@@ -1537,11 +1578,32 @@ export function AppShell() {
           window.dispatchEvent(
             new CustomEvent("taptap:asset-directory-command", {
               detail: {
-                action: "importHere",
+                action: "importFilesHere",
                 directoryPath: context.directoryPath,
               },
             }),
           );
+          setNotice("正在打开文件选择器...");
+        },
+      },
+      {
+        commandId: "assetDirectory.importFolderHere",
+        title: "导入文件夹到此目录",
+        icon: <FolderOpen className="h-4 w-4" />,
+        description: "打开文件夹选择器并导入到该目录",
+        scope: "assetDirectory",
+        when: (context) => context.objectType === "assetDirectory",
+        run: (context) => {
+          if (context.objectType !== "assetDirectory") return;
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-directory-command", {
+              detail: {
+                action: "importFolderHere",
+                directoryPath: context.directoryPath,
+              },
+            }),
+          );
+          setNotice("正在打开文件夹选择器...");
         },
       },
       {
@@ -2335,18 +2397,13 @@ export function AppShell() {
         });
         return;
       }
-      if (!isFallbackContextMenuTarget(event.target)) {
-        setEditableMenu(undefined);
-        setFallbackMenu(undefined);
-        return;
-      }
       event.preventDefault();
       notifyContextMenuOpen("app");
       setEditableMenu(undefined);
       setFallbackMenu(
         clampContextMenuPosition(
           { x: event.clientX, y: event.clientY },
-          { width: 246, height: 330 },
+          { width: 220, height: 56 },
         ),
       );
     };
@@ -2511,10 +2568,11 @@ export function AppShell() {
     [rightPanelTab, selection],
   );
   const fallbackContext: AppCommandContext = { objectType: "global" };
-  const fallbackMenuItems = buildContextMenuItems(
-    fallbackContext.objectType,
-    getContextMenuCommands(commandRegistry.list(fallbackContext)),
-  );
+  const fallbackMenuItems: MenuItem[] = getContextMenuCommands(
+    commandRegistry.list(fallbackContext),
+  )
+    .filter((command) => command.commandId === "app.refreshCurrent")
+    .map((command) => ({ type: "command", command }));
 
   function renderFallbackMenuItem(item: MenuItem): React.ReactNode {
     if (item.type === "separator")
@@ -2743,7 +2801,7 @@ export function AppShell() {
               onContextMenu={(event) => event.preventDefault()}
             >
               <div className={ContextMenuStyles.label}>
-                {contextMenuTitle(fallbackContext.objectType)}
+                页面操作
               </div>
               <div className={ContextMenuStyles.separator} />
               {fallbackMenuItems.length ? (
@@ -2820,11 +2878,6 @@ function getEditableMenuTarget(
   )
     return editable;
   return undefined;
-}
-
-function isFallbackContextMenuTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) return false;
-  return !!target.closest("[data-workbench-fallback-menu-zone]");
 }
 
 function isLocalContextMenuTarget(target: EventTarget | null) {
@@ -3004,14 +3057,41 @@ function buildAssetReferenceConfirmationMessage(
   actionLabel: string,
   results: AssetReferenceScanResult[],
 ) {
-  const lines = results.flatMap((result) => [
-    `${result.relativePath}：${result.referenceCount} 处引用`,
-    ...result.references
-      .slice(0, 5)
-      .map(
-        (reference) =>
-          `  - ${reference.sourcePath}:${reference.line}:${reference.column} ${reference.lineText.trim()}`,
-      ),
-  ]);
-  return `检测到资产仍被引用，确认${actionLabel}？\n\n${lines.join("\n")}`;
+  return (
+    <div className="flex flex-col gap-3 text-sm text-text mt-1">
+      <p className="font-medium text-text-strong">检测到以下资产仍被引用，确认{actionLabel}？</p>
+      <div className="flex flex-col gap-3 rounded-xl border border-border-soft bg-surface-app p-3 max-h-[300px] overflow-y-auto custom-scrollbar shadow-inner">
+        {results.map((result, idx) => (
+          <div key={idx} className="flex flex-col gap-1.5 border-b border-border-soft pb-3 last:border-0 last:pb-0">
+            <p className="font-bold text-brand-strong break-all text-[13px]">
+              {result.relativePath}
+              <span className="ml-2 inline-flex items-center rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand">
+                {result.referenceCount} 处引用
+              </span>
+            </p>
+            <ul className="flex flex-col gap-1.5 pl-1">
+              {result.references.slice(0, 5).map((ref, i) => (
+                <li key={i} className="flex items-start gap-2 text-xs text-text-muted">
+                  <span className="shrink-0 mt-1.5 h-1 w-1 rounded-full bg-border-soft" />
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="truncate font-mono text-[10px] text-text-subtle" title={`${ref.sourcePath}:${ref.line}`}>
+                      {ref.sourcePath}:{ref.line}
+                    </span>
+                    <span className="rounded bg-surface-panel px-1.5 py-1 font-mono text-[11px] text-text-muted border border-border-soft shadow-sm break-all">
+                      {ref.lineText.trim()}
+                    </span>
+                  </div>
+                </li>
+              ))}
+              {result.references.length > 5 && (
+                <li className="text-xs italic text-text-subtle ml-3 mt-1">
+                  ...以及其他 {result.references.length - 5} 处引用
+                </li>
+              )}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }

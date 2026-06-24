@@ -624,6 +624,17 @@ export async function importAsset(projectId: string, fileName: string, targetFol
   return data.assets;
 }
 
+export async function importLocalAssetPaths(projectId: string, sourcePaths: string[], targetFolder: string): Promise<AssetSummary[]> {
+  const data = await json<{ assets: AssetSummary[] }>(
+    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/import-local-paths`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourcePaths, targetFolder })
+    })
+  );
+  return data.assets;
+}
+
 export async function listTasks(projectId?: string): Promise<TaskRecord[]> {
   const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
   const data = await json<{ tasks: TaskRecord[] }>(await fetch(`/api/tasks${query}`));

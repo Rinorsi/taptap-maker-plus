@@ -70,6 +70,10 @@ const assetImportSchema = z.object({
   targetFolder: z.string().min(1),
   dataUrl: z.string().min(1)
 });
+const assetImportLocalPathsSchema = z.object({
+  sourcePaths: z.array(z.string().min(1)).min(1),
+  targetFolder: z.string().min(1)
+});
 
 const modelConvertSchema = z.object({
   relativePath: z.string().min(1)
@@ -303,6 +307,38 @@ function nextAvailablePath(targetPath: string) {
     nextPath = path.join(directory, `${baseName}_${index}${extension}`);
   }
   return nextPath;
+}
+
+function copyLocalFileIntoDirectory(sourcePath: string, targetDir: string) {
+  const fileName = sanitizeFileName(path.basename(sourcePath));
+  if (!fileName) return 0;
+  const requestedTarget = path.join(targetDir, fileName);
+  fs.copyFileSync(sourcePath, nextAvailablePath(requestedTarget));
+  return 1;
+}
+
+function copyLocalDirectoryIntoDirectory(sourceDir: string, targetDir: string) {
+  const directoryName = sanitizeFileName(path.basename(sourceDir));
+  if (!directoryName) return 0;
+  const rootTarget = path.join(targetDir, directoryName);
+  let count = 0;
+  const walk = (currentSource: string, currentTarget: string) => {
+    fs.mkdirSync(currentTarget, { recursive: true });
+    for (const entry of fs.readdirSync(currentSource, { withFileTypes: true })) {
+      const sourcePath = path.join(currentSource, entry.name);
+      const targetPath = path.join(currentTarget, sanitizeFileName(entry.name));
+      if (entry.isDirectory()) {
+        walk(sourcePath, targetPath);
+        continue;
+      }
+      if (entry.isFile()) {
+        fs.copyFileSync(sourcePath, nextAvailablePath(targetPath));
+        count += 1;
+      }
+    }
+  };
+  walk(sourceDir, nextAvailablePath(rootTarget));
+  return count;
 }
 
 function openSystemPath(projectRoot: string, targetPath: string, mode: "file" | "directory") {
@@ -631,6 +667,32 @@ export async function registerApiRoutes(app: FastifyInstance) {
 
     const assets = await scanProjectAssets(project);
     return { ok: true, assets, count: assets.length };
+  });
+
+  app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/assets/import-local-paths", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    const parsed = assetImportLocalPathsSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+
+    const targetDir = resolveProjectPath(project.rootPath, parsed.data.targetFolder);
+    fs.mkdirSync(targetDir, { recursive: true });
+
+    let importedCount = 0;
+    for (const sourcePath of parsed.data.sourcePaths) {
+      const absoluteSourcePath = path.resolve(sourcePath);
+      if (!fs.existsSync(absoluteSourcePath)) continue;
+      const stat = fs.statSync(absoluteSourcePath);
+      if (stat.isFile()) {
+        importedCount += copyLocalFileIntoDirectory(absoluteSourcePath, targetDir);
+        continue;
+      }
+      if (stat.isDirectory()) {
+        importedCount += copyLocalDirectoryIntoDirectory(absoluteSourcePath, targetDir);
+      }
+    }
+
+    const assets = await scanProjectAssets(project);
+    return { ok: true, assets, importedCount, count: assets.length };
   });
 
   app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/assets/rename", async (request, reply) => {

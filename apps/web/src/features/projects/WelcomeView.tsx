@@ -25,6 +25,7 @@ export function WelcomeView({ projects, onSelectProject, onScanProjects, busy }:
           <div className="mb-12 shrink-0 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="flex items-center gap-2 mb-4 select-none pointer-events-none">
               <img src="/files.png" alt="Plus" className="h-[42px] object-contain" />
+              <span className="text-[26px] font-semibold tracking-normal text-text">TapTap Maker Plus</span>
             </div>
             <p className="text-[14px] text-text-subtle font-medium tracking-wide ml-1">本地 MCP 智能开发工作台</p>
           </div>

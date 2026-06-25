@@ -293,7 +293,7 @@ export function VideoStudio({
   const [previewAsset, setPreviewAsset] = useState<AssetSummary | null>(null);
   const rightPanelWidth = useResizablePanelWidth({
     defaultWidth: 360,
-    minWidth: 300,
+    minWidth: 360,
     maxWidth: 560,
     side: "right",
   });
@@ -926,14 +926,12 @@ export function VideoStudio({
         <AnimatePresence initial={false}>
           {shouldShowRightPanel && (
             <>
-            {studioMode !== "standard" && (
-              <ResizablePanelHandle
-                className="z-[60] -mx-1"
-                title="拖动调整素材库宽度，双击恢复默认"
-                onDoubleClick={rightPanelWidth.resetWidth}
-                {...rightPanelWidth.resizeHandleProps}
-              />
-            )}
+            <ResizablePanelHandle
+              className="z-[60] -mx-1"
+              title="拖动调整素材库宽度，双击恢复默认"
+              onDoubleClick={rightPanelWidth.resetWidth}
+              {...rightPanelWidth.resizeHandleProps}
+            />
             <motion.div
               initial={{ width: 0, opacity: 0 }}
               animate={{

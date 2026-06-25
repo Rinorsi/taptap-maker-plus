@@ -73,7 +73,7 @@ export function UniversalCanvas({
   }, []);
   const assetDrawerWidth = useResizablePanelWidth({
     defaultWidth: 420,
-    minWidth: 320,
+    minWidth: 360,
     maxWidth: 680,
     side: "right",
   });

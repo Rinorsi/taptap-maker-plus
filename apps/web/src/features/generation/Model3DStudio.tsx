@@ -158,6 +158,8 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
   const [mdlError, setMdlError] = useState<string | null>(null);
   const [mdlPreview, setMdlPreview] = useState<{ sourcePath: string; gltfPath: string; version: number } | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [leftPanelWidth, setLeftPanelWidth] = useState(420);
+  const resizeStartRef = useRef<{ pointerX: number; width: number } | null>(null);
 
   const activeModelPackage = useMemo(() => packages.find(p => p.id === selectedIds[0]), [packages, selectedIds]);
   const displayAssetPath = useMemo(() => {
@@ -170,6 +172,24 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
 
   const modelTool = tools.find(t => t.name === "create_3d_model_task");
   const activeGenerationTask = useMemo(() => tasks.find(t => t.status === "running" && t.toolName === "create_3d_model_task"), [tasks]);
+
+  function startPanelResize(event: React.PointerEvent<HTMLButtonElement>) {
+    resizeStartRef.current = { pointerX: event.clientX, width: leftPanelWidth };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function resizePanels(event: React.PointerEvent<HTMLButtonElement>) {
+    const start = resizeStartRef.current;
+    if (!start) return;
+    const nextWidth = Math.min(620, Math.max(360, start.width + event.clientX - start.pointerX));
+    setLeftPanelWidth(nextWidth);
+  }
+
+  function stopPanelResize(event: React.PointerEvent<HTMLButtonElement>) {
+    if (!resizeStartRef.current) return;
+    resizeStartRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
 
   const refreshPackages = async () => {
     if (!project) return;
@@ -382,7 +402,10 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
 
       <div className="flex-1 flex gap-5 min-h-0 relative">
         {/* Left Parameters Panel (Exactly matching ImageStudio glass UI) */}
-        <div className="w-[280px] md:w-[320px] lg:w-[360px] xl:w-[420px] shrink-0 relative rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] flex flex-col min-h-0">
+        <div
+          className="shrink-0 relative rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] flex flex-col min-h-0"
+          style={{ width: leftPanelWidth }}
+        >
           <div className="absolute inset-0 bg-surface-app/40 backdrop-blur-2xl border border-white/5 rounded-3xl overflow-hidden [mask-image:linear-gradient(white,white)] pointer-events-none" />
 
           <div className="relative z-10 flex flex-col h-full min-h-0 overflow-hidden rounded-3xl">
@@ -504,7 +527,21 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
             )}
           </div>
         </div>
-      </div>
+        </div>
+        <button
+          type="button"
+          aria-label="调整左右面板宽度"
+          title="拖动调整宽度，双击恢复默认"
+          className="group relative flex w-3 shrink-0 cursor-col-resize items-stretch justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+          onPointerDown={startPanelResize}
+          onPointerMove={resizePanels}
+          onPointerUp={stopPanelResize}
+          onPointerCancel={stopPanelResize}
+          onDoubleClick={() => setLeftPanelWidth(420)}
+        >
+          <span className="my-4 w-px rounded-full bg-border-soft transition-colors group-hover:bg-brand/60 group-active:bg-brand" />
+          <span className="absolute left-1/2 top-1/2 h-10 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-surface-raised opacity-0 shadow-sm ring-1 ring-border-soft transition-opacity group-hover:opacity-100 group-active:opacity-100" />
+        </button>
 
         {/* Center: Canvas Area */}
         <div className="flex-1 bg-surface-panel border border-border rounded-large flex flex-col min-h-0 overflow-hidden shadow-sm relative">

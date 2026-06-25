@@ -62,7 +62,7 @@ export function VirtualGrid<T>({
           return (
             <div
               key={virtualRow.key}
-              className="absolute left-0 top-0 grid w-full px-4"
+              className="absolute left-0 top-0 grid w-full"
               style={{
                 gap,
                 gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,

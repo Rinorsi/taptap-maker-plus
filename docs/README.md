@@ -29,6 +29,7 @@ It is not a replacement Maker API, not a TapTap official publishing backend, and
 1. **`NEXT_THREAD_HANDOFF.md`** - Project current status, tech stack, constraints, and next steps
 2. **`frontend-implementation-standard.md`** - UI/UX development rules (when changing frontend)
 3. **`asset-management-governance.md`** - Asset/file operation rules (when changing asset features)
+4. **`super-ai-game-ide/README.md`** - Super aggregated AI game IDE, global multimodal canvas, Agent, plugin, and quality-gate plan
 
 **Archived documentation:**
 - See `docs/archive/` for historical Round 1-4 planning documents (multi-agent coordination, completed)

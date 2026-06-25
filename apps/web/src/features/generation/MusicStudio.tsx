@@ -26,6 +26,13 @@ type Props = {
   onMoveAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
   onCopyAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
   onRenameAsset: (relativePath: string, newName: string) => Promise<void>;
+  onRenameDirectory: (directoryPath: string, newName: string) => Promise<void>;
+  onMoveDirectory: (directoryPath: string, targetFolder: string) => Promise<void>;
+  onCopyDirectory: (directoryPath: string, targetFolder: string) => Promise<void>;
+  onDeleteDirectory: (directoryPath: string) => Promise<void>;
+  onCreateFolder: (parentFolder: string) => Promise<void>;
+  onOpenLocalPath: (relativePath: string, mode: "file" | "directory") => Promise<void>;
+  onScanReferences: (relativePaths: string[]) => Promise<void>;
   onImportAssets: (files: File[], targetFolder: string) => Promise<void>;
 };
 
@@ -66,6 +73,14 @@ export function MusicStudio({
   onDeleteAssets,
   onMoveAssets,
   onCopyAssets,
+  onRenameAsset,
+  onRenameDirectory,
+  onMoveDirectory,
+  onCopyDirectory,
+  onDeleteDirectory,
+  onCreateFolder,
+  onOpenLocalPath,
+  onScanReferences,
   onImportAssets
 }: Props) {
   // Config state
@@ -431,6 +446,32 @@ export function MusicStudio({
             await onCopyAssets(paths, targetFolder);
             await refreshAudioLibrary();
           }}
+          onRenameAsset={async (path, newName) => {
+            await onRenameAsset(path, newName);
+            await refreshAudioLibrary();
+          }}
+          onRenameDirectory={async (path, newName) => {
+            await onRenameDirectory(path, newName);
+            await refreshAudioLibrary();
+          }}
+          onMoveDirectory={async (path, targetFolder) => {
+            await onMoveDirectory(path, targetFolder);
+            await refreshAudioLibrary();
+          }}
+          onCopyDirectory={async (path, targetFolder) => {
+            await onCopyDirectory(path, targetFolder);
+            await refreshAudioLibrary();
+          }}
+          onDeleteDirectory={async (path) => {
+            await onDeleteDirectory(path);
+            await refreshAudioLibrary();
+          }}
+          onCreateFolder={async (parentFolder) => {
+            await onCreateFolder(parentFolder);
+            await refreshAudioLibrary();
+          }}
+          onOpenLocalPath={onOpenLocalPath}
+          onScanReferences={onScanReferences}
           onSelectAsset={(asset) => onSelectAsset?.(asset)}
         />
       </div>

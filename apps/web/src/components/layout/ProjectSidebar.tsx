@@ -22,6 +22,7 @@ const moduleIcons: Record<string, React.ElementType> = {
   "home": Home,
   "workspace": LayoutDashboard,
   "assets": LayoutDashboard,
+  "studio-canvas": GitBranch,
   "studio-image": ImageIcon,
   "studio-video": Video,
   "studio-music": Music,

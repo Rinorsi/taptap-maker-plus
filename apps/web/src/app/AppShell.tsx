@@ -788,7 +788,7 @@ export function AppShell() {
     if (!relativePaths.length) return;
     window.dispatchEvent(
       new CustomEvent("taptap:asset-list-command", {
-        detail: { action: "movePaths", paths: relativePaths },
+        detail: { action: "movePaths", panelId: undefined, paths: relativePaths },
       }),
     );
     const currentFolder =
@@ -1277,6 +1277,18 @@ export function AppShell() {
   }
 
   function selectModule(module: WorkbenchModule) {
+    if (module === "workflow") {
+      setActiveModule(selectedProject ? "studio-canvas" : "home");
+      setNotice("已切换到全能节点画布");
+      return;
+    }
+    if (module === "runs") {
+      setRightPanelTab("logs");
+      setInspectorMinimized(false);
+      setActiveModule(selectedProject ? "assets" : "home");
+      setNotice("运行记录已合并到右侧任务日志");
+      return;
+    }
     setActiveModule(module);
     if (module === "settings") setSelection(undefined);
   }
@@ -1311,7 +1323,7 @@ export function AppShell() {
     )
       return canvasCommandContext;
     if (
-      activeModule === "studio-video" &&
+      (activeModule === "studio-video" || activeModule === "studio-canvas") &&
       canvasCommandContext &&
       (canvasCommandContext.objectType === "videoFlowSelection" ||
         canvasCommandContext.objectType === "videoFlowNode" ||
@@ -1319,7 +1331,7 @@ export function AppShell() {
     )
       return canvasCommandContext;
     if (activeModule === "workflow") return { objectType: "workflowCanvas" };
-    if (activeModule === "studio-video")
+    if (activeModule === "studio-video" || activeModule === "studio-canvas")
       return { objectType: "videoFlowCanvas" };
     if (selectedProject)
       return { objectType: "project", projectId: selectedProject.id };
@@ -1715,7 +1727,7 @@ export function AppShell() {
           if (context.objectType !== "asset") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-list-command", {
-              detail: { action: "renamePrimary", paths: [context.relativePath] },
+              detail: { action: "renamePrimary", panelId: context.panelId, paths: [context.relativePath] },
             }),
           );
         },
@@ -1729,7 +1741,11 @@ export function AppShell() {
         when: (context) => context.objectType === "asset" && !!selectedProject,
         run: (context) => {
           if (context.objectType !== "asset") return;
-          void handlePromptMoveAssets([context.relativePath]);
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-list-command", {
+              detail: { action: "movePaths", panelId: context.panelId, paths: [context.relativePath] },
+            }),
+          );
         },
       },
       {
@@ -1743,15 +1759,12 @@ export function AppShell() {
           if (context.objectType !== "asset") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-list-command", {
-              detail: {
-                action: "selectPaths",
-                paths: [context.relativePath],
-              },
+              detail: { action: "selectPaths", panelId: context.panelId, paths: [context.relativePath] },
             }),
           );
           window.dispatchEvent(
             new CustomEvent("taptap:asset-list-command", {
-              detail: { action: "cutSelection", paths: [context.relativePath] },
+              detail: { action: "cutSelection", panelId: context.panelId, paths: [context.relativePath] },
             }),
           );
         },
@@ -1767,15 +1780,12 @@ export function AppShell() {
           if (context.objectType !== "asset") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-list-command", {
-              detail: {
-                action: "selectPaths",
-                paths: [context.relativePath],
-              },
+              detail: { action: "selectPaths", panelId: context.panelId, paths: [context.relativePath] },
             }),
           );
           window.dispatchEvent(
             new CustomEvent("taptap:asset-list-command", {
-              detail: { action: "copySelection", paths: [context.relativePath] },
+              detail: { action: "copySelection", panelId: context.panelId, paths: [context.relativePath] },
             }),
           );
         },
@@ -1850,12 +1860,12 @@ export function AppShell() {
         icon: <FolderOpen className="h-4 w-4" />,
         description: "在当前资产目录创建文件夹",
         scope: "assetList",
-        when: (context) => context.objectType === "assetList",
+        when: (context) => context.objectType === "assetList" && context.menuMode !== "selection",
         run: (context) => {
           if (context.objectType !== "assetList") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-list-command", {
-              detail: { action: "createFolder" },
+              detail: { action: "createFolder", panelId: context.panelId },
             }),
           );
         },
@@ -1867,12 +1877,12 @@ export function AppShell() {
         description: "把剪贴板中的资产或文件夹粘贴到当前目录",
         shortcut: { key: "v", ctrlKey: true },
         scope: "assetList",
-        when: (context) => context.objectType === "assetList" && !!context.canPaste,
+        when: (context) => context.objectType === "assetList" && context.menuMode !== "selection" && !!context.canPaste,
         run: (context) => {
           if (context.objectType !== "assetList") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-list-command", {
-              detail: { action: "pasteHere" },
+              detail: { action: "pasteHere", panelId: context.panelId },
             }),
           );
         },
@@ -1883,12 +1893,12 @@ export function AppShell() {
         icon: <FolderOpen className="h-4 w-4" />,
         description: "在本地文件资源管理器打开当前资产目录",
         scope: "assetList",
-        when: (context) => context.objectType === "assetList" && !!selectedProject,
+        when: (context) => context.objectType === "assetList" && context.menuMode !== "selection" && !!selectedProject,
         run: (context) => {
           if (context.objectType !== "assetList") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-list-command", {
-              detail: { action: "openCurrentDirectory" },
+              detail: { action: "openCurrentDirectory", panelId: context.panelId },
             }),
           );
         },
@@ -1899,7 +1909,7 @@ export function AppShell() {
         icon: <Copy className="h-4 w-4" />,
         description: "复制当前资产目录相对路径",
         scope: "assetList",
-        when: (context) => context.objectType === "assetList",
+        when: (context) => context.objectType === "assetList" && context.menuMode !== "selection",
         run: (context) => {
           if (context.objectType !== "assetList") return;
           void copyText(context.currentDirectoryPath ?? "assets", {
@@ -1913,7 +1923,7 @@ export function AppShell() {
         icon: <Copy className="h-4 w-4" />,
         description: "复制当前资产目录本机完整路径",
         scope: "assetList",
-        when: (context) => context.objectType === "assetList" && !!selectedProject,
+        when: (context) => context.objectType === "assetList" && context.menuMode !== "selection" && !!selectedProject,
         run: (context) => {
           if (context.objectType !== "assetList" || !selectedProject) return;
           void copyText(
@@ -1930,15 +1940,14 @@ export function AppShell() {
         shortcut: { key: "a", ctrlKey: true },
         scope: "assetList",
         when: (context) =>
-          context.objectType === "assetList" && context.visiblePaths.length > 0,
+          context.objectType === "assetList" &&
+          context.menuMode !== "selection" &&
+          (context.visiblePaths.length > 0 || (context.visibleDirectoryPaths?.length ?? 0) > 0),
         run: (context) => {
           if (context.objectType !== "assetList") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-list-command", {
-              detail: {
-                action: "selectPaths",
-                paths: context.visiblePaths,
-              },
+              detail: { action: "selectPaths", panelId: context.panelId, paths: context.visiblePaths, directoryPaths: context.visibleDirectoryPaths ?? [] },
             }),
           );
         },
@@ -1951,19 +1960,28 @@ export function AppShell() {
         shortcut: { key: "a", ctrlKey: true, shiftKey: true },
         scope: "assetList",
         when: (context) =>
-          context.objectType === "assetList" && context.visiblePaths.length > 0,
+          context.objectType === "assetList" &&
+          context.menuMode !== "selection" &&
+          (context.visiblePaths.length > 0 || (context.visibleDirectoryPaths?.length ?? 0) > 0),
         run: (context) => {
           if (context.objectType !== "assetList") return;
           const visible = new Set(context.visiblePaths);
+          const visibleDirectories = new Set(context.visibleDirectoryPaths ?? []);
           const next = [
             ...context.selectedPaths.filter((path) => !visible.has(path)),
             ...context.visiblePaths.filter(
               (path) => !context.selectedPaths.includes(path),
             ),
           ];
+          const nextDirectories = [
+            ...(context.selectedDirectoryPaths ?? []).filter((path) => !visibleDirectories.has(path)),
+            ...(context.visibleDirectoryPaths ?? []).filter(
+              (path) => !(context.selectedDirectoryPaths ?? []).includes(path),
+            ),
+          ];
           window.dispatchEvent(
             new CustomEvent("taptap:asset-list-command", {
-              detail: { action: "selectPaths", paths: next },
+              detail: { action: "selectPaths", panelId: context.panelId, paths: next, directoryPaths: nextDirectories },
             }),
           );
         },
@@ -1975,14 +1993,18 @@ export function AppShell() {
         description: "复制资产列表当前选中路径",
         scope: "assetList",
         when: (context) =>
-          context.objectType === "assetList" && context.selectedPaths.length > 0,
+          context.objectType === "assetList" &&
+          context.menuMode !== "selection" &&
+          (context.selectedPaths.length > 0 || (context.selectedDirectoryPaths?.length ?? 0) > 0),
         run: (context) => {
           if (context.objectType !== "assetList") return;
-          void copyText(context.selectedPaths.join("\n"), {
+          const paths = [
+            ...(context.selectedDirectoryPaths ?? []),
+            ...context.selectedPaths,
+          ];
+          void copyText(paths.join("\n"), {
             successMessage:
-              context.selectedPaths.length === 1
-                ? "资产路径已复制"
-                : "资产路径列表已复制",
+              paths.length === 1 ? "路径已复制" : "路径列表已复制",
           });
         },
       },
@@ -1992,12 +2014,12 @@ export function AppShell() {
         icon: <Download className="h-4 w-4" />,
         description: "打开文件选择器并导入到当前资产目录",
         scope: "assetList",
-        when: (context) => context.objectType === "assetList",
+        when: (context) => context.objectType === "assetList" && context.menuMode !== "selection",
         run: (context) => {
           if (context.objectType !== "assetList") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-list-command", {
-              detail: { action: "importFilesHere" },
+              detail: { action: "importFilesHere", panelId: context.panelId },
             }),
           );
           setNotice("正在打开文件选择器...");
@@ -2009,12 +2031,12 @@ export function AppShell() {
         icon: <FolderOpen className="h-4 w-4" />,
         description: "打开文件夹选择器并导入到当前资产目录",
         scope: "assetList",
-        when: (context) => context.objectType === "assetList",
+        when: (context) => context.objectType === "assetList" && context.menuMode !== "selection",
         run: (context) => {
           if (context.objectType !== "assetList") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-list-command", {
-              detail: { action: "importFolderHere" },
+              detail: { action: "importFolderHere", panelId: context.panelId },
             }),
           );
           setNotice("正在打开文件夹选择器...");
@@ -2028,12 +2050,13 @@ export function AppShell() {
         shortcut: { key: "x", ctrlKey: true },
         scope: "assetList",
         when: (context) =>
-          context.objectType === "assetList" && (context.selectedPaths.length > 0 || !!context.primaryPath),
+          context.objectType === "assetList" &&
+          (context.selectedPaths.length > 0 || (context.selectedDirectoryPaths?.length ?? 0) > 0 || !!context.primaryPath || !!context.primaryDirectoryPath),
         run: (context) => {
           if (context.objectType !== "assetList") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-list-command", {
-              detail: { action: "cutSelection" },
+              detail: { action: "cutSelection", panelId: context.panelId },
             }),
           );
         },
@@ -2046,12 +2069,13 @@ export function AppShell() {
         shortcut: { key: "c", ctrlKey: true },
         scope: "assetList",
         when: (context) =>
-          context.objectType === "assetList" && (context.selectedPaths.length > 0 || !!context.primaryPath),
+          context.objectType === "assetList" &&
+          (context.selectedPaths.length > 0 || (context.selectedDirectoryPaths?.length ?? 0) > 0 || !!context.primaryPath || !!context.primaryDirectoryPath),
         run: (context) => {
           if (context.objectType !== "assetList") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-list-command", {
-              detail: { action: "copySelection" },
+              detail: { action: "copySelection", panelId: context.panelId },
             }),
           );
         },
@@ -2063,12 +2087,13 @@ export function AppShell() {
         description: "把选中资产复制到目录",
         scope: "assetList",
         when: (context) =>
-          context.objectType === "assetList" && context.selectedPaths.length > 0,
+          context.objectType === "assetList" &&
+          (context.selectedPaths.length > 0 || (context.selectedDirectoryPaths?.length ?? 0) > 0),
         run: (context) => {
           if (context.objectType !== "assetList") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-list-command", {
-              detail: { action: "copyPaths", paths: context.selectedPaths },
+              detail: { action: "copyPaths", panelId: context.panelId, paths: context.selectedPaths, directoryPaths: context.selectedDirectoryPaths ?? [] },
             }),
           );
         },
@@ -2080,12 +2105,13 @@ export function AppShell() {
         description: "把选中资产移动到目录",
         scope: "assetList",
         when: (context) =>
-          context.objectType === "assetList" && context.selectedPaths.length > 0,
+          context.objectType === "assetList" &&
+          (context.selectedPaths.length > 0 || (context.selectedDirectoryPaths?.length ?? 0) > 0),
         run: (context) => {
           if (context.objectType !== "assetList") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-list-command", {
-              detail: { action: "movePaths", paths: context.selectedPaths },
+              detail: { action: "movePaths", panelId: context.panelId, paths: context.selectedPaths, directoryPaths: context.selectedDirectoryPaths ?? [] },
             }),
           );
         },
@@ -2116,13 +2142,13 @@ export function AppShell() {
         scope: "assetList",
         danger: true,
         when: (context) =>
-          context.objectType === "assetList" && context.selectedPaths.length > 0,
+          context.objectType === "assetList" &&
+          (context.selectedPaths.length > 0 || (context.selectedDirectoryPaths?.length ?? 0) > 0),
         run: (context) => {
           if (context.objectType !== "assetList") return;
-          void handleDeleteAssets(context.selectedPaths);
           window.dispatchEvent(
             new CustomEvent("taptap:asset-list-command", {
-              detail: { action: "clearSelection" },
+              detail: { action: "deleteSelected", panelId: context.panelId },
             }),
           );
         },
@@ -2138,7 +2164,7 @@ export function AppShell() {
           if (context.objectType !== "assetDirectory") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-directory-command", {
-              detail: { action: "open", directoryPath: context.directoryPath },
+              detail: { action: "open", panelId: context.panelId, directoryPath: context.directoryPath },
             }),
           );
         },
@@ -2199,10 +2225,7 @@ export function AppShell() {
           if (context.objectType !== "assetDirectory") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-directory-command", {
-              detail: {
-                action: "importFilesHere",
-                directoryPath: context.directoryPath,
-              },
+              detail: { action: "importFilesHere", panelId: context.panelId, directoryPath: context.directoryPath },
             }),
           );
           setNotice("正在打开文件选择器...");
@@ -2231,10 +2254,7 @@ export function AppShell() {
           if (context.objectType !== "assetDirectory") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-directory-command", {
-              detail: {
-                action: "importFolderHere",
-                directoryPath: context.directoryPath,
-              },
+              detail: { action: "importFolderHere", panelId: context.panelId, directoryPath: context.directoryPath },
             }),
           );
           setNotice("正在打开文件夹选择器...");
@@ -2251,7 +2271,7 @@ export function AppShell() {
           if (context.objectType !== "assetDirectory") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-directory-command", {
-              detail: { action: "pasteHere", directoryPath: context.directoryPath },
+              detail: { action: "pasteHere", panelId: context.panelId, directoryPath: context.directoryPath },
             }),
           );
         },
@@ -2276,7 +2296,7 @@ export function AppShell() {
           if (context.objectType !== "assetDirectory") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-directory-command", {
-              detail: { action: "rename", directoryPath: context.directoryPath },
+              detail: { action: "rename", panelId: context.panelId, directoryPath: context.directoryPath },
             }),
           );
         },
@@ -2292,7 +2312,7 @@ export function AppShell() {
           if (context.objectType !== "assetDirectory") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-directory-command", {
-              detail: { action: "cutDirectory", directoryPath: context.directoryPath },
+              detail: { action: "cutDirectory", panelId: context.panelId, directoryPath: context.directoryPath },
             }),
           );
         },
@@ -2308,7 +2328,7 @@ export function AppShell() {
           if (context.objectType !== "assetDirectory") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-directory-command", {
-              detail: { action: "copyDirectory", directoryPath: context.directoryPath },
+              detail: { action: "copyDirectory", panelId: context.panelId, directoryPath: context.directoryPath },
             }),
           );
         },
@@ -2324,7 +2344,7 @@ export function AppShell() {
           if (context.objectType !== "assetDirectory") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-directory-command", {
-              detail: { action: "move", directoryPath: context.directoryPath },
+              detail: { action: "move", panelId: context.panelId, directoryPath: context.directoryPath },
             }),
           );
         },
@@ -2340,7 +2360,7 @@ export function AppShell() {
           if (context.objectType !== "assetDirectory") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-directory-command", {
-              detail: { action: "copyFolder", directoryPath: context.directoryPath },
+              detail: { action: "copyFolder", panelId: context.panelId, directoryPath: context.directoryPath },
             }),
           );
         },
@@ -2356,7 +2376,7 @@ export function AppShell() {
           if (context.objectType !== "assetDirectory") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-directory-command", {
-              detail: { action: "scanReferences", directoryPath: context.directoryPath },
+              detail: { action: "scanReferences", panelId: context.panelId, directoryPath: context.directoryPath },
             }),
           );
         },
@@ -2373,7 +2393,7 @@ export function AppShell() {
           if (context.objectType !== "assetDirectory") return;
           window.dispatchEvent(
             new CustomEvent("taptap:asset-directory-command", {
-              detail: { action: "delete", directoryPath: context.directoryPath },
+              detail: { action: "delete", panelId: context.panelId, directoryPath: context.directoryPath },
             }),
           );
         },
@@ -2584,12 +2604,12 @@ export function AppShell() {
       {
         commandId: "mcpTool.addToWorkflow",
         title: "加入节点流",
-        description: "切换到节点流后从工具库加入",
+        description: "遗留节点流入口，当前产品不展示",
         scope: "mcpTool",
-        when: (context) => context.objectType === "mcpTool",
+        menu: { hiddenInContextMenu: true },
+        when: () => false,
         run: () => {
-          selectModule("workflow");
-          setNotice("已打开节点流，请从左侧工具库加入节点");
+          setNotice("节点流页面已隐藏，当前不再作为产品入口");
         },
       },
       {
@@ -2624,9 +2644,13 @@ export function AppShell() {
       {
         commandId: "workflow.openCanvas",
         title: "打开节点流",
-        description: "切换到 MCP 节点流画布",
+        description: "遗留节点流入口，当前产品不展示",
         scope: ["workflowCanvas", "videoFlowCanvas"],
-        run: () => selectModule("workflow"),
+        menu: { hiddenInContextMenu: true },
+        when: () => false,
+        run: () => {
+          setNotice("节点流页面已隐藏，当前不再作为产品入口");
+        },
       },
       {
         commandId: "canvas.fitView",
@@ -2992,6 +3016,7 @@ export function AppShell() {
     () => createCommandRegistry(commands),
     [commands],
   );
+  const lastCommandRunRef = useRef<{ commandId: string; at: number } | null>(null);
 
   function beginInspectorResize(event: React.PointerEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -3034,6 +3059,11 @@ export function AppShell() {
       const detail = (event as CustomEvent<CommandRunRequest>).detail;
       if (!detail?.commandId) return;
       event.preventDefault();
+      const now = Date.now();
+      const lastRun = lastCommandRunRef.current;
+      if (lastRun?.commandId === detail.commandId && now - lastRun.at < 120) return;
+      lastCommandRunRef.current = { commandId: detail.commandId, at: now };
+      console.debug("[AppShell] command-run", detail.commandId, detail.context ?? commandContext);
       void commandRegistry.run(
         detail.commandId,
         detail.context ?? commandContext,
@@ -3352,6 +3382,10 @@ export function AppShell() {
           onOpenSettings={() => selectModule("settings")}
           onSelectProject={handleSelectProject}
           onOpenModule={selectModule}
+          onOpenLogs={() => {
+            setRightPanelTab("logs");
+            setInspectorMinimized(false);
+          }}
           onSelect={handleSelectSelection}
           appMenu={<AppMenuBar context={commandContext} />}
           searchFocusSignal={searchFocusSignal}
@@ -3506,6 +3540,10 @@ export function AppShell() {
           tasks={tasks}
           onSelectProject={handleSelectProject}
           onOpenModule={selectModule}
+          onOpenLogs={() => {
+            setRightPanelTab("logs");
+            setInspectorMinimized(false);
+          }}
           onSelect={handleSelectSelection}
         />
         {fallbackMenu ? (
@@ -4016,3 +4054,4 @@ function ThemeCinemaOverlay({
     </div>
   );
 }
+

@@ -1,4 +1,5 @@
-import { Image as ImageIcon, Film, Music, Settings2, WandSparkles, Play, AlertCircle, Boxes, MessageSquare, Frame, FileVideo, Clapperboard, AudioLines, Drum, FileAudio, Ratio, LayoutList, Fingerprint, Layers, Type, LayoutTemplate, Activity } from "lucide-react";
+import { Image as ImageIcon, Film, Music, Settings2, WandSparkles, AlertCircle, Boxes, MessageSquare, Frame, FileVideo, Clapperboard, AudioLines, Drum, FileAudio, Ratio, LayoutList, Fingerprint, Layers, Type, LayoutTemplate, Activity, Route, Search, Timer, FileImage, Paintbrush, SlidersHorizontal } from "lucide-react";
+import { CANVAS_TOOL_DEFINITIONS, type CanvasToolName } from "../canvas-core";
 
 export type NodeCategory = "prompt" | "image" | "video" | "audio" | "settings" | "collector" | "executor" | "utility";
 
@@ -11,6 +12,7 @@ export type NodePreset = {
   inputHandles: string[];
   outputHandles: string[];
   defaultData: Record<string, unknown>;
+  toolName?: CanvasToolName;
   mcpMapping?: {
     target: "prompt" | "images" | "videos" | "audios" | "settings";
     role?: "reference_image" | "reference_video" | "reference_audio";
@@ -21,14 +23,36 @@ export const NODE_PRESETS: NodePreset[] = [
   // ==================== PROMPT ====================
   {
     id: "MainPromptNode",
-    label: "主提示词",
+    label: "导演提示词",
     category: "prompt",
     icon: MessageSquare,
-    description: "描述视频的主体画面和核心内容",
+    description: "用 @素材 绑定参考素材，并描述视频的主体、动作、镜头和节奏",
     inputHandles: [],
     outputHandles: ["right"],
-    defaultData: { text: "", role: "main_prompt" },
+    defaultData: { text: "", role: "director_prompt" },
     mcpMapping: { target: "prompt" }
+  },
+  {
+    id: "FirstFrameImageNode",
+    label: "首帧图片",
+    category: "image",
+    icon: Frame,
+    description: "作为视频第一帧，适用于首帧或首尾帧模式",
+    inputHandles: [],
+    outputHandles: ["right"],
+    defaultData: { url: "", fileName: "", role: "first_frame" },
+    mcpMapping: { target: "images", role: "reference_image" }
+  },
+  {
+    id: "LastFrameImageNode",
+    label: "尾帧图片",
+    category: "image",
+    icon: Frame,
+    description: "作为视频结束帧，适用于首尾帧模式",
+    inputHandles: [],
+    outputHandles: ["right"],
+    defaultData: { url: "", fileName: "", role: "last_frame" },
+    mcpMapping: { target: "images", role: "reference_image" }
   },
   {
     id: "CameraPromptNode",
@@ -40,6 +64,17 @@ export const NODE_PRESETS: NodePreset[] = [
     outputHandles: ["right"],
     defaultData: { text: "", role: "camera_prompt" },
     mcpMapping: { target: "prompt" }
+  },
+  {
+    id: "VideoModeNode",
+    label: "生成模式 (Mode)",
+    category: "settings",
+    icon: Route,
+    description: "选择文生视频、首帧、首尾帧或多模态参考",
+    inputHandles: [],
+    outputHandles: ["right"],
+    defaultData: { value: "multi_modal_reference", type: "mode" },
+    mcpMapping: { target: "settings" }
   },
   {
     id: "MotionPromptNode",
@@ -288,7 +323,29 @@ export const NODE_PRESETS: NodePreset[] = [
     description: "生成完成后是否返回最后一帧图片",
     inputHandles: [],
     outputHandles: ["right"],
-    defaultData: { value: "false", type: "return_last_frame" },
+    defaultData: { value: "true", type: "return_last_frame" },
+    mcpMapping: { target: "settings" }
+  },
+  {
+    id: "EnableWebSearchNode",
+    label: "联网增强 (WebSearch)",
+    category: "settings",
+    icon: Search,
+    description: "仅文生视频可用，按需联网补充提示词信息",
+    inputHandles: [],
+    outputHandles: ["right"],
+    defaultData: { value: "false", type: "enable_web_search" },
+    mcpMapping: { target: "settings" }
+  },
+  {
+    id: "ExecutionExpiresAfterNode",
+    label: "任务超时 (Expires)",
+    category: "settings",
+    icon: Timer,
+    description: "设置任务超时时间，单位秒，范围 3600 到 259200",
+    inputHandles: [],
+    outputHandles: ["right"],
+    defaultData: { value: "", type: "execution_expires_after" },
     mcpMapping: { target: "settings" }
   },
 
@@ -323,7 +380,8 @@ export const NODE_PRESETS: NodePreset[] = [
     description: "将 Payload 发送到 Maker 后端执行视频生成",
     inputHandles: ["left"],
     outputHandles: ["right"],
-    defaultData: { role: "video_executor" }
+    defaultData: { role: "video_executor", toolName: "create_video_task" },
+    toolName: "create_video_task"
   },
   {
     id: "VideoResultNode",
@@ -333,9 +391,52 @@ export const NODE_PRESETS: NodePreset[] = [
     description: "预览最新生成的视频",
     inputHandles: ["left"],
     outputHandles: [],
-    defaultData: { role: "video_result" }
+    defaultData: { role: "video_result", resultKind: "video" }
   }
 ];
+
+const EXTRA_CANVAS_PRESETS: NodePreset[] = CANVAS_TOOL_DEFINITIONS.flatMap((definition) =>
+  definition.nodePresets
+    .filter((preset) => !NODE_PRESETS.some((existing) => existing.id === preset.id))
+    .map((preset) => {
+      const isImageNode = preset.id === "EditSourceImageNode";
+      const isImageResult = preset.id === "ImageResultNode";
+      const isAudioResult = preset.id === "AudioResultNode";
+      const icon =
+        preset.toolName === "generate_image"
+          ? FileImage
+          : preset.toolName === "edit_image"
+            ? Paintbrush
+            : preset.toolName === "text_to_music"
+              ? Music
+              : isImageNode || isImageResult
+                ? ImageIcon
+                : isAudioResult
+                  ? FileAudio
+                  : SlidersHorizontal;
+      const inputHandles = preset.category === "executor" ? ["left"] : [];
+      const outputHandles =
+        preset.id === "ImageResultNode" || preset.id === "AudioResultNode"
+          ? []
+          : preset.category === "settings" || preset.category === "image" || preset.category === "executor"
+            ? ["right"]
+            : [];
+      return {
+        id: preset.id,
+        label: preset.label,
+        category: preset.category as NodeCategory,
+        icon,
+        description: preset.description ?? preset.label,
+        inputHandles,
+        outputHandles,
+        defaultData: preset.defaultData,
+        toolName: preset.toolName,
+        mcpMapping: preset.category === "settings" ? { target: "settings" as const } : undefined,
+      };
+    }),
+);
+
+NODE_PRESETS.push(...EXTRA_CANVAS_PRESETS);
 
 export function getPresetById(id: string): NodePreset | undefined {
   return NODE_PRESETS.find(p => p.id === id);

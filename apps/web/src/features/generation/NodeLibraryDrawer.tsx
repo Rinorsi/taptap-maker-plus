@@ -6,6 +6,15 @@ import { useReactFlow } from "@xyflow/react";
 import { ProjectSummary, listFlows, saveFlow, deleteFlow, getFlow } from "../../api";
 import { PromptDialog, type PromptConfig } from "../../components/ui/PromptDialog";
 import { ConfirmDialog, type ConfirmConfig } from "../../components/ui/ConfirmDialog";
+import { videoCanvasNodeRegistry } from "./videoCanvasRegistry";
+
+function createCanvasStoragePayload(data: any, kind: "video-reference" | "universal" = "video-reference") {
+  return {
+    schema: kind === "universal" ? "taptap.canvas.universal.v1" : "taptap.canvas.video.v1",
+    kind,
+    ...data,
+  };
+}
 
 const CATEGORIES: { id: NodeCategory; label: string }[] = [
   { id: "prompt", label: "提示词 (Prompt)" },
@@ -23,7 +32,17 @@ declare global {
   }
 }
 
-export function NodeLibraryDrawer({ isOpen, project, onLoaded }: { isOpen: boolean, project?: ProjectSummary, onLoaded?: (data: any) => void }) {
+export function NodeLibraryDrawer({
+  isOpen,
+  project,
+  canvasKind = "video-reference",
+  onLoaded,
+}: {
+  isOpen: boolean;
+  project?: ProjectSummary;
+  canvasKind?: "video-reference" | "universal";
+  onLoaded?: (data: any) => void;
+}) {
   const [activeTab, setActiveTab] = useState<"presets" | "saved">("presets");
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
     prompt: true,
@@ -90,7 +109,7 @@ export function NodeLibraryDrawer({ isOpen, project, onLoaded }: { isOpen: boole
       onConfirm: async (name) => {
         setPromptConfig((prev) => ({ ...prev, isOpen: false }));
         try {
-          const data = reactFlow.toObject();
+          const data = createCanvasStoragePayload(reactFlow.toObject(), canvasKind);
           await saveFlow(project.id, name, data);
           setNotice(`已保存：${name}`);
           await refreshFlows();
@@ -136,7 +155,7 @@ export function NodeLibraryDrawer({ isOpen, project, onLoaded }: { isOpen: boole
   };
 
   const handleExportLocal = () => {
-    const data = reactFlow.toObject();
+    const data = createCanvasStoragePayload(reactFlow.toObject());
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -175,7 +194,7 @@ export function NodeLibraryDrawer({ isOpen, project, onLoaded }: { isOpen: boole
       <div className="p-4 border-b border-border-soft bg-surface-app/30 flex flex-col gap-3">
         <div>
           <h3 className="font-bold text-text">节点与布局</h3>
-          <p className="text-xs text-text-subtle mt-1">拖拽预设或管理画布配置</p>
+          <p className="text-xs text-text-subtle mt-1">{videoCanvasNodeRegistry.label} · 拖拽预设或管理画布配置</p>
           {notice ? (
             <p className="mt-1 truncate text-[11px] text-text-muted">{notice}</p>
           ) : null}

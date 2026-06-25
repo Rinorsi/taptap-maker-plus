@@ -8,7 +8,14 @@ import { AssetDraggable } from "../../components/interaction/AssetDraggable";
 import { AssetDropzone } from "../../components/interaction/AssetDropzone";
 import { VirtualGrid } from "../../components/interaction/VirtualGrid";
 import { VirtualList } from "../../components/interaction/VirtualList";
-import { clearAssetDragData, readAssetDragPath, writeAssetDragData } from "../../components/interaction/assetDragData";
+import {
+  clearAssetDirectoryDragData,
+  clearAssetDragData,
+  readAssetDirectoryDragData,
+  readAssetDragPath,
+  writeAssetDirectoryDragData,
+  writeAssetDragData
+} from "../../components/interaction/assetDragData";
 import { Button } from "../../components/ui/Button";
 import { SelectionBox, StudioBulkActionBar, StudioSearchInput } from "../../components/studio/StudioKit";
 import {
@@ -73,6 +80,11 @@ type ImportFile = File & {
 type RenameTarget =
   | { type: "asset"; path: string; value: string }
   | { type: "directory"; path: string; value: string };
+
+type ExplorerSelection = {
+  assetPaths: string[];
+  directoryPaths: string[];
+};
 
 const typeIcons: Record<string, React.ElementType> = {
   image: FileImage,
@@ -159,6 +171,8 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
   return debounced;
 }
 
+let assetManagerPanelIdSeed = 0;
+
 export function AssetManagerPanel({
   assets,
   directoryTree,
@@ -186,11 +200,13 @@ export function AssetManagerPanel({
   onSelectAsset,
   onAssetDragStart
 }: AssetManagerPanelProps) {
+  const panelIdRef = useRef(`asset-manager-panel-${++assetManagerPanelIdSeed}`);
+  const panelId = panelIdRef.current;
   const [view, setView] = useState<"grid" | "table">("grid");
   const [type, setType] = useState("all");
   const [query, setQuery] = useState("");
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
-  const [selectedDirectoryPath, setSelectedDirectoryPath] = useState<string | null>(null);
+  const [selectedDirectoryPaths, setSelectedDirectoryPaths] = useState<string[]>([]);
   const [playingAsset, setPlayingAsset] = useState<AssetSummary | null>(null);
   const [previewAsset, setPreviewAsset] = useState<AssetSummary | null>(null);
   const [activeDirectory, setActiveDirectory] = useState(rootPath);
@@ -203,12 +219,27 @@ export function AssetManagerPanel({
   const importTargetDirectoryRef = useRef<string | null>(null);
   const debouncedQuery = useDebouncedValue(query, 180);
 
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(1000);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      setContainerWidth(entries[0].contentRect.width);
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  const isNarrow = containerWidth < 600;
+
   const scopedAssets = useMemo(() => assetTypeFilter ? assets.filter((asset) => asset.assetType === assetTypeFilter) : assets, [assetTypeFilter, assets]);
   const tree = useMemo(() => directoryTree ?? buildAssetDirectoryTree(scopedAssets, rootPath), [directoryTree, rootPath, scopedAssets]);
   const directories = useMemo(() => flattenDirectoryTree(tree), [tree]);
   const activeNode = directories.find((directory) => directory.path === activeDirectory) ?? tree;
   const childDirectories = activeNode.children;
   const selectedSet = useMemo(() => new Set(selectedPaths), [selectedPaths]);
+  const selectedDirectorySet = useMemo(() => new Set(selectedDirectoryPaths), [selectedDirectoryPaths]);
   const visibleDirectories = useMemo(() => {
     const collapsed = new Set(collapsedDirectories);
     return directories.filter((directory) => {
@@ -241,15 +272,20 @@ export function AssetManagerPanel({
     return acc;
   }, {});
 
-  const allVisibleSelected = filteredAssets.length > 0 && filteredAssets.every((asset) => selectedSet.has(asset.relativePath));
-  const selectedDirectory = useMemo(
-    () => selectedDirectoryPath ? directories.find((directory) => directory.path === selectedDirectoryPath) : undefined,
-    [directories, selectedDirectoryPath]
-  );
+  const allVisibleSelected =
+    filteredAssets.length + childDirectories.length > 0 &&
+    filteredAssets.every((asset) => selectedSet.has(asset.relativePath)) &&
+    childDirectories.every((directory) => selectedDirectorySet.has(directory.path));
+  const selectedDirectory = useMemo(() => {
+    const [directoryPath] = selectedDirectoryPaths;
+    return directoryPath ? directories.find((directory) => directory.path === directoryPath) : undefined;
+  }, [directories, selectedDirectoryPaths]);
   const selectedItems = useMemo<ExplorerSelectionItem[]>(() => {
-    if (selectedDirectoryPath) return [{ type: "directory", path: selectedDirectoryPath }];
-    return selectedPaths.map((path) => ({ type: "asset", path }));
-  }, [selectedDirectoryPath, selectedPaths]);
+    return [
+      ...selectedDirectoryPaths.map((path) => ({ type: "directory" as const, path })),
+      ...selectedPaths.map((path) => ({ type: "asset" as const, path }))
+    ];
+  }, [selectedDirectoryPaths, selectedPaths]);
   const canPasteClipboard = !!assetClipboard && assetClipboard.items.length > 0 && (
     assetClipboard.items.some((item) => item.type === "asset") ? !!onCopyAssets || assetClipboard.mode === "cut" : true
   ) && (
@@ -269,20 +305,45 @@ export function AssetManagerPanel({
   }
 
   function toggleAsset(asset: AssetSummary) {
-    setSelectedDirectoryPath(null);
     setSelectedPaths((current) => current.includes(asset.relativePath) ? current.filter((path) => path !== asset.relativePath) : [...current, asset.relativePath]);
+  }
+
+  function selectAssetEntry(asset: AssetSummary) {
+    setSelectedPaths([asset.relativePath]);
+    setSelectedDirectoryPaths([]);
+  }
+
+  function replaceSelection(next: ExplorerSelection) {
+    setSelectedPaths(next.assetPaths);
+    setSelectedDirectoryPaths(next.directoryPaths.filter((path) => path !== rootPath));
+  }
+
+  function addToSelection(next: ExplorerSelection) {
+    setSelectedPaths((current) => Array.from(new Set([...current, ...next.assetPaths])));
+    setSelectedDirectoryPaths((current) => Array.from(new Set([...current, ...next.directoryPaths.filter((path) => path !== rootPath)])));
+  }
+
+  function toggleDirectoryEntry(directory: AssetDirectoryNode) {
+    setSelectedDirectoryPaths((current) =>
+      current.includes(directory.path)
+        ? current.filter((path) => path !== directory.path)
+        : [...current, directory.path]
+    );
   }
 
   async function deleteSelected() {
     if (disabled) return;
-    if (selectedDirectoryPath && onDeleteDirectory && selectedDirectoryPath !== rootPath) {
-      await onDeleteDirectory(selectedDirectoryPath);
-      setSelectedDirectoryPath(null);
-      return;
+    const directoriesToDelete = selectedDirectoryPaths.filter((path) => path !== rootPath);
+    if (directoriesToDelete.length > 0 && onDeleteDirectory) {
+      for (const directoryPath of directoriesToDelete) {
+        await onDeleteDirectory(directoryPath);
+      }
+      setSelectedDirectoryPaths([]);
     }
-    if (selectedPaths.length === 0) return;
-    await onDeleteAssets(selectedPaths);
-    setSelectedPaths([]);
+    if (selectedPaths.length > 0) {
+      await onDeleteAssets(selectedPaths);
+      setSelectedPaths([]);
+    }
   }
 
   function openDirectoryPicker(item: ExplorerSelectionItem, mode: DirectoryPickerState["mode"]) {
@@ -305,6 +366,24 @@ export function AssetManagerPanel({
     openDirectoryPicker({ type: "asset", path: paths[0] }, "copyAsset");
   }
 
+  function openMovePickerForSelection(assetPaths: string[], directoryPaths: string[]) {
+    const [directoryPath] = directoryPaths.filter((path) => path !== rootPath);
+    if (directoryPath) {
+      openDirectoryMovePicker(directoryPath);
+      return;
+    }
+    openMovePicker(assetPaths);
+  }
+
+  function openCopyPickerForSelection(assetPaths: string[], directoryPaths: string[]) {
+    const [directoryPath] = directoryPaths.filter((path) => path !== rootPath);
+    if (directoryPath) {
+      openDirectoryCopyPicker(directoryPath);
+      return;
+    }
+    openCopyPicker(assetPaths);
+  }
+
   function openDirectoryMovePicker(directoryPath: string) {
     if (disabled || !onMoveDirectory || directoryPath === rootPath) return;
     openDirectoryPicker({ type: "directory", path: directoryPath }, "moveDirectory");
@@ -320,6 +399,13 @@ export function AssetManagerPanel({
     return selectedPaths.includes(directoryPicker.item.path) ? selectedPaths : [directoryPicker.item.path];
   }
 
+  function directoryPickerDirectoryPaths() {
+    if (!directoryPicker || directoryPicker.item.type !== "directory") return [];
+    return selectedDirectoryPaths.includes(directoryPicker.item.path)
+      ? selectedDirectoryPaths.filter((path) => path !== rootPath)
+      : [directoryPicker.item.path].filter((path) => path !== rootPath);
+  }
+
   async function confirmDirectoryPicker(targetPath: string) {
     if (!directoryPicker || disabled) return;
     if (directoryPicker.mode === "moveAsset") {
@@ -328,10 +414,15 @@ export function AssetManagerPanel({
     } else if (directoryPicker.mode === "copyAsset") {
       await onCopyAssets?.(directoryPickerAssetPaths(), targetPath);
     } else if (directoryPicker.mode === "moveDirectory") {
-      await onMoveDirectory?.(directoryPicker.item.path, targetPath);
-      setSelectedDirectoryPath(null);
+      const directoryPaths = directoryPickerDirectoryPaths();
+      for (const directoryPath of directoryPaths) {
+        await onMoveDirectory?.(directoryPath, targetPath);
+      }
+      setSelectedDirectoryPaths((current) => current.filter((path) => !directoryPaths.includes(path)));
     } else {
-      await onCopyDirectory?.(directoryPicker.item.path, targetPath);
+      for (const directoryPath of directoryPickerDirectoryPaths()) {
+        await onCopyDirectory?.(directoryPath, targetPath);
+      }
     }
     setDirectoryPicker(null);
   }
@@ -350,7 +441,7 @@ export function AssetManagerPanel({
     if (assetClipboard.mode === "cut") {
       setAssetClipboard(null);
       setSelectedPaths([]);
-      setSelectedDirectoryPath(null);
+      setSelectedDirectoryPaths([]);
     }
   }
 
@@ -367,13 +458,13 @@ export function AssetManagerPanel({
   function selectDirectory(directory: AssetDirectoryNode) {
     setActiveDirectory(directory.path);
     setSelectedPaths([]);
-    setSelectedDirectoryPath(null);
+    setSelectedDirectoryPaths([]);
     setTreeOpen(false);
   }
 
   function selectDirectoryEntry(directory: AssetDirectoryNode) {
     setSelectedPaths([]);
-    setSelectedDirectoryPath(directory.path);
+    setSelectedDirectoryPaths([directory.path]);
   }
 
   function selectDirectoryPath(directoryPath: string) {
@@ -403,9 +494,34 @@ export function AssetManagerPanel({
       return;
     }
     const draggedRelativePath = readAssetDragPath(event.dataTransfer);
+    const draggedDirectoryPath = readAssetDirectoryDragData(event.dataTransfer)?.directoryPath;
+    if (draggedDirectoryPath && !disabled) {
+      const directoriesToMove = (selectedDirectoryPaths.includes(draggedDirectoryPath)
+        ? selectedDirectoryPaths
+        : [draggedDirectoryPath]
+      ).filter((path) => path !== rootPath && path !== directoryPath && !directoryPath.startsWith(`${path}/`));
+      const assetsToMove = selectedDirectoryPaths.includes(draggedDirectoryPath) ? selectedPaths : [];
+      void Promise.all([
+        ...directoriesToMove.map((path) => onMoveDirectory?.(path, directoryPath)),
+        assetsToMove.length > 0 ? onMoveAssets(assetsToMove, directoryPath) : Promise.resolve()
+      ]).then(() => {
+        setSelectedDirectoryPaths([]);
+        setSelectedPaths([]);
+      });
+      return;
+    }
     if (!draggedRelativePath || disabled) return;
     const pathsToMove = selectedPaths.includes(draggedRelativePath) ? selectedPaths : [draggedRelativePath];
-    void onMoveAssets(pathsToMove, directoryPath).then(() => setSelectedPaths([]));
+    const directoriesToMove = selectedPaths.includes(draggedRelativePath)
+      ? selectedDirectoryPaths.filter((path) => path !== rootPath && path !== directoryPath && !directoryPath.startsWith(`${path}/`))
+      : [];
+    void Promise.all([
+      onMoveAssets(pathsToMove, directoryPath),
+      ...directoriesToMove.map((path) => onMoveDirectory?.(path, directoryPath))
+    ]).then(() => {
+      setSelectedPaths([]);
+      setSelectedDirectoryPaths([]);
+    });
   }
 
   function copySelectedToClipboard(mode: AssetClipboard["mode"]) {
@@ -435,17 +551,23 @@ export function AssetManagerPanel({
   }
 
   function beginRenameAsset(asset: AssetSummary) {
-    if (disabled || !onRenameAsset) return;
+    if (disabled) return;
+    if (!onRenameAsset) {
+      console.warn("[AssetManagerPanel] rename asset ignored: onRenameAsset is not provided", asset.relativePath);
+      return;
+    }
     setRenameTarget({ type: "asset", path: asset.relativePath, value: asset.fileName });
-    setSelectedDirectoryPath(null);
     setSelectedPaths([asset.relativePath]);
   }
 
   function beginRenameDirectory(directory: AssetDirectoryNode) {
-    if (disabled || !onRenameDirectory || directory.path === rootPath) return;
+    if (disabled || directory.path === rootPath) return;
+    if (!onRenameDirectory) {
+      console.warn("[AssetManagerPanel] rename directory ignored: onRenameDirectory is not provided", directory.path);
+      return;
+    }
     setRenameTarget({ type: "directory", path: directory.path, value: directory.name });
-    setSelectedPaths([]);
-    setSelectedDirectoryPath(directory.path);
+    setSelectedDirectoryPaths([directory.path]);
   }
 
   async function commitRename(nextName: string) {
@@ -463,8 +585,10 @@ export function AssetManagerPanel({
   }
   useEffect(() => {
     const onDirectoryCommand = (event: Event) => {
-      const detail = (event as CustomEvent<{ action?: string; directoryPath?: string }>).detail;
+      const detail = (event as CustomEvent<{ action?: string; directoryPath?: string; panelId?: string }>).detail;
       if (!detail?.directoryPath) return;
+      if (detail.panelId && detail.panelId !== panelId) return;
+      console.debug("[AssetManagerPanel] asset-directory-command", detail);
       if (detail.action === "open") {
         selectDirectoryPath(detail.directoryPath);
         return;
@@ -494,7 +618,7 @@ export function AssetManagerPanel({
         if (detail.directoryPath !== rootPath) {
           setAssetClipboard({ mode: "copy", items: [{ type: "directory", path: detail.directoryPath }] });
           setSelectedPaths([]);
-          setSelectedDirectoryPath(detail.directoryPath);
+          setSelectedDirectoryPaths([detail.directoryPath]);
         }
         return;
       }
@@ -502,7 +626,7 @@ export function AssetManagerPanel({
         if (detail.directoryPath !== rootPath) {
           setAssetClipboard({ mode: "cut", items: [{ type: "directory", path: detail.directoryPath }] });
           setSelectedPaths([]);
-          setSelectedDirectoryPath(detail.directoryPath);
+          setSelectedDirectoryPaths([detail.directoryPath]);
         }
         return;
       }
@@ -511,10 +635,15 @@ export function AssetManagerPanel({
         return;
       }
       if (detail.action === "delete") {
-        void onDeleteDirectory?.(detail.directoryPath)?.then(() => setSelectedDirectoryPath(null));
+        if (!onDeleteDirectory) {
+          console.warn("[AssetManagerPanel] delete directory ignored: onDeleteDirectory is not provided", detail.directoryPath);
+          return;
+        }
+        void onDeleteDirectory(detail.directoryPath).then(() => setSelectedDirectoryPaths((current) => current.filter((path) => path !== detail.directoryPath)));
         return;
       }
       if (detail.action === "openInExplorer") {
+        if (!onOpenLocalPath) console.warn("[AssetManagerPanel] open directory ignored: onOpenLocalPath is not provided", detail.directoryPath);
         void onOpenLocalPath?.(detail.directoryPath, "directory");
         return;
       }
@@ -527,51 +656,101 @@ export function AssetManagerPanel({
     };
     window.addEventListener("taptap:asset-directory-command", onDirectoryCommand);
     return () => window.removeEventListener("taptap:asset-directory-command", onDirectoryCommand);
-  }, [assetClipboard, assets, directories, disabled, onCopyDirectory, onDeleteDirectory, onMoveDirectory, onOpenLocalPath, onScanReferences, tree]);
+  }, [
+    assetClipboard,
+    assets,
+    directories,
+    disabled,
+    onCopyDirectory,
+    onDeleteDirectory,
+    onMoveDirectory,
+    onOpenLocalPath,
+    onRenameDirectory,
+    onScanReferences,
+    tree,
+  ]);
 
   useEffect(() => {
     const onAssetListCommand = (event: Event) => {
       const detail = (
         event as CustomEvent<{
           action?: string;
+          panelId?: string;
           paths?: string[];
+          directoryPaths?: string[];
         }>
       ).detail;
+      if (!detail?.action) return;
+      if (detail.panelId && detail.panelId !== panelId) return;
+      console.debug("[AssetManagerPanel] asset-list-command", detail);
       if (detail?.action === "selectPaths") {
-        setSelectedPaths(detail.paths ?? []);
-        setSelectedDirectoryPath(null);
+        replaceSelection({
+          assetPaths: detail.paths ?? [],
+          directoryPaths: detail.directoryPaths ?? []
+        });
+        return;
+      }
+      if (detail?.action === "addPaths") {
+        addToSelection({
+          assetPaths: detail.paths ?? [],
+          directoryPaths: detail.directoryPaths ?? []
+        });
         return;
       }
       if (detail?.action === "clearSelection") {
         setSelectedPaths([]);
-        setSelectedDirectoryPath(null);
+        setSelectedDirectoryPaths([]);
+        return;
+      }
+      if (detail?.action === "deleteSelected") {
+        void deleteSelected();
         return;
       }
       if (detail?.action === "movePaths") {
-        openMovePicker(detail.paths ?? []);
+        if (!onMoveAssets && !onMoveDirectory) console.warn("[AssetManagerPanel] move ignored: move handlers are not provided", detail);
+        openMovePickerForSelection(detail.paths ?? [], detail.directoryPaths ?? []);
         return;
       }
       if (detail?.action === "renamePrimary") {
         const [primaryPath] = detail.paths ?? [];
+        const [primaryDirectoryPath] = detail.directoryPaths ?? [];
+        if (primaryDirectoryPath) {
+          const directory = directories.find((item) => item.path === primaryDirectoryPath);
+          if (directory) beginRenameDirectory(directory);
+          return;
+        }
         const asset = primaryPath ? assets.find((item) => item.relativePath === primaryPath) : undefined;
         if (asset) beginRenameAsset(asset);
         return;
       }
       if (detail?.action === "copyPaths") {
-        openCopyPicker(detail.paths ?? []);
+        if (!onCopyAssets && !onCopyDirectory) console.warn("[AssetManagerPanel] copy ignored: copy handlers are not provided", detail);
+        openCopyPickerForSelection(detail.paths ?? [], detail.directoryPaths ?? []);
         return;
       }
       if (detail?.action === "copySelection") {
-        if (detail.paths?.length) {
-          setAssetClipboard({ mode: "copy", items: detail.paths.map((path) => ({ type: "asset", path })) });
+        if (detail.paths?.length || detail.directoryPaths?.length) {
+          setAssetClipboard({
+            mode: "copy",
+            items: [
+              ...(detail.directoryPaths ?? []).filter((path) => path !== rootPath).map((path) => ({ type: "directory" as const, path })),
+              ...(detail.paths ?? []).map((path) => ({ type: "asset" as const, path }))
+            ]
+          });
         } else {
           copySelectionToClipboard("copy");
         }
         return;
       }
       if (detail?.action === "cutSelection") {
-        if (detail.paths?.length) {
-          setAssetClipboard({ mode: "cut", items: detail.paths.map((path) => ({ type: "asset", path })) });
+        if (detail.paths?.length || detail.directoryPaths?.length) {
+          setAssetClipboard({
+            mode: "cut",
+            items: [
+              ...(detail.directoryPaths ?? []).filter((path) => path !== rootPath).map((path) => ({ type: "directory" as const, path })),
+              ...(detail.paths ?? []).map((path) => ({ type: "asset" as const, path }))
+            ]
+          });
         } else {
           copySelectionToClipboard("cut");
         }
@@ -600,7 +779,22 @@ export function AssetManagerPanel({
     window.addEventListener("taptap:asset-list-command", onAssetListCommand);
     return () =>
       window.removeEventListener("taptap:asset-list-command", onAssetListCommand);
-  }, [activeNode.path, assetClipboard, assets, disabled, onCopyAssets, onCreateFolder, onOpenLocalPath, selectedItems]);
+  }, [
+    activeNode.path,
+    assetClipboard,
+    assets,
+    directories,
+    disabled,
+    onCopyAssets,
+    onCopyDirectory,
+    onCreateFolder,
+    onMoveAssets,
+    onMoveDirectory,
+    onOpenLocalPath,
+    onRenameAsset,
+    onRenameDirectory,
+    selectedItems,
+  ]);
 
   useEffect(() => {
     if (!previewAsset) return;
@@ -611,14 +805,19 @@ export function AssetManagerPanel({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [previewAsset]);
 
-  function assetListCommandContext(): AppCommandContext {
+  function assetListCommandContext(menuMode: "blank" | "selection" = "blank"): AppCommandContext {
     return {
       objectType: "assetList",
+      panelId,
       visiblePaths: filteredAssets.map((asset) => asset.relativePath),
       selectedPaths,
+      visibleDirectoryPaths: childDirectories.map((directory) => directory.path),
+      selectedDirectoryPaths,
       primaryPath: selectedPaths[0],
+      primaryDirectoryPath: selectedDirectoryPaths[0],
       currentDirectoryPath: activeNode.path,
       canPaste: canPasteClipboard,
+      menuMode,
     };
   }
 
@@ -632,7 +831,7 @@ export function AssetManagerPanel({
         return;
       }
       setSelectedPaths([]);
-      setSelectedDirectoryPath(null);
+      setSelectedDirectoryPaths([]);
       return;
     }
     if ((event.ctrlKey || event.metaKey) && event.shiftKey && key === "a") {
@@ -700,6 +899,9 @@ export function AssetManagerPanel({
     }
   }
 
+  const blankAssetListContext = assetListCommandContext("blank");
+  const selectionAssetListContext = assetListCommandContext("selection");
+
   return (
     <DndContext>
       <AssetDropzone accept={importAccept} disabled={disabled || !onImportAssets} onDropFiles={importFiles}>
@@ -714,34 +916,36 @@ export function AssetManagerPanel({
         )
       })}
     >
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden relative">
-        <div className="shrink-0 border-b border-border bg-surface-panel px-3 py-2 flex flex-col gap-2 min-h-[72px]">
+      <div ref={containerRef} className="flex min-h-0 flex-1 flex-col overflow-hidden relative">
+        <div className="shrink-0 border-b border-border bg-surface-panel px-3 py-2 flex flex-col gap-2">
           
-          {/* Top Row: Breadcrumbs & Search (Always Visible) */}
-          <div className="flex flex-wrap items-center justify-between gap-4 w-full">
-            <div className="flex items-center min-w-0 flex-1 overflow-hidden">
-              {activeNode.parentPath ? (
-                <button
-                  type="button"
-                  className="mr-1 shrink-0 rounded px-1.5 py-1 text-[11px] font-bold text-text-muted hover:bg-surface-raised hover:text-brand"
-                  onClick={() => selectDirectoryPath(activeNode.parentPath)}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => handleDropOnDirectory(event, activeNode.parentPath)}
-                  title={`返回 ${activeNode.parentPath}`}
-                >
-                  上一级
-                </button>
-              ) : null}
-              <Breadcrumb
-                path={activeNode.path}
-                onSelectPath={(path) => selectDirectory(directories.find((directory) => directory.path === path) ?? tree)}
-                onDropOnPath={(event, path) => handleDropOnDirectory(event, path)}
-              />
-            </div>
-            
-            <div className="flex shrink-0 items-center gap-2">
-              <StudioSearchInput value={query} onChange={setQuery} className="w-[260px]" />
-              <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border-soft bg-surface-muted p-0.5">
+          {/* Top Row: Search & Actions */}
+          <div className="flex items-center justify-between gap-2 w-full">
+            {!isNarrow && (
+              <div className="flex flex-1 items-center min-w-0">
+                {activeNode.parentPath ? (
+                  <button
+                    type="button"
+                    className="mr-1 shrink-0 rounded px-1.5 py-1 text-[11px] font-bold text-text-muted hover:bg-surface-raised hover:text-brand"
+                    onClick={() => selectDirectoryPath(activeNode.parentPath)}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => handleDropOnDirectory(event, activeNode.parentPath)}
+                    title={`返回 ${activeNode.parentPath}`}
+                  >
+                    上一级
+                  </button>
+                ) : null}
+                <Breadcrumb
+                  panelId={panelId}
+                  path={activeNode.path}
+                  onSelectPath={(path) => selectDirectory(directories.find((directory) => directory.path === path) ?? tree)}
+                  onDropOnPath={(event, path) => handleDropOnDirectory(event, path)}
+                />
+              </div>
+            )}
+            <div className={cn("flex shrink-0 items-center gap-1", isNarrow && "w-full justify-between")}>
+              <StudioSearchInput value={query} onChange={setQuery} className={isNarrow ? "flex-1 min-w-0" : "w-[120px] sm:w-[260px]"} />
+              <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border-soft bg-surface-muted p-0.5 ml-1 hidden sm:flex">
                 <button type="button" title="网格视图" className={cn("rounded-[4px] p-1.5 transition-colors", view === "grid" ? "bg-surface-panel text-text shadow-sm" : "text-text-muted hover:text-text")} onClick={() => setView("grid")}>
                   <LayoutGrid className="h-3.5 w-3.5" />
                 </button>
@@ -762,13 +966,25 @@ export function AssetManagerPanel({
                   <Upload className="h-3.5 w-3.5 text-text-muted" />
                 </Button>
               ) : null}
+              
+              {!isNarrow && (
+                <>
+                  <div className="mx-1 h-4 w-px bg-border-soft hidden sm:block" />
+                  <label className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] font-semibold text-text-subtle hover:text-text" title="包含子目录">
+                    <input type="checkbox" checked={recursive} onChange={(event) => setRecursive(event.target.checked)} className="h-3.5 w-3.5 cursor-pointer rounded border-border bg-surface-app text-brand focus:ring-brand/30" />
+                    <span className="hidden xl:inline">包含</span>子目录
+                  </label>
+                  <span className="shrink-0 text-[10px] font-semibold text-text-subtle opacity-70 px-1">共{counts.all}项</span>
+                </>
+              )}
             </div>
           </div>
 
           {/* Bottom Row: Swaps between Filters/Meta and Bulk Actions */}
-          <div className="relative min-h-[28px] w-full">
+          {(selectedItems.length > 0 || isNarrow || showTypeFilter || showDirectoryTree || assetClipboard) && (
+            <div className="relative min-h-[28px] w-full">
             <AnimatePresence mode="wait">
-              {selectedPaths.length > 0 ? (
+              {selectedItems.length > 0 ? (
                 <motion.div
                   key="bulk-actions"
                   initial={{ opacity: 0, y: 5 }}
@@ -778,29 +994,37 @@ export function AssetManagerPanel({
                   className="absolute inset-0 flex items-center justify-between gap-3 bg-surface-panel z-10"
                 >
                   <div className="flex items-center gap-3">
-                    <button type="button" onClick={() => setSelectedPaths([])} className="rounded-md p-1.5 text-text-subtle transition-colors hover:bg-surface-raised hover:text-text">
+                    <button type="button" onClick={() => { setSelectedPaths([]); setSelectedDirectoryPaths([]); }} className="rounded-md p-1.5 text-text-subtle transition-colors hover:bg-surface-raised hover:text-text">
                       <X className="h-4 w-4" />
                     </button>
-                    <span className="rounded-md bg-brand/10 px-2 py-1 text-xs font-bold text-brand-strong">已选 {selectedPaths.length} 项</span>
+                    <span className="rounded-md bg-brand/10 px-2 py-1 text-xs font-bold text-brand-strong">已选 {selectedItems.length} 项</span>
                   </div>
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <StudioBulkActionBar
-                      selectedCount={selectedPaths.length}
+                      selectedCount={selectedItems.length}
                       allSelected={allVisibleSelected}
-                      onSelectAll={() => setSelectedPaths(filteredAssets.map((asset) => asset.relativePath))}
+                      onSelectAll={() => replaceSelection({
+                        assetPaths: filteredAssets.map((asset) => asset.relativePath),
+                        directoryPaths: childDirectories.map((directory) => directory.path)
+                      })}
                       onInvertSelection={() => {
                         const visible = new Set(filteredAssets.map((asset) => asset.relativePath));
+                        const visibleDirectories = new Set(childDirectories.map((directory) => directory.path));
                         setSelectedPaths((current) => [
                           ...current.filter((path) => !visible.has(path)),
                           ...filteredAssets.filter((asset) => !current.includes(asset.relativePath)).map((asset) => asset.relativePath)
                         ]);
+                        setSelectedDirectoryPaths((current) => [
+                          ...current.filter((path) => !visibleDirectories.has(path)),
+                          ...childDirectories.filter((directory) => !current.includes(directory.path)).map((directory) => directory.path)
+                        ]);
                       }}
-                      onClear={() => setSelectedPaths([])}
+                      onClear={() => { setSelectedPaths([]); setSelectedDirectoryPaths([]); }}
                       showSelectionRow={false}
                       actions={[
-                        { id: "copy", label: "复制到", onClick: () => openCopyPicker(selectedPaths) },
+                        { id: "copy", label: "复制到", onClick: () => openCopyPickerForSelection(selectedPaths, selectedDirectoryPaths) },
                         { id: "cut", label: "剪切", onClick: () => copySelectedToClipboard("cut") },
-                        { id: "move", label: "移动到", onClick: () => openMovePicker(selectedPaths) },
+                        { id: "move", label: "移动到", onClick: () => openMovePickerForSelection(selectedPaths, selectedDirectoryPaths) },
                         { id: "delete", label: "删除", tone: "danger", onClick: () => void deleteSelected() }
                       ]}
                     />
@@ -815,39 +1039,72 @@ export function AssetManagerPanel({
                   transition={{ duration: 0.15 }}
                   className="absolute inset-0 flex items-center justify-between gap-4 w-full"
                 >
-                  {showTypeFilter ? (
-                    <div className="flex flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap scrollbar-thin">
-                      {ordinaryAssetTypeOrder.map((nextType) => (
-                        <button
-                          key={nextType}
-                          type="button"
-                          className={cn("flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold transition-colors", type === nextType ? "bg-brand/10 text-brand-strong" : "text-text-muted hover:bg-surface-raised hover:text-text")}
-                          onClick={() => setType(nextType)}
-                        >
-                          <span>{ordinaryAssetTypeLabels[nextType] ?? nextType}</span>
-                          <span className={cn("rounded px-1.5 py-0.5 text-[9px] font-mono", type === nextType ? "bg-brand/20" : "bg-surface-muted text-text-subtle")}>{counts[nextType]}</span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : <div className="flex-1" />}
-                  
-                  <div className="flex shrink-0 items-center gap-2.5 justify-end text-[10px] text-text-subtle">
+                  <div className="flex flex-1 items-center min-w-0 overflow-hidden">
+                    {/* Breadcrumbs take up the left space when narrow */}
+                    {isNarrow && (
+                      <div className="flex shrink-0 items-center mr-3 border-r border-border pr-3">
+                        {activeNode.parentPath ? (
+                          <button
+                            type="button"
+                            className="mr-1 shrink-0 rounded px-1.5 py-1 text-[11px] font-bold text-text-muted hover:bg-surface-raised hover:text-brand"
+                            onClick={() => selectDirectoryPath(activeNode.parentPath)}
+                            onDragOver={(event) => event.preventDefault()}
+                            onDrop={(event) => handleDropOnDirectory(event, activeNode.parentPath)}
+                            title={`返回 ${activeNode.parentPath}`}
+                          >
+                            上一级
+                          </button>
+                        ) : null}
+                        <Breadcrumb
+                          panelId={panelId}
+                          path={activeNode.path}
+                          onSelectPath={(path) => selectDirectory(directories.find((directory) => directory.path === path) ?? tree)}
+                          onDropOnPath={(event, path) => handleDropOnDirectory(event, path)}
+                        />
+                      </div>
+                    )}
+                    
                     {showDirectoryTree ? (
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => setTreeOpen(true)}
-                        className="h-7 shrink-0 gap-1.5 rounded-md px-2 text-[11px] font-semibold"
+                        className={cn("h-7 shrink-0 gap-1.5 rounded-md px-2 text-[11px] font-semibold transition-colors", showTypeFilter ? "mr-3 border-r border-border rounded-r-none pr-3" : "mr-2")}
                       >
                         <PanelLeft className="h-3.5 w-3.5" />
                         目录
                         <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[9px] font-bold text-text-subtle">{tree.totalAssetCount}</span>
                       </Button>
                     ) : null}
-                    <label className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] font-semibold text-text-subtle hover:text-text" title="包含子目录">
-                      <input type="checkbox" checked={recursive} onChange={(event) => setRecursive(event.target.checked)} className="h-3.5 w-3.5 cursor-pointer rounded border-border bg-surface-app text-brand focus:ring-brand/30" />
-                      <span className="hidden xl:inline">包含</span>子目录
-                    </label>
+                    
+                    {/* Type Filters follow Breadcrumbs if they exist */}
+                    {showTypeFilter && (
+                      <div className="flex flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap scrollbar-thin">
+                        {ordinaryAssetTypeOrder.map((nextType) => (
+                          <button
+                            key={nextType}
+                            type="button"
+                            className={cn("flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold transition-colors", type === nextType ? "bg-brand/10 text-brand-strong" : "text-text-muted hover:bg-surface-raised hover:text-text")}
+                            onClick={() => setType(nextType)}
+                          >
+                            <span>{ordinaryAssetTypeLabels[nextType] ?? nextType}</span>
+                            <span className={cn("rounded px-1.5 py-0.5 text-[9px] font-mono", type === nextType ? "bg-brand/20" : "bg-surface-muted text-text-subtle")}>{counts[nextType]}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="flex shrink-0 items-center gap-2.5 justify-end text-[10px] text-text-subtle">
+                    {isNarrow && (
+                      <>
+                        <label className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] font-semibold text-text-subtle hover:text-text" title="包含子目录">
+                          <input type="checkbox" checked={recursive} onChange={(event) => setRecursive(event.target.checked)} className="h-3.5 w-3.5 cursor-pointer rounded border-border bg-surface-app text-brand focus:ring-brand/30" />
+                          <span className="hidden xl:inline">包含</span>子目录
+                        </label>
+                        <span className="shrink-0 text-[10px] font-semibold text-text-subtle opacity-70">共{counts.all}项</span>
+                      </>
+                    )}
                     {assetClipboard ? (
                       <Button
                         variant="outline"
@@ -860,12 +1117,12 @@ export function AssetManagerPanel({
                         粘贴 {selectedItemCountLabel()}
                       </Button>
                     ) : null}
-                    {!showTypeFilter && <span className="hidden lg:inline shrink-0 text-[10px] font-semibold text-text-subtle opacity-70">共{counts.all}项</span>}
                   </div>
                 </motion.div>
               )}
             </AnimatePresence>
           </div>
+          )}
         </div>
 
         <AnimatePresence>
@@ -910,7 +1167,7 @@ export function AssetManagerPanel({
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto p-2 scrollbar-thin">
                   {visibleDirectories.map((directory) => (
-                    <AppContextMenu key={directory.path} context={{ objectType: "assetDirectory", directoryPath: directory.path }}>
+                    <AppContextMenu key={directory.path} context={{ objectType: "assetDirectory", directoryPath: directory.path, panelId }}>
                       <DirectoryRow
                         directory={directory}
                         active={directory.path === activeNode.path}
@@ -983,19 +1240,24 @@ export function AssetManagerPanel({
           ) : null}
         </AnimatePresence>
 
-        <AppContextMenu context={assetListCommandContext()}>
+        <AppContextMenu context={blankAssetListContext}>
           <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
             {view === "grid" ? (
               <AssetGrid
+                panelId={panelId}
                 assets={filteredAssets}
                 directories={childDirectories}
                 selectedSet={selectedSet}
-                selectedDirectoryPath={selectedDirectoryPath}
+                selectedDirectorySet={selectedDirectorySet}
+                assetListContext={selectionAssetListContext}
                 renameTarget={renameTarget}
                 onSelectDirectory={selectDirectory}
                 onSelectDirectoryEntry={selectDirectoryEntry}
+                onToggleDirectoryEntry={toggleDirectoryEntry}
+                onReplaceSelection={replaceSelection}
                 onDropOnDirectory={handleDropOnDirectory}
                 onToggleAsset={toggleAsset}
+                onSelectAssetEntry={selectAssetEntry}
                 onSelectAsset={selectAsset}
                 onBeginRenameAsset={beginRenameAsset}
                 onBeginRenameDirectory={beginRenameDirectory}
@@ -1009,15 +1271,19 @@ export function AssetManagerPanel({
               />
             ) : (
               <AssetTable
+                panelId={panelId}
                 assets={filteredAssets}
                 directories={childDirectories}
                 selectedSet={selectedSet}
-                selectedDirectoryPath={selectedDirectoryPath}
+                selectedDirectorySet={selectedDirectorySet}
+                assetListContext={selectionAssetListContext}
                 renameTarget={renameTarget}
                 onSelectDirectory={selectDirectory}
                 onSelectDirectoryEntry={selectDirectoryEntry}
+                onToggleDirectoryEntry={toggleDirectoryEntry}
                 onDropOnDirectory={handleDropOnDirectory}
                 onToggleAsset={toggleAsset}
+                onSelectAssetEntry={selectAssetEntry}
                 onSelectAsset={selectAsset}
                 onBeginRenameAsset={beginRenameAsset}
                 onBeginRenameDirectory={beginRenameDirectory}
@@ -1194,10 +1460,12 @@ function BreadcrumbItem({
 }
 
 function Breadcrumb({
+  panelId,
   path,
   onSelectPath,
   onDropOnPath
 }: {
+  panelId: string;
   path: string;
   onSelectPath: (path: string) => void;
   onDropOnPath: (event: React.DragEvent, path: string) => void;
@@ -1208,7 +1476,7 @@ function Breadcrumb({
       {breadcrumbs.map((crumb, index) => (
         <span key={crumb.path} className="flex min-w-0 items-center gap-1">
           {index > 0 ? <ChevronRight className="h-3 w-3 shrink-0 text-text-subtle" /> : null}
-          <AppContextMenu context={{ objectType: "assetDirectory", directoryPath: crumb.path }}>
+          <AppContextMenu context={{ objectType: "assetDirectory", directoryPath: crumb.path, panelId }}>
             <BreadcrumbItem
               crumb={crumb}
               isLast={index === breadcrumbs.length - 1}
@@ -1255,8 +1523,21 @@ function InlineRenameInput({
     <input
       ref={inputRef}
       value={draft}
+      draggable={false}
       className={cn("min-w-0 rounded border border-brand/40 bg-surface-panel px-1.5 py-1 text-xs font-semibold text-text shadow-sm outline-none ring-2 ring-brand/10", className)}
       onChange={(event) => setDraft(event.target.value)}
+      onPointerDownCapture={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+      onMouseDownCapture={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
+      onDragStartCapture={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+      onDragStart={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
       onClick={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
@@ -1275,18 +1556,23 @@ function InlineRenameInput({
 }
 
 function AssetGridDirectory({
+  panelId,
   directory,
   selected,
+  assetListContext,
   renameTarget,
   onSelectDirectory,
   onSelectDirectoryEntry,
   onDropOnDirectory,
   onBeginRenameDirectory,
   onCommitRename,
-  onCancelRename
+  onCancelRename,
+  onToggleDirectoryEntry
 }: {
+  panelId: string;
   directory: AssetDirectoryNode;
   selected: boolean;
+  assetListContext: AppCommandContext;
   renameTarget: RenameTarget | null;
   onSelectDirectory: (directory: AssetDirectoryNode) => void;
   onSelectDirectoryEntry: (directory: AssetDirectoryNode) => void;
@@ -1294,16 +1580,50 @@ function AssetGridDirectory({
   onBeginRenameDirectory: (directory: AssetDirectoryNode) => void;
   onCommitRename: (value: string) => void | Promise<void>;
   onCancelRename: () => void;
+  onToggleDirectoryEntry: (directory: AssetDirectoryNode) => void;
 }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const isRenaming = renameTarget?.type === "directory" && renameTarget.path === directory.path;
+  const useSelectionContext =
+    selected &&
+    assetListContext.objectType === "assetList" &&
+    (assetListContext.selectedPaths.length + (assetListContext.selectedDirectoryPaths?.length ?? 0) > 1);
   return (
-    <AppContextMenu context={{ objectType: "assetDirectory", directoryPath: directory.path }}>
-      <button
-        type="button"
+    <AppContextMenu
+      context={useSelectionContext ? assetListContext : { objectType: "assetDirectory", directoryPath: directory.path, panelId }}
+      triggerClassName="block h-full w-full"
+    >
+      <div
+        role="button"
+        tabIndex={0}
+        data-explorer-item="directory"
+        data-explorer-path={directory.path}
+        draggable={!isRenaming}
         title={directory.path}
-        onClick={() => onSelectDirectoryEntry(directory)}
+        onClick={(event) => {
+          if (event.ctrlKey || event.metaKey) onToggleDirectoryEntry(directory);
+          else onSelectDirectoryEntry(directory);
+        }}
+        onContextMenu={() => undefined}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            onSelectDirectory(directory);
+          }
+          if (event.key === " ") {
+            event.preventDefault();
+            onToggleDirectoryEntry(directory);
+          }
+        }}
         onDoubleClick={() => onSelectDirectory(directory)}
+        onDragStart={(event) => {
+          if (isRenaming) {
+            event.preventDefault();
+            return;
+          }
+          writeAssetDirectoryDragData(event, directory.path);
+        }}
+        onDragEnd={clearAssetDirectoryDragData}
         onDragOver={(event) => { event.preventDefault(); setIsDragOver(true); }}
         onDragLeave={() => setIsDragOver(false)}
         onDrop={(event) => { setIsDragOver(false); onDropOnDirectory(event, directory.path); }}
@@ -1313,8 +1633,8 @@ function AssetGridDirectory({
           "hover:bg-surface-raised hover:border-border-soft hover:shadow-sm"
         )}
       >
-        <div className="flex w-full flex-1 items-center justify-center py-1 transition-transform duration-200 group-hover:scale-105">
-          <Folder className={cn("h-16 w-16 drop-shadow-sm transition-colors", isDragOver ? "text-brand fill-brand/20" : "text-brand/80 group-hover:text-brand group-hover:fill-brand/10")} />
+        <div className="flex w-full flex-1 items-center justify-center py-0.5 transition-transform duration-200 group-hover:scale-105">
+          <Folder className={cn("pointer-events-none h-12 w-12 drop-shadow-sm transition-colors", isDragOver ? "text-brand fill-brand/20" : "text-brand/80 group-hover:text-brand group-hover:fill-brand/10")} />
         </div>
         <div className="flex w-full flex-col items-center px-1">
           {isRenaming ? (
@@ -1325,8 +1645,7 @@ function AssetGridDirectory({
               onCancel={onCancelRename}
             />
           ) : (
-            <button
-              type="button"
+            <span
               className="line-clamp-2 text-center text-[12px] font-medium leading-tight text-text group-hover:text-brand"
               title={directory.name}
               style={{ wordBreak: "break-all" }}
@@ -1337,10 +1656,10 @@ function AssetGridDirectory({
               }}
             >
               {directory.name}
-            </button>
+            </span>
           )}
         </div>
-      </button>
+      </div>
     </AppContextMenu>
   );
 }
@@ -1350,15 +1669,20 @@ type AssetGridEntry =
   | { kind: "asset"; asset: AssetSummary };
 
 function AssetGrid({
+  panelId,
   assets,
   directories,
   selectedSet,
-  selectedDirectoryPath,
+  selectedDirectorySet,
+  assetListContext,
   renameTarget,
   onSelectDirectory,
   onSelectDirectoryEntry,
+  onToggleDirectoryEntry,
+  onReplaceSelection,
   onDropOnDirectory,
   onToggleAsset,
+  onSelectAssetEntry,
   onSelectAsset,
   onBeginRenameAsset,
   onBeginRenameDirectory,
@@ -1370,15 +1694,20 @@ function AssetGrid({
   onPreviewAsset,
   playingAssetPath
 }: {
+  panelId: string;
   assets: AssetSummary[];
   directories: AssetDirectoryNode[];
   selectedSet: Set<string>;
-  selectedDirectoryPath: string | null;
+  selectedDirectorySet: Set<string>;
+  assetListContext: AppCommandContext;
   renameTarget: RenameTarget | null;
   onSelectDirectory: (directory: AssetDirectoryNode) => void;
   onSelectDirectoryEntry: (directory: AssetDirectoryNode) => void;
+  onToggleDirectoryEntry: (directory: AssetDirectoryNode) => void;
+  onReplaceSelection: (selection: ExplorerSelection) => void;
   onDropOnDirectory: (event: React.DragEvent, directoryPath: string) => void;
   onToggleAsset: (asset: AssetSummary) => void;
+  onSelectAssetEntry: (asset: AssetSummary) => void;
   onSelectAsset: (asset: AssetSummary) => void;
   onBeginRenameAsset: (asset: AssetSummary) => void;
   onBeginRenameDirectory: (directory: AssetDirectoryNode) => void;
@@ -1390,6 +1719,9 @@ function AssetGrid({
   onPreviewAsset?: (asset: AssetSummary) => void;
   playingAssetPath?: string;
 }) {
+  const gridRef = useRef<HTMLDivElement>(null);
+  const marqueeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const [marqueeRect, setMarqueeRect] = useState<React.CSSProperties | null>(null);
   const entries = useMemo<AssetGridEntry[]>(
     () => [
       ...directories.map((directory) => ({ kind: "directory" as const, directory })),
@@ -1400,55 +1732,130 @@ function AssetGrid({
 
   if (entries.length === 0) return <EmptyState />;
 
+  function getMarqueeSelection(end: { x: number; y: number }): ExplorerSelection | null {
+    const start = marqueeStartRef.current;
+    const gridElement = gridRef.current;
+    if (!start || !gridElement) return null;
+    const selectionRect = {
+      left: Math.min(start.x, end.x),
+      right: Math.max(start.x, end.x),
+      top: Math.min(start.y, end.y),
+      bottom: Math.max(start.y, end.y)
+    };
+    const selectedElements = Array.from(gridElement.querySelectorAll<HTMLElement>("[data-explorer-item][data-explorer-path]")).filter((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.right >= selectionRect.left && rect.left <= selectionRect.right && rect.bottom >= selectionRect.top && rect.top <= selectionRect.bottom;
+    });
+    return {
+      assetPaths: selectedElements
+        .filter((element) => element.dataset.explorerItem === "asset")
+        .map((element) => element.dataset.explorerPath)
+        .filter((path): path is string => !!path),
+      directoryPaths: selectedElements
+        .filter((element) => element.dataset.explorerItem === "directory")
+        .map((element) => element.dataset.explorerPath)
+        .filter((path): path is string => !!path)
+    };
+  }
+
   return (
-    <VirtualGrid
-      items={entries}
-      minItemWidth={112}
-      estimateRowHeight={208}
-      gap={12}
-      className="h-full"
-      contentClassName="p-4"
-      getKey={(item: AssetGridEntry, index: number) =>
-        item.kind === "directory" ? `dir:${item.directory.path}` : `asset:${item.asset.id}:${index}`
-      }
-      renderItem={(entry: AssetGridEntry) => {
-        if (entry.kind === "directory") {
-          return (
-            <AssetGridDirectory
-              directory={entry.directory}
-              selected={selectedDirectoryPath === entry.directory.path}
-              renameTarget={renameTarget}
-              onSelectDirectory={onSelectDirectory}
-              onSelectDirectoryEntry={onSelectDirectoryEntry}
-              onDropOnDirectory={onDropOnDirectory}
-              onBeginRenameDirectory={onBeginRenameDirectory}
-              onCommitRename={onCommitRename}
-              onCancelRename={onCancelRename}
-            />
-          );
+    <div
+      ref={gridRef}
+      className="relative h-full"
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        if ((event.target as HTMLElement).closest("[data-explorer-item]")) return;
+        marqueeStartRef.current = { x: event.clientX, y: event.clientY };
+        setMarqueeRect({
+          left: event.clientX,
+          top: event.clientY,
+          width: 0,
+          height: 0
+        });
+        (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+      }}
+      onPointerMove={(event) => {
+        const start = marqueeStartRef.current;
+        if (!start) return;
+        setMarqueeRect({
+          left: Math.min(start.x, event.clientX),
+          top: Math.min(start.y, event.clientY),
+          width: Math.abs(event.clientX - start.x),
+          height: Math.abs(event.clientY - start.y)
+        });
+        if (Math.abs(event.clientX - start.x) < 4 && Math.abs(event.clientY - start.y) < 4) return;
+        const nextSelection = getMarqueeSelection({ x: event.clientX, y: event.clientY });
+        if (nextSelection) onReplaceSelection(nextSelection);
+      }}
+      onPointerUp={(event) => {
+        if (!marqueeStartRef.current) return;
+        if (Math.abs(event.clientX - marqueeStartRef.current.x) >= 4 || Math.abs(event.clientY - marqueeStartRef.current.y) >= 4) {
+          const nextSelection = getMarqueeSelection({ x: event.clientX, y: event.clientY });
+          if (nextSelection) onReplaceSelection(nextSelection);
         }
-        const asset = entry.asset;
-        const isSelected = selectedSet.has(asset.relativePath);
-        const Icon = typeIcons[asset.assetType] || File;
-        const isAudio = asset.assetType === "audio";
-        const isPlaying = playingAssetPath === asset.relativePath;
-        const isRenaming = renameTarget?.type === "asset" && renameTarget.path === asset.relativePath;
-        return (
-          <AppContextMenu context={{ objectType: "asset", relativePath: asset.relativePath }}>
-            <AssetDraggable asset={asset} onDragStart={onAssetDragStart}>
-              {({ ref, draggableProps, isDragging }) => (
-                <div
-                  ref={ref}
-                  {...draggableProps}
-                  className={cn(
-                    "group relative flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-transparent p-2.5 transition-all duration-200",
-                    isDragging && "scale-95 opacity-70",
-                    isPlaying ? "border-brand/30 bg-brand/5 shadow-sm" :
-                    isSelected ? "border-brand/40 bg-brand/10 shadow-sm" :
-                    "hover:border-border-soft hover:bg-surface-raised hover:shadow-sm"
-                  )}
-                  onDoubleClick={() => onSelectAsset(asset)}
-                >
+        marqueeStartRef.current = null;
+        setMarqueeRect(null);
+        (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+      }}
+    >
+      <VirtualGrid
+        items={entries}
+        minItemWidth={80}
+        estimateRowHeight={116}
+        gap={6}
+        className="h-full px-3 py-2"
+        contentClassName=""
+        getKey={(item: AssetGridEntry, index: number) =>
+          item.kind === "directory" ? `dir:${item.directory.path}` : `asset:${item.asset.id}:${index}`
+        }
+        renderItem={(entry: AssetGridEntry) => {
+          if (entry.kind === "directory") {
+            return (
+              <AssetGridDirectory
+                panelId={panelId}
+                directory={entry.directory}
+                selected={selectedDirectorySet.has(entry.directory.path)}
+                assetListContext={assetListContext}
+                renameTarget={renameTarget}
+                onSelectDirectory={onSelectDirectory}
+                onSelectDirectoryEntry={onSelectDirectoryEntry}
+                onToggleDirectoryEntry={onToggleDirectoryEntry}
+                onDropOnDirectory={onDropOnDirectory}
+                onBeginRenameDirectory={onBeginRenameDirectory}
+                onCommitRename={onCommitRename}
+                onCancelRename={onCancelRename}
+              />
+            );
+          }
+          const asset = entry.asset;
+          const isSelected = selectedSet.has(asset.relativePath);
+          const Icon = typeIcons[asset.assetType] || File;
+          const isAudio = asset.assetType === "audio";
+          const isPlaying = playingAssetPath === asset.relativePath;
+          const isRenaming = renameTarget?.type === "asset" && renameTarget.path === asset.relativePath;
+          const useSelectionContext =
+            isSelected &&
+            assetListContext.objectType === "assetList" &&
+            (assetListContext.selectedPaths.length + (assetListContext.selectedDirectoryPaths?.length ?? 0) > 1);
+          return (
+            <AppContextMenu context={useSelectionContext ? assetListContext : { objectType: "asset", relativePath: asset.relativePath, panelId }}>
+              <AssetDraggable asset={asset} onDragStart={onAssetDragStart} disabled={isRenaming}>
+                {({ ref, draggableProps, isDragging }) => (
+                  <div
+                    ref={ref}
+                    {...draggableProps}
+                    data-explorer-item="asset"
+                    data-explorer-path={asset.relativePath}
+                    className={cn(
+                      "group relative flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-transparent p-2.5 transition-all duration-200",
+                      isDragging && "scale-95 opacity-70",
+                      isPlaying ? "border-brand/30 bg-brand/5 shadow-sm" :
+                      isSelected ? "border-brand/40 bg-brand/10 shadow-sm" :
+                      "hover:border-border-soft hover:bg-surface-raised hover:shadow-sm"
+                    )}
+                    onContextMenu={() => undefined}
+                    onDoubleClick={() => onSelectAsset(asset)}
+                  >
                   <label className={cn("absolute left-1.5 top-1.5 z-10 flex h-5 w-5 cursor-pointer items-center justify-center rounded border bg-surface-panel/90 shadow-sm backdrop-blur-sm transition-opacity duration-200", isSelected ? "border-brand opacity-100" : "border-border opacity-0 hover:border-brand group-hover:opacity-100")}>
                     {isSelected && <CheckCircle2 className="h-3.5 w-3.5 text-brand" />}
                     <input type="checkbox" className="sr-only" checked={isSelected} onChange={(e) => { e.stopPropagation(); onToggleAsset(asset); }} />
@@ -1465,13 +1872,13 @@ function AssetGrid({
                       }
                     }}
                   >
-                    <div className="relative flex w-full flex-1 items-center justify-center py-1 transition-transform duration-200 group-hover:scale-105">
+                    <div className="pointer-events-none relative flex w-full flex-1 items-center justify-center py-0.5 transition-transform duration-200 group-hover:scale-105">
                       {asset.assetType === "image" ? (
-                        <div className="flex aspect-square w-full max-h-[80px] items-center justify-center overflow-hidden rounded-md bg-surface-muted ring-1 ring-border-soft/50 shadow-sm">
+                        <div className="flex aspect-square w-full max-h-[64px] items-center justify-center overflow-hidden rounded-[4px] bg-surface-muted ring-1 ring-border-soft/50 shadow-sm">
                           <AssetImageThumb asset={asset} />
                         </div>
                       ) : asset.assetType === "video" ? (
-                        <div className="group/video relative aspect-square w-full max-h-[80px] overflow-hidden rounded-md bg-black/10 ring-1 ring-border-soft/50 shadow-sm">
+                        <div className="group/video pointer-events-auto relative aspect-square w-full max-h-[64px] overflow-hidden rounded-[4px] bg-black/10 ring-1 ring-border-soft/50 shadow-sm">
                           <VideoThumb asset={asset} />
                           <button
                             type="button"
@@ -1488,8 +1895,8 @@ function AssetGrid({
                           </button>
                         </div>
                       ) : isAudio ? (
-                        <div className="group/preview relative flex h-full w-full flex-col items-center justify-center gap-1.5 transition-all">
-                          <FileAudio className={cn("h-16 w-16 transition-all drop-shadow-sm", isPlaying ? "text-brand" : "text-indigo-500/80 group-hover/preview:text-indigo-500")} />
+                        <div className="group/preview pointer-events-auto relative flex h-full w-full flex-col items-center justify-center gap-1.5 transition-all">
+                          <FileAudio className={cn("h-12 w-12 transition-all drop-shadow-sm", isPlaying ? "text-brand" : "text-indigo-500/80 group-hover/preview:text-indigo-500")} />
                           <div className={cn("absolute inset-0 flex items-center justify-center rounded-full backdrop-blur-[2px] transition-opacity", isPlaying ? "bg-brand/10 opacity-100" : "bg-black/40 opacity-0 group-hover/preview:opacity-100")}>
                             <button
                               type="button"
@@ -1502,16 +1909,16 @@ function AssetGrid({
                                 event.stopPropagation();
                                 onPlayAudio?.(isPlaying ? null : asset);
                               }}
-                              className={cn("flex h-10 w-10 items-center justify-center rounded-full text-white shadow-xl transition-all hover:scale-110 active:scale-95", isPlaying ? "bg-surface-panel ring-2 ring-brand animate-pulse" : "bg-brand")}
+                              className={cn("flex h-8 w-8 items-center justify-center rounded-full text-white shadow-xl transition-all hover:scale-110 active:scale-95", isPlaying ? "bg-surface-panel ring-2 ring-brand animate-pulse" : "bg-brand")}
                               title={isPlaying ? "正在播放 (点击关闭)" : "播放音频"}
                             >
-                              {isPlaying ? <Activity className="h-5 w-5 text-brand" /> : <Play className="ml-0.5 h-4 w-4 fill-current" />}
+                              {isPlaying ? <Activity className="h-4 w-4 text-brand" /> : <Play className="ml-0.5 h-3 w-3 fill-current" />}
                             </button>
                           </div>
                         </div>
                       ) : (
                         <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 transition-all">
-                          <Icon className="h-16 w-16 text-text-muted/60 drop-shadow-sm transition-all group-hover:text-text-muted" />
+                          <Icon className="pointer-events-none h-12 w-12 text-text-muted/60 drop-shadow-sm transition-all group-hover:text-text-muted" />
                         </div>
                       )}
                     </div>
@@ -1548,6 +1955,13 @@ function AssetGrid({
         );
       }}
     />
+      {marqueeRect ? (
+        <div
+          className="pointer-events-none fixed z-[90] border border-brand/70 bg-brand/10"
+          style={marqueeRect}
+        />
+      ) : null}
+    </div>
   );
 }
 
@@ -1625,15 +2039,19 @@ function VideoThumb({
 }
 
 function AssetTable({
+  panelId,
   assets,
   directories,
   selectedSet,
-  selectedDirectoryPath,
+  selectedDirectorySet,
+  assetListContext,
   renameTarget,
   onSelectDirectory,
   onSelectDirectoryEntry,
+  onToggleDirectoryEntry,
   onDropOnDirectory,
   onToggleAsset,
+  onSelectAssetEntry,
   onSelectAsset,
   onBeginRenameAsset,
   onBeginRenameDirectory,
@@ -1645,15 +2063,19 @@ function AssetTable({
   onPreviewAsset,
   playingAssetPath
 }: {
+  panelId: string;
   assets: AssetSummary[];
   directories: AssetDirectoryNode[];
   selectedSet: Set<string>;
-  selectedDirectoryPath: string | null;
+  selectedDirectorySet: Set<string>;
+  assetListContext: AppCommandContext;
   renameTarget: RenameTarget | null;
   onSelectDirectory: (directory: AssetDirectoryNode) => void;
   onSelectDirectoryEntry: (directory: AssetDirectoryNode) => void;
+  onToggleDirectoryEntry: (directory: AssetDirectoryNode) => void;
   onDropOnDirectory: (event: React.DragEvent, directoryPath: string) => void;
   onToggleAsset: (asset: AssetSummary) => void;
+  onSelectAssetEntry: (asset: AssetSummary) => void;
   onSelectAsset: (asset: AssetSummary) => void;
   onBeginRenameAsset: (asset: AssetSummary) => void;
   onBeginRenameDirectory: (directory: AssetDirectoryNode) => void;
@@ -1695,26 +2117,26 @@ function AssetTable({
         return (
           <div className="flex min-w-0 w-full items-start gap-2.5 text-left py-1">
             {isImage ? (
-              <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] bg-surface-muted ring-1 mt-0.5", isSelected ? "ring-brand" : "ring-border-soft")}>
+              <span className={cn("pointer-events-none flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] bg-surface-muted ring-1 mt-0.5", isSelected ? "ring-brand" : "ring-border-soft")}>
                 <AssetImageThumb asset={asset} compact />
               </span>
             ) : isVideo ? (
               <button type="button" onClick={(e) => { e.stopPropagation(); onPreviewAsset?.(asset); }} className={cn("group/play relative flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-[4px] ring-1 mt-0.5 transition-all hover:bg-brand hover:ring-brand", isSelected ? "ring-border-soft bg-brand/10" : "ring-border-soft bg-surface-raised")} title="播放视频">
                 <VideoThumb asset={asset} compact />
-                <Play className="absolute hidden h-3.5 w-3.5 fill-current text-white group-hover/play:block" />
+                <Play className="pointer-events-none absolute hidden h-3.5 w-3.5 fill-current text-white group-hover/play:block" />
               </button>
             ) : isAudio ? (
               <button type="button" onClick={(e) => { e.stopPropagation(); isPlaying ? onPlayAudio?.(null) : onPlayAudio?.(asset); }} className={cn("group/play flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] ring-1 mt-0.5 transition-all hover:bg-brand hover:ring-brand", isPlaying ? "ring-brand bg-brand/20 animate-pulse" : isSelected ? "ring-border-soft bg-brand/10" : "ring-border-soft bg-surface-raised")} title={isPlaying ? "正在播放" : "播放音频"}>
                 {isPlaying ? <Activity className="h-4 w-4 text-brand" /> : (
                   <>
-                    <Icon className="h-4 w-4 text-text-muted group-hover/play:hidden" />
-                    <Play className="h-3.5 w-3.5 text-white hidden group-hover/play:block fill-current" />
+                    <Icon className="pointer-events-none h-4 w-4 text-text-muted group-hover/play:hidden" />
+                    <Play className="pointer-events-none h-3.5 w-3.5 text-white hidden group-hover/play:block fill-current" />
                   </>
                 )}
               </button>
             ) : (
-              <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] ring-1 ring-border-soft mt-0.5", isSelected ? "bg-brand/10" : "bg-surface-raised")}>
-                <Icon className={cn("h-4 w-4", isSelected ? "text-brand" : "text-text-muted")} />
+              <div className={cn("pointer-events-none flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] ring-1 ring-border-soft mt-0.5", isSelected ? "bg-brand/10" : "bg-surface-raised")}>
+                <Icon className={cn("pointer-events-none h-4 w-4", isSelected ? "text-brand" : "text-text-muted")} />
               </div>
             )}
             <div className="flex min-w-0 flex-1 flex-col justify-center">
@@ -1778,26 +2200,51 @@ function AssetTable({
         ))}
       </div>
       <div className="flex min-w-[400px] flex-col">
-        {directories.map((directory) => (
-          <AppContextMenu key={directory.path} context={{ objectType: "assetDirectory", directoryPath: directory.path }}>
+        {directories.map((directory) => {
+          const isDirectorySelected = selectedDirectorySet.has(directory.path);
+          const isDirectoryRenaming = renameTarget?.type === "directory" && renameTarget.path === directory.path;
+          const useSelectionContext =
+            isDirectorySelected &&
+            assetListContext.objectType === "assetList" &&
+            (assetListContext.selectedPaths.length + (assetListContext.selectedDirectoryPaths?.length ?? 0) > 1);
+          return (
+          <AppContextMenu
+            key={directory.path}
+            context={useSelectionContext ? assetListContext : { objectType: "assetDirectory", directoryPath: directory.path, panelId }}
+          >
             <div
               title={directory.path}
-              onClick={() => onSelectDirectoryEntry(directory)}
+              data-explorer-item="directory"
+              data-explorer-path={directory.path}
+              draggable={!isDirectoryRenaming}
+              onClick={(event) => {
+                if (event.ctrlKey || event.metaKey) onToggleDirectoryEntry(directory);
+                else onSelectDirectoryEntry(directory);
+              }}
+              onContextMenu={() => undefined}
               onDoubleClick={() => onSelectDirectory(directory)}
+              onDragStart={(event) => {
+                if (isDirectoryRenaming) {
+                  event.preventDefault();
+                  return;
+                }
+                writeAssetDirectoryDragData(event, directory.path);
+              }}
+              onDragEnd={clearAssetDirectoryDragData}
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => onDropOnDirectory(event, directory.path)}
               className={cn(
                 "group flex min-h-[48px] cursor-pointer items-center border-b px-4 py-2 text-left transition-colors hover:bg-surface-raised",
-                selectedDirectoryPath === directory.path ? "border-brand/20 bg-brand/5 hover:bg-brand/10" : "border-border-soft bg-transparent"
+                isDirectorySelected ? "border-brand/20 bg-brand/5 hover:bg-brand/10" : "border-border-soft bg-transparent"
               )}
             >
               <div className="w-8 shrink-0" />
               <div className="flex min-w-[140px] flex-1 items-center gap-2.5 pr-4">
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] bg-surface-raised ring-1 ring-border-soft">
-                  <Folder className="h-4 w-4 text-text-subtle transition-colors group-hover:text-brand" />
+                  <Folder className="pointer-events-none h-4 w-4 text-text-subtle transition-colors group-hover:text-brand" />
                 </div>
                 <div className="min-w-0">
-                  {renameTarget?.type === "directory" && renameTarget.path === directory.path ? (
+                  {isDirectoryRenaming ? (
                     <InlineRenameInput
                       value={renameTarget.value}
                       className="w-full"
@@ -1831,7 +2278,8 @@ function AssetTable({
               </div>
             </div>
           </AppContextMenu>
-        ))}
+          );
+        })}
         <VirtualList
           items={table.getRowModel().rows}
           estimateSize={48}
@@ -1840,11 +2288,20 @@ function AssetTable({
           const asset = row.original;
           const isSelected = selectedSet.has(asset.relativePath);
           const isPlaying = playingAssetPath === asset.relativePath;
+          const isRenaming = renameTarget?.type === "asset" && renameTarget.path === asset.relativePath;
+          const useSelectionContext =
+            isSelected &&
+            assetListContext.objectType === "assetList" &&
+            (assetListContext.selectedPaths.length + (assetListContext.selectedDirectoryPaths?.length ?? 0) > 1);
           return (
-            <AppContextMenu key={asset.id} context={{ objectType: "asset", relativePath: asset.relativePath }}>
+            <AppContextMenu key={asset.id} context={useSelectionContext ? assetListContext : { objectType: "asset", relativePath: asset.relativePath, panelId }}>
               <div
-                draggable
+                draggable={!isRenaming}
                 onDragStart={(event) => {
+                  if (isRenaming) {
+                    event.preventDefault();
+                    return;
+                  }
                   writeAssetDragData(event, asset);
                   onAssetDragStart?.(event, asset);
                 }}
@@ -1854,6 +2311,7 @@ function AssetTable({
                   isPlaying ? "bg-brand/5 border-brand/30" : isSelected ? "border-brand/20 bg-brand/5 hover:bg-brand/10" : "border-border-soft bg-transparent"
                 )}
                 onClick={() => onToggleAsset(asset)}
+                onContextMenu={() => undefined}
                 onDoubleClick={() => onSelectAsset(asset)}
               >
                 {row.getVisibleCells().map((cell) => (

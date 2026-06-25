@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { Check, ImagePlus, Search, Trash2, X } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "../ui/Button";
@@ -211,40 +211,69 @@ export function StudioMediaDropzone({
   emptyLabel?: string;
   emptySubLabel?: string;
 }) {
+  const [localDragActive, setLocalDragActive] = useState(false);
+
+  function handleDrop(event: React.DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    setLocalDragActive(false);
+
+    const asset = readAssetDragData(event.dataTransfer);
+    if (asset) {
+      onAssetDrop?.(asset);
+      onChange(asset.relativePath);
+      return;
+    }
+
+    const files = Array.from(event.dataTransfer.files ?? []);
+    if (files.length > 0) onImportFiles?.(files);
+  }
+
   return (
-    <AssetDropzone accept={accept} disabled={!onImportFiles} onDropFiles={(files) => onImportFiles?.(files)}>
+    <AssetDropzone accept={accept} disabled={false} onDropFiles={(files) => onImportFiles?.(files)}>
       {({ getRootProps, getInputProps, isDragActive }) => (
         <div
           {...getRootProps({
+            onDragOverCapture: (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setLocalDragActive(true);
+            },
+            onDropCapture: handleDrop,
             onDragOver: (event) => {
               event.preventDefault();
               event.stopPropagation();
+              setLocalDragActive(true);
             },
-            onDrop: (event) => {
-              const asset = readAssetDragData(event.dataTransfer);
-              if (asset) {
-                event.preventDefault();
-                event.stopPropagation();
-                onAssetDrop?.(asset);
-                onChange(asset.relativePath);
+            onDragEnter: (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setLocalDragActive(true);
+            },
+            onDragLeave: (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                setLocalDragActive(false);
               }
             },
+            onDrop: handleDrop,
             className: cn(
               height,
-              "group relative flex flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border-2 border-dashed text-xs transition-all duration-300",
+              "group relative flex min-h-24 flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border-2 border-dashed text-xs transition-all duration-300",
               image ? "border-brand/50 bg-brand/5" : "cursor-pointer border-border-strong text-text-muted hover:border-brand/50 hover:bg-brand/5",
-              isDragActive && "border-brand/70 bg-brand/10"
+              (isDragActive || localDragActive) && "border-brand/70 bg-brand/10"
             )
           })}
         >
           <input {...getInputProps()} />
           {image ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/40 p-1 backdrop-blur-sm">
-              <img src={image} className="h-full rounded-xl object-contain shadow-lg" />
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-surface-panel p-2">
+              <img src={image} className="max-h-full max-w-full rounded-xl object-contain shadow-lg" />
             </div>
           ) : (
             <>
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-panel shadow-sm transition-transform duration-300 group-hover:scale-110">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-panel shadow-sm transition-transform duration-300 group-hover:scale-110">
                 <ImagePlus className="h-5 w-5 text-brand" />
               </div>
               <span className="px-2 text-center text-[10px] font-medium text-text-subtle">

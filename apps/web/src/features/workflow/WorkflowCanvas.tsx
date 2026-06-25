@@ -64,6 +64,9 @@ import type { AppCommandContext } from "../../commands";
 import { cn } from "../../lib/utils";
 import { ContextMenuStyles } from "../../components/ui/ContextMenuStyles";
 
+// Legacy page: hidden from main navigation in routes.ts.
+// Keep this implementation only for old saved workflow data and possible internal diagnostics.
+// Product direction is not to revive the MCP node-flow page unless explicitly re-scoped later.
 type Props = {
   project?: ProjectSummary;
   tools: ToolSummary[];

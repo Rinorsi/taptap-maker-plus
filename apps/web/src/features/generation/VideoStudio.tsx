@@ -67,6 +67,13 @@ type Props = {
     targetFolder: string,
   ) => Promise<void>;
   onRenameAsset: (relativePath: string, newName: string) => Promise<void>;
+  onRenameDirectory: (directoryPath: string, newName: string) => Promise<void>;
+  onMoveDirectory: (directoryPath: string, targetFolder: string) => Promise<void>;
+  onCopyDirectory: (directoryPath: string, targetFolder: string) => Promise<void>;
+  onDeleteDirectory: (directoryPath: string) => Promise<void>;
+  onCreateFolder: (parentFolder: string) => Promise<void>;
+  onOpenLocalPath: (relativePath: string, mode: "file" | "directory") => Promise<void>;
+  onScanReferences: (relativePaths: string[]) => Promise<void>;
   onImportAssets: (files: File[], targetFolder: string) => Promise<void>;
   onCollapseSidebar?: () => void;
   onShowError?: () => void;
@@ -239,6 +246,14 @@ export function VideoStudio({
   onDeleteAssets,
   onMoveAssets,
   onCopyAssets,
+  onRenameAsset,
+  onRenameDirectory,
+  onMoveDirectory,
+  onCopyDirectory,
+  onDeleteDirectory,
+  onCreateFolder,
+  onOpenLocalPath,
+  onScanReferences,
   onImportAssets,
   onCollapseSidebar,
   onShowError,
@@ -274,6 +289,13 @@ export function VideoStudio({
           tool.category === "video" &&
           (tool.name.includes("generate") ||
             tool.name.includes("create_video")),
+      ),
+    [tools],
+  );
+  const canvasTools = useMemo(
+    () =>
+      tools.filter((tool) =>
+        ["generate_image", "edit_image", "create_video_task", "text_to_music"].includes(tool.name),
       ),
     [tools],
   );
@@ -859,6 +881,7 @@ export function VideoStudio({
               activeGenerationTask={activeGenerationTask}
               isCloudVideoRunning={isCloudVideoRunning}
               generateTool={generateTool}
+              canvasTools={canvasTools}
               isFullscreen={isFlowFullscreen}
               onToggleFullscreen={() => void setFlowFullscreen(!isFlowFullscreen)}
               onCallTool={handleCallTool}
@@ -1139,6 +1162,14 @@ export function VideoStudio({
                       }}
                       onMoveAssets={onMoveAssets}
                       onCopyAssets={onCopyAssets}
+                      onRenameAsset={onRenameAsset}
+                      onRenameDirectory={onRenameDirectory}
+                      onMoveDirectory={onMoveDirectory}
+                      onCopyDirectory={onCopyDirectory}
+                      onDeleteDirectory={onDeleteDirectory}
+                      onCreateFolder={onCreateFolder}
+                      onOpenLocalPath={onOpenLocalPath}
+                      onScanReferences={onScanReferences}
                       onSelectAsset={(asset) => {
                         onSelectAsset?.(asset);
                         if (asset.assetType !== "audio") openPreview(asset);

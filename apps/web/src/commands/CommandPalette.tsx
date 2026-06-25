@@ -24,6 +24,7 @@ type CommandPaletteProps = {
   tasks: TaskRecord[];
   onSelectProject: (projectId: string) => void;
   onOpenModule: (module: WorkbenchModule) => void;
+  onOpenLogs: () => void;
   onSelect: (selection: InspectorSelection) => void;
 };
 
@@ -37,6 +38,7 @@ export function CommandPalette({
   tasks,
   onSelectProject,
   onOpenModule,
+  onOpenLogs,
   onSelect,
 }: CommandPaletteProps) {
   const registry = useCommandRegistry();
@@ -203,7 +205,7 @@ export function CommandPalette({
               onSelect={() => {
                 close();
                 onSelect({ type: "task", item: task });
-                onOpenModule("runs");
+                onOpenLogs();
               }}
             />
           ))}

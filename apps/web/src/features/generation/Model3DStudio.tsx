@@ -45,8 +45,16 @@ type Props = {
   onSelectAsset?: (asset: AssetSummary) => void;
   onScanAssets: () => void;
   onDeleteAssets: (relativePaths: string[]) => Promise<void>;
+  onCopyAssets?: (relativePaths: string[], targetFolder: string) => Promise<void>;
   onMoveAssets?: (relativePaths: string[], targetFolder: string) => Promise<void>;
   onRenameAsset?: (relativePath: string, newName: string) => Promise<void>;
+  onRenameDirectory?: (directoryPath: string, newName: string) => Promise<void>;
+  onMoveDirectory?: (directoryPath: string, targetFolder: string) => Promise<void>;
+  onCopyDirectory?: (directoryPath: string, targetFolder: string) => Promise<void>;
+  onDeleteDirectory?: (directoryPath: string) => Promise<void>;
+  onCreateFolder?: (parentFolder: string) => Promise<void>;
+  onOpenLocalPath?: (relativePath: string, mode: "file" | "directory") => Promise<void>;
+  onScanReferences?: (relativePaths: string[]) => Promise<void>;
   onImportAssets?: (files: File[], targetFolder: string) => Promise<void>;
 };
 

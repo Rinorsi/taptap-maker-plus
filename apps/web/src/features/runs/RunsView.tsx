@@ -7,6 +7,8 @@ import { copyText } from "../../lib/clipboard";
 import { formatRunTaskDetails } from "../../lib/taskResult";
 import { cn } from "../../lib/utils";
 
+// Legacy page: hidden from primary navigation.
+// Task history now lives in the right inspector log panel with status filtering.
 type Props = { tasks: TaskRecord[]; onSelectTask: (task: TaskRecord) => void };
 
 const statusOptions = ["all", "running", "succeeded", "failed", "queued", "canceled"];

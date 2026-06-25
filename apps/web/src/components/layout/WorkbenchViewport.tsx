@@ -15,6 +15,11 @@ const AssetHub = lazy(() =>
     default: module.AssetHub,
   })),
 );
+const UniversalCanvas = lazy(() =>
+  import("../../features/generation/UniversalCanvas").then((module) => ({
+    default: module.UniversalCanvas,
+  })),
+);
 const ImageStudio = lazy(() =>
   import("../../features/generation/ImageStudio").then((module) => ({
     default: module.ImageStudio,
@@ -35,19 +40,9 @@ const Model3DStudio = lazy(() =>
     default: module.Model3DStudio,
   })),
 );
-const WorkflowCanvas = lazy(() =>
-  import("../../features/workflow/WorkflowCanvas").then((module) => ({
-    default: module.WorkflowCanvas,
-  })),
-);
 const BuildCenter = lazy(() =>
   import("../../features/build/BuildCenter").then((module) => ({
     default: module.BuildCenter,
-  })),
-);
-const RunsView = lazy(() =>
-  import("../../features/runs/RunsView").then((module) => ({
-    default: module.RunsView,
   })),
 );
 const AgentContextView = lazy(() =>
@@ -137,6 +132,17 @@ export function WorkbenchViewport(props: Props) {
           onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })}
         />
       ) : null}
+      {props.activeModule === "studio-canvas" ? (
+        <UniversalCanvas
+          project={props.project}
+          tools={props.tools}
+          assets={props.assets}
+          tasks={props.tasks}
+          onCallTool={props.onCallTool}
+          onShowError={props.onShowError}
+          onCommandContextChange={props.onCanvasCommandContextChange}
+        />
+      ) : null}
       {props.activeModule === "studio-image" ? (
         <ImageStudio
           project={props.project}
@@ -151,6 +157,14 @@ export function WorkbenchViewport(props: Props) {
           onDeleteAssets={props.onDeleteAssets}
           onMoveAssets={props.onMoveAssets}
           onCopyAssets={props.onCopyAssets}
+          onRenameAsset={props.onRenameAsset}
+          onRenameDirectory={props.onRenameDirectory}
+          onMoveDirectory={props.onMoveDirectory}
+          onCopyDirectory={props.onCopyDirectory}
+          onDeleteDirectory={props.onDeleteDirectory}
+          onCreateFolder={props.onCreateFolder}
+          onOpenLocalPath={props.onOpenLocalAssetPath}
+          onScanReferences={props.onScanAssetReferences}
           onImportAssets={props.onImportAssets}
         />
       ) : null}
@@ -169,6 +183,13 @@ export function WorkbenchViewport(props: Props) {
           onMoveAssets={props.onMoveAssets}
           onCopyAssets={props.onCopyAssets}
           onRenameAsset={props.onRenameAsset}
+          onRenameDirectory={props.onRenameDirectory}
+          onMoveDirectory={props.onMoveDirectory}
+          onCopyDirectory={props.onCopyDirectory}
+          onDeleteDirectory={props.onDeleteDirectory}
+          onCreateFolder={props.onCreateFolder}
+          onOpenLocalPath={props.onOpenLocalAssetPath}
+          onScanReferences={props.onScanAssetReferences}
           onImportAssets={props.onImportAssets}
           onCollapseSidebar={props.onCollapseSidebar}
           onShowError={props.onShowError}
@@ -190,6 +211,13 @@ export function WorkbenchViewport(props: Props) {
           onMoveAssets={props.onMoveAssets}
           onCopyAssets={props.onCopyAssets}
           onRenameAsset={props.onRenameAsset}
+          onRenameDirectory={props.onRenameDirectory}
+          onMoveDirectory={props.onMoveDirectory}
+          onCopyDirectory={props.onCopyDirectory}
+          onDeleteDirectory={props.onDeleteDirectory}
+          onCreateFolder={props.onCreateFolder}
+          onOpenLocalPath={props.onOpenLocalAssetPath}
+          onScanReferences={props.onScanAssetReferences}
           onImportAssets={props.onImportAssets}
         />
       ) : null}
@@ -206,16 +234,26 @@ export function WorkbenchViewport(props: Props) {
           onScanAssets={props.onScanAssets}
           onDeleteAssets={props.onDeleteAssets}
           onMoveAssets={props.onMoveAssets}
+          onCopyAssets={props.onCopyAssets}
           onRenameAsset={props.onRenameAsset}
+          onRenameDirectory={props.onRenameDirectory}
+          onMoveDirectory={props.onMoveDirectory}
+          onCopyDirectory={props.onCopyDirectory}
+          onDeleteDirectory={props.onDeleteDirectory}
+          onCreateFolder={props.onCreateFolder}
+          onOpenLocalPath={props.onOpenLocalAssetPath}
+          onScanReferences={props.onScanAssetReferences}
           onImportAssets={props.onImportAssets}
         />
       ) : null}
       {props.activeModule === "workflow" ? (
-        <WorkflowCanvas
+        <UniversalCanvas
           project={props.project}
           tools={props.tools}
+          assets={props.assets}
           tasks={props.tasks}
-          onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })}
+          onCallTool={props.onCallTool}
+          onShowError={props.onShowError}
           onCommandContextChange={props.onCanvasCommandContextChange}
         />
       ) : null}
@@ -228,12 +266,6 @@ export function WorkbenchViewport(props: Props) {
           busy={props.busy}
           onCallTool={props.onCallTool}
           onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })}
-        />
-      ) : null}
-      {props.activeModule === "runs" ? (
-        <RunsView
-          tasks={props.tasks}
-          onSelectTask={(task) => props.onSelect({ type: "task", item: task })}
         />
       ) : null}
       {props.activeModule === "agent" ? (

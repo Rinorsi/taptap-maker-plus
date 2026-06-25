@@ -2,6 +2,7 @@ import type { DragEvent } from "react";
 import type { AssetSummary } from "../../api";
 
 export const ASSET_DRAG_MIME = "application/taptap-maker-plus-asset";
+export const ASSET_DIRECTORY_DRAG_MIME = "application/taptap-maker-plus-asset-directory";
 
 export type AssetDragData = {
   projectId?: string;
@@ -62,4 +63,41 @@ export function readAssetDragData(dataTransfer: DataTransfer): AssetDragData | u
 
 export function readAssetDragPath(dataTransfer: DataTransfer) {
   return readAssetDragData(dataTransfer)?.relativePath;
+}
+
+export type AssetDirectoryDragData = {
+  directoryPath: string;
+};
+
+declare global {
+  interface Window {
+    __taptapAssetDirectoryDrag?: AssetDirectoryDragData;
+  }
+}
+
+export function writeAssetDirectoryDragData(event: DragEvent, directoryPath: string) {
+  const data = { directoryPath };
+  window.__taptapAssetDirectoryDrag = data;
+  event.dataTransfer.setData(ASSET_DIRECTORY_DRAG_MIME, JSON.stringify(data));
+  event.dataTransfer.setData("text/plain", directoryPath);
+  event.dataTransfer.effectAllowed = "copyMove";
+}
+
+export function clearAssetDirectoryDragData() {
+  window.__taptapAssetDirectoryDrag = undefined;
+}
+
+export function readAssetDirectoryDragData(dataTransfer: DataTransfer): AssetDirectoryDragData | undefined {
+  const raw = dataTransfer.getData(ASSET_DIRECTORY_DRAG_MIME);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as Partial<AssetDirectoryDragData>;
+      if (typeof parsed.directoryPath === "string" && parsed.directoryPath.length > 0) {
+        return { directoryPath: parsed.directoryPath };
+      }
+    } catch {
+      return undefined;
+    }
+  }
+  return window.__taptapAssetDirectoryDrag;
 }

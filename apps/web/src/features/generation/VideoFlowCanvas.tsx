@@ -68,8 +68,21 @@ import {
 } from "../../commands";
 import { NodeLibraryDrawer } from "./NodeLibraryDrawer";
 import { getPresetById, NODE_PRESETS, type NodePreset } from "./nodeRegistry";
-import { buildVideoPayloadFromGraph } from "./VideoFlowPayloadBuilder";
 import { readAssetDragPath } from "./dragData";
+import {
+  collectCanvasAssetReferences,
+  compileCanvasPayload,
+  createVideoReferenceTemplate,
+  createUniversalCanvasTemplate,
+  executeCompiledCanvasTool,
+  extractCanvasResultAssets,
+  getCanvasResultPresetForTool,
+  getNodeAssetKind,
+  nextAssetAlias,
+  type CanvasCompileIssue,
+  type CanvasAssetKind,
+  type CanvasToolName,
+} from "../canvas-core";
 import {
   GenericTextNode,
   GenericMediaNode,
@@ -202,13 +215,73 @@ const transientNodeDataKeys = new Set([
   "onDelete",
   "onPreviewMedia",
   "onRun",
+  "onFocusReference",
   "project",
   "promptCount",
+  "references",
   "settingsCount",
   "videosCount",
   "audiosCount",
 ]);
 const transientEdgeDataKeys = new Set(["onDelete"]);
+function formatCompileIssues(issues: CanvasCompileIssue[]): string {
+  return issues.map((issue) => issue.message).join("\n");
+}
+function createVideoCanvasStoragePayload(
+  nodes: Node[],
+  edges: Edge[],
+  viewport: unknown,
+  kind: "video-reference" | "universal" = "video-reference",
+) {
+  return {
+    schema: kind === "universal" ? "taptap.canvas.universal.v1" : "taptap.canvas.video.v1",
+    kind,
+    nodes: nodes.map(cleanFlowNodeForStorage),
+    edges: edges.map(cleanFlowEdgeForStorage),
+    viewport,
+  };
+}
+function issuesBySeverity(issues: CanvasCompileIssue[], severity: CanvasCompileIssue["severity"]) {
+  return issues.filter((issue) => issue.severity === severity);
+}
+function assetTypeToCanvasKind(assetType: string): CanvasAssetKind {
+  if (assetType === "image" || assetType === "video" || assetType === "audio" || assetType === "model") {
+    return assetType;
+  }
+  return "unknown";
+}
+function collectDownstreamResultNodeIds(
+  nodes: Node[],
+  edges: Edge[],
+  executorNodeId: string,
+  resultPresetId?: string,
+) {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const nextMap = new Map<string, string[]>();
+  for (const edge of edges) {
+    const list = nextMap.get(edge.source) ?? [];
+    list.push(edge.target);
+    nextMap.set(edge.source, list);
+  }
+  const resultIds = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (nodeId: string) => {
+    for (const nextId of nextMap.get(nodeId) ?? []) {
+      if (visited.has(nextId)) continue;
+      visited.add(nextId);
+      const node = byId.get(nextId);
+      if (
+        node?.type === "resultNode" &&
+        (!resultPresetId || node.data.presetId === resultPresetId)
+      ) {
+        resultIds.add(nextId);
+      }
+      visit(nextId);
+    }
+  };
+  visit(executorNodeId);
+  return resultIds;
+}
 type CanvasMenuTarget =
   | { kind: "pane"; screenX: number; screenY: number }
   | { kind: "node"; nodeId: string; screenX: number; screenY: number }
@@ -229,6 +302,7 @@ type CanvasSubmenuState =
       direction: "left" | "right";
     }
   | null;
+type PayloadPanelTab = "payload" | "inspector";
 const CATEGORY_GROUPS = (() => {
   const groups = {
     prompt: { label: "文本提示词", items: [] as typeof NODE_PRESETS },
@@ -252,6 +326,8 @@ type VideoFlowCanvasProps = {
   activeGenerationTask?: TaskRecord;
   isCloudVideoRunning?: boolean;
   generateTool?: ToolSummary;
+  canvasTools?: ToolSummary[];
+  canvasKind?: "video-reference" | "universal";
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
   onPreviewMedia?: (asset: AssetSummary) => void;
@@ -286,6 +362,8 @@ function VideoFlowCanvasInner({
   activeGenerationTask,
   isCloudVideoRunning,
   generateTool,
+  canvasTools,
+  canvasKind = "video-reference",
   isFullscreen,
   onToggleFullscreen,
   onPreviewMedia,
@@ -300,6 +378,7 @@ function VideoFlowCanvasInner({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const [isPayloadPanelOpen, setIsPayloadPanelOpen] = useState(false);
+  const [payloadPanelTab, setPayloadPanelTab] = useState<PayloadPanelTab>("payload");
   const [isMiniMapOpen, setIsMiniMapOpen] = useState(true);
   const [snapToGrid, setSnapToGrid] = useState(false);
   const isAutoSavingRef = useRef(false);
@@ -318,6 +397,21 @@ function VideoFlowCanvasInner({
   const [isCanvasMenuOpen, setIsCanvasMenuOpen] = useState(false);
   const [submenuState, setSubmenuState] = useState<CanvasSubmenuState>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const runnableTools = useMemo(() => {
+    const entries: Array<[CanvasToolName, ToolSummary]> = [];
+    const all = canvasTools ?? (generateTool ? [generateTool] : []);
+    for (const tool of all) {
+      if (
+        tool.name === "generate_image" ||
+        tool.name === "edit_image" ||
+        tool.name === "create_video_task" ||
+        tool.name === "text_to_music"
+      ) {
+        entries.push([tool.name, tool]);
+      }
+    }
+    return new Map(entries);
+  }, [canvasTools, generateTool]);
 
   const selectAllCanvasElements = useCallback(() => {
     setNodes((nds) => nds.map((n) => ({ ...n, selected: true })));
@@ -538,7 +632,7 @@ function VideoFlowCanvasInner({
     hasLoadedRef.current = true;
     getFlow(project.id, "_autosave")
       .then((data) => {
-        if (data && data.nodes && data.edges) {
+      if (data && data.nodes && data.edges) {
           setNodes(data.nodes || []);
           setEdges(data.edges || []);
           if (data.viewport) reactFlow.setViewport(data.viewport);
@@ -554,11 +648,7 @@ function VideoFlowCanvasInner({
     const interval = setInterval(() => {
       if (isAutoSavingRef.current) return;
       const viewport = reactFlow.getViewport();
-      const data = {
-        nodes: nodes.map(cleanFlowNodeForStorage),
-        edges: edges.map(cleanFlowEdgeForStorage),
-        viewport,
-      };
+      const data = createVideoCanvasStoragePayload(nodes, edges, viewport, canvasKind);
       if (data.nodes.length > 0) {
         isAutoSavingRef.current = true;
         autoSaveFlow(project.id, data)
@@ -571,7 +661,7 @@ function VideoFlowCanvasInner({
       }
     }, 30000);
     return () => clearInterval(interval);
-  }, [edges, nodes, project, reactFlow]);
+  }, [canvasKind, edges, nodes, project, reactFlow]);
   useEffect(() => {
     const labels = new Map([
       ["Zoom In", "放大"],
@@ -606,11 +696,20 @@ function VideoFlowCanvasInner({
     return () => observer.disconnect();
   }, []);
   const handleNodeDataChange = useCallback(
-    (id: string, key: string, value: string) => {
+    (id: string, key: string, value: unknown) => {
       setNodes((nds) =>
-        nds.map((n) =>
-          n.id === id ? { ...n, data: { ...n.data, [key]: value } } : n,
-        ),
+        nds.map((n) => {
+          if (n.id !== id) return n;
+          const nextData = { ...n.data, [key]: value };
+          if (key === "presetId" && typeof value === "string") {
+            const nextPreset = getPresetById(value);
+            if (nextPreset?.defaultData.role) {
+              nextData.role = nextPreset.defaultData.role;
+              nextData.referenceUse = nextPreset.defaultData.role;
+            }
+          }
+          return { ...n, data: nextData };
+        }),
       );
     },
     [setNodes],
@@ -670,78 +769,119 @@ function VideoFlowCanvasInner({
     clearCanvas();
   }, [clearCanvas, edges.length, nodes.length]);
   const handleApplyTemplate = useCallback(() => {
-    const taskId = `task-${Date.now()}`;
-    const payloadId = `payload-${Date.now()}`;
-    const promptId = `prompt-${Date.now()}`;
-    const settingsId = `settings-${Date.now()}`;
-    setNodes([
-      {
-        id: promptId,
-        type: "textNode",
-        position: { x: 50, y: 50 },
-        data: {
-          presetId: "MainPromptNode",
-          text: "一个赛博朋克城市的夜景，霓虹闪烁，高画质，电影级运镜...",
-        },
-      },
-      {
-        id: settingsId,
-        type: "settingsNode",
-        position: { x: 50, y: 350 },
-        data: {
-          presetId: "VideoModelNode",
-          value: "default",
-          type: "model",
-        },
-      },
-      {
-        id: payloadId,
-        type: "collectorNode",
-        position: { x: 450, y: 150 },
-        data: { presetId: "MultiModalPayloadNode" },
-      },
-      {
-        id: taskId,
-        type: "executorNode",
-        position: { x: 800, y: 150 },
-        data: { presetId: "CreateVideoTaskNode" },
-      },
-    ]);
-    setEdges([
-      {
-        id: `e-${promptId}-${payloadId}`,
-        source: promptId,
-        target: payloadId,
-        ...defaultEdgeOptions,
-      },
-      {
-        id: `e-${settingsId}-${payloadId}`,
-        source: settingsId,
-        target: payloadId,
-        ...defaultEdgeOptions,
-      },
-      {
-        id: `e-${payloadId}-${taskId}`,
-        source: payloadId,
-        target: taskId,
-        ...defaultEdgeOptions,
-      },
-    ]);
+    const template =
+      canvasKind === "universal"
+        ? createUniversalCanvasTemplate()
+        : createVideoReferenceTemplate();
+    setNodes(template.nodes);
+    setEdges(template.edges);
     setSelectedEdge(null);
-  }, [setNodes, setEdges]);
+  }, [canvasKind, setEdges, setNodes]);
+  const references = useMemo(() => collectCanvasAssetReferences(nodes), [nodes]);
   const validationResult = useMemo(() => {
-    return buildVideoPayloadFromGraph(nodes, edges);
+    return compileCanvasPayload(nodes, edges);
   }, [nodes, edges]);
-  const handleRun = useCallback(() => {
-    if (!generateTool || !project) return;
-    if (!validationResult.ok) {
-      setValidationError(validationResult.errors?.join("\\n") || "配置错误");
+  const validationErrors = useMemo(
+    () => issuesBySeverity(validationResult.issues, "error"),
+    [validationResult.issues],
+  );
+  const validationWarnings = useMemo(
+    () => issuesBySeverity(validationResult.issues, "warning"),
+    [validationResult.issues],
+  );
+  const focusNodeById = useCallback(
+    (nodeId: string) => {
+      const node = reactFlow.getNode(nodeId);
+      if (!node) return;
+      setNodes((current) =>
+        current.map((item) => ({ ...item, selected: item.id === nodeId })),
+      );
+      void reactFlow.setCenter(
+        node.position.x + ((node.width as number | undefined) ?? 220) / 2,
+        node.position.y + ((node.height as number | undefined) ?? 160) / 2,
+        { duration: 180, zoom: Math.max(reactFlow.getZoom(), 0.8) },
+      );
+    },
+    [reactFlow, setNodes],
+  );
+  const handleRun = useCallback((executorNodeId?: string) => {
+    if (!project) return;
+    const compiled = compileCanvasPayload(nodes, edges, executorNodeId);
+    const toolName = compiled.toolName;
+    const tool = toolName ? runnableTools.get(toolName) : undefined;
+    if (!toolName || !tool) {
+      setValidationError(toolName ? `当前项目没有可用工具：${toolName}` : "执行节点没有绑定可用工具");
       onShowError?.();
       setTimeout(() => setValidationError(null), 3000);
       return;
     }
-    void onCallTool(generateTool.name, validationResult.payload!);
-  }, [validationResult, generateTool, project, onCallTool, onShowError]);
+    if (!compiled.ok) {
+      setValidationError(formatCompileIssues(compiled.issues) || "配置错误");
+      onShowError?.();
+      setTimeout(() => setValidationError(null), 3000);
+      return;
+    }
+    const confirmed = window.confirm(
+      `即将调用 ${tool.name}，可能消耗额度。\n\n${JSON.stringify(
+        compiled.payload,
+        null,
+        2,
+      )}`,
+    );
+    if (!confirmed) return;
+    void executeCompiledCanvasTool({ callTool: onCallTool }, tool.name, compiled).then((result) => {
+      const rawResult = result ?? null;
+      const resultAssets = extractCanvasResultAssets(rawResult);
+      const resultPresetId = getCanvasResultPresetForTool(toolName);
+      const targetResultIds = executorNodeId
+        ? collectDownstreamResultNodeIds(nodes, edges, executorNodeId, resultPresetId)
+        : new Set<string>();
+      let createdResultNode: Node | null = null;
+      if (executorNodeId && targetResultIds.size === 0) {
+        const executorNode = nodes.find((node) => node.id === executorNodeId);
+        if (executorNode) {
+          const resultNode: Node = {
+            id: `result-${Date.now()}`,
+            type: "resultNode",
+            position: {
+              x: executorNode.position.x + 340,
+              y: executorNode.position.y,
+            },
+            data: { presetId: resultPresetId ?? "VideoResultNode", resultKind: resultAssets[0]?.kind },
+          };
+          createdResultNode = resultNode;
+          targetResultIds.add(resultNode.id);
+          setEdges((current) => [
+            ...current,
+            {
+              id: `e-${executorNodeId}-${resultNode.id}`,
+              source: executorNodeId,
+              target: resultNode.id,
+              ...defaultEdgeOptions,
+            },
+          ]);
+        }
+      }
+      setNodes((current) =>
+        (createdResultNode ? [...current, createdResultNode] : current).map((node) =>
+          node.type === "resultNode" &&
+          (!resultPresetId || node.data.presetId === resultPresetId) &&
+          (!executorNodeId || targetResultIds.has(node.id))
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  rawResult,
+                  resultAssets,
+                  lastPayload: compiled.payload,
+                  updatedAt: new Date().toISOString(),
+                },
+              }
+            : node,
+        ),
+      );
+    });
+  }, [edges, nodes, onCallTool, onShowError, project, runnableTools, setEdges, setNodes]);
   // Inject callbacks into nodes
   const nodesWithCallbacks = useMemo(() => {
     // Find payload nodes for live stats
@@ -776,6 +916,7 @@ function VideoFlowCanvasInner({
             ...base.data,
             onChange: handleNodeDataChange,
             allAssets,
+            references,
             project,
             busy:
               n.type === "resultNode"
@@ -783,6 +924,7 @@ function VideoFlowCanvasInner({
                 : Boolean(n.data?.["busy"]),
             isCloudVideoRunning,
             onPreviewMedia: handlePreviewMedia,
+            onFocusReference: focusNodeById,
             onAssetDrop: (id: string, assetPath: string) => {
               const asset = allAssets.find((a) => a.relativePath === assetPath);
               const targetNode = nodes.find((node) => node.id === id);
@@ -810,6 +952,15 @@ function VideoFlowCanvasInner({
                   relativePath: asset.relativePath,
                   fileName: asset.fileName,
                   url: assetPreviewUrl(project.id, asset.relativePath),
+                  referenceId: id,
+                  alias:
+                    typeof targetNode?.data.alias === "string"
+                      ? targetNode.data.alias
+                      : nextAssetAlias(
+                          targetNode ? getNodeAssetKind(targetNode) : assetTypeToCanvasKind(asset.assetType),
+                          references,
+                        ),
+                  referenceUse: targetNode ? String(targetNode.data.role || "generic") : "generic",
                 });
               }
             },
@@ -858,11 +1009,9 @@ function VideoFlowCanvasInner({
           if (preset?.category === "settings") settingsCount++;
           traverse(inputNode.id);
         }
-        if (imagesCount > 9) error = "最多 9 张图片";
-        else if (videosCount > 3) error = "最多 3 个视频";
-        else if (audiosCount > 3) error = "最多 3 个音频";
-        else if (audiosCount > 0 && imagesCount === 0)
-          error = "缺少必需的图片参考";
+        if (!validationResult.ok) {
+          error = validationResult.issues.find((issue) => issue.severity === "error")?.message ?? null;
+        }
         return {
           ...base,
           data: {
@@ -881,7 +1030,7 @@ function VideoFlowCanvasInner({
           ...base,
           data: {
             ...base.data,
-            onRun: handleRun,
+            onRun: () => handleRun(n.id),
             busy: activeGenerationTask !== undefined || isCloudVideoRunning,
             isCloudVideoRunning,
           },
@@ -901,6 +1050,9 @@ function VideoFlowCanvasInner({
     allAssets,
     project,
     onPreviewMedia,
+    references,
+    validationResult,
+    focusNodeById,
   ]);
   const edgesWithCallbacks = useMemo(() => {
     return edges.map((e) => ({
@@ -995,11 +1147,14 @@ function VideoFlowCanvasInner({
           relativePath: asset.relativePath,
           fileName: asset.fileName,
           url: assetPreviewUrl(project.id, asset.relativePath),
+          referenceId: `ref-${Math.random().toString(36).slice(2, 9)}`,
+          alias: nextAssetAlias(assetTypeToCanvasKind(asset.assetType), references),
+          referenceUse: preset?.defaultData.role ?? "generic",
         },
       };
       setNodes((nds) => nds.concat(newNode));
     },
-    [reactFlow, setNodes, project, allAssets],
+    [reactFlow, setNodes, project, allAssets, references],
   );
   const onCanvasDropCapture = useCallback(
     (event: React.DragEvent) => {
@@ -1111,6 +1266,7 @@ function VideoFlowCanvasInner({
     [setNodes],
   );
   const handleShowPayloadPanel = useCallback(() => {
+    setPayloadPanelTab("payload");
     setIsPayloadPanelOpen(true);
     setIsCanvasMenuOpen(false);
   }, []);
@@ -1188,10 +1344,109 @@ function VideoFlowCanvasInner({
   const handleRunNode = useCallback(
     (nodeId: string) => {
       const node = reactFlow.getNode(nodeId);
-      if (node?.type === "executorNode") handleRun();
+      if (node?.type === "executorNode") handleRun(nodeId);
       else handleShowPayloadPanel();
     },
     [handleRun, handleShowPayloadPanel, reactFlow],
+  );
+  const continueFromLastFrame = useCallback(
+    (resultNodeId: string) => {
+      const resultNode = reactFlow.getNode(resultNodeId);
+      const resultAssets = (resultNode?.data.resultAssets || []) as Array<{ kind: string; role: string; path: string }>;
+      const lastFrame = resultAssets.find((asset) => asset.role === "last_frame");
+      if (!lastFrame) {
+        setValidationError("当前结果节点没有可用尾帧。");
+        setTimeout(() => setValidationError(null), 3000);
+        return;
+      }
+      const imageId = `last-frame-${Date.now()}`;
+      const promptId = `prompt-${Date.now()}`;
+      const modeId = `mode-${Date.now()}`;
+      const returnLastFrameId = `return-last-frame-${Date.now()}`;
+      const payloadId = `payload-${Date.now()}`;
+      const taskId = `task-${Date.now()}`;
+      const resultId = `result-${Date.now()}`;
+      const alias = nextAssetAlias("image", references);
+      const baseX = (resultNode?.position.x ?? 0) + 360;
+      const baseY = resultNode?.position.y ?? 0;
+      setNodes((current) => [
+        ...current.map((node) => ({ ...node, selected: false })),
+        {
+          id: imageId,
+          type: "mediaNode",
+          position: { x: baseX, y: baseY },
+          selected: true,
+          data: {
+            presetId: "FirstFrameImageNode",
+            role: "first_frame",
+            referenceUse: "first_frame",
+            referenceId: imageId,
+            alias,
+            relativePath: lastFrame.path,
+            fileName: lastFrame.path.split(/[\\/]/).pop() ?? "last_frame",
+            url: project ? assetPreviewUrl(project.id, lastFrame.path) : lastFrame.path,
+          },
+        },
+        {
+          id: promptId,
+          type: "textNode",
+          position: { x: baseX, y: baseY + 240 },
+          data: {
+            presetId: "MainPromptNode",
+            text: `@${alias} 作为首帧，延续上一段视频的动作和镜头。`,
+            mentionTokens: [
+              {
+                id: `${promptId}-${imageId}`,
+                alias,
+                nodeId: imageId,
+                kind: "image",
+                use: "first_frame",
+              },
+            ],
+          },
+        },
+        {
+          id: modeId,
+          type: "settingsNode",
+          position: { x: baseX, y: baseY + 420 },
+          data: { presetId: "VideoModeNode", value: "first_frame", type: "mode" },
+        },
+        {
+          id: returnLastFrameId,
+          type: "settingsNode",
+          position: { x: baseX, y: baseY + 580 },
+          data: { presetId: "ReturnLastFrameNode", value: "true", type: "return_last_frame" },
+        },
+        {
+          id: payloadId,
+          type: "collectorNode",
+          position: { x: baseX + 360, y: baseY + 80 },
+          data: { presetId: "MultiModalPayloadNode" },
+        },
+        {
+          id: taskId,
+          type: "executorNode",
+          position: { x: baseX + 700, y: baseY + 80 },
+          data: { presetId: "CreateVideoTaskNode" },
+        },
+        {
+          id: resultId,
+          type: "resultNode",
+          position: { x: baseX + 1040, y: baseY + 80 },
+          data: { presetId: "VideoResultNode" },
+        },
+      ]);
+      setEdges((current) => [
+        ...current,
+        { id: `e-${imageId}-${payloadId}`, source: imageId, target: payloadId, ...defaultEdgeOptions },
+        { id: `e-${promptId}-${payloadId}`, source: promptId, target: payloadId, ...defaultEdgeOptions },
+        { id: `e-${modeId}-${payloadId}`, source: modeId, target: payloadId, ...defaultEdgeOptions },
+        { id: `e-${returnLastFrameId}-${payloadId}`, source: returnLastFrameId, target: payloadId, ...defaultEdgeOptions },
+        { id: `e-${payloadId}-${taskId}`, source: payloadId, target: taskId, ...defaultEdgeOptions },
+        { id: `e-${taskId}-${resultId}`, source: taskId, target: resultId, ...defaultEdgeOptions },
+      ]);
+    },
+    [project, reactFlow, references, setEdges, setNodes],
   );
   useEffect(() => {
     const runCommand = (event: Event) => {
@@ -1381,7 +1636,8 @@ function VideoFlowCanvasInner({
     setSelectedEdge(null);
     setEdges((eds) => eds.map((edge) => ({ ...edge, selected: false })));
     setIsCanvasMenuOpen(false);
-  }, [setEdges]);
+    if (isPayloadPanelOpen) setPayloadPanelTab("inspector");
+  }, [isPayloadPanelOpen, setEdges]);
   const onPaneClick = useCallback(() => {
     setSelectedEdge(null);
     setEdges((eds) => eds.map((edge) => ({ ...edge, selected: false })));
@@ -1420,6 +1676,13 @@ function VideoFlowCanvasInner({
     submenuState?.kind === "category"
       ? CATEGORY_GROUPS[submenuState.categoryKey as keyof typeof CATEGORY_GROUPS]
       : null;
+  const selectedNode = nodes.find((node) => node.selected);
+  const selectedNodeReference = selectedNode
+    ? references.find((reference) => reference.nodeId === selectedNode.id)
+    : undefined;
+  const selectedNodeFieldSources = selectedNode
+    ? validationResult.fieldSources.filter((source) => source.nodeId === selectedNode.id)
+    : [];
   return (
     <div
       className="flex h-full w-full bg-surface-app relative"
@@ -1428,6 +1691,7 @@ function VideoFlowCanvasInner({
       <NodeLibraryDrawer
         isOpen={isDrawerOpen}
         project={project}
+        canvasKind={canvasKind}
         onLoaded={(data) => {
           setNodes(data.nodes || []);
           setEdges(data.edges || []);
@@ -1530,13 +1794,20 @@ function VideoFlowCanvasInner({
                   variant="outline"
                   size="sm"
                   className="h-8 max-w-[150px] gap-1.5 overflow-hidden px-2.5 text-xs bg-surface-panel/90 backdrop-blur-md shadow-lg border-border"
-                  onClick={() => setIsPayloadPanelOpen(!isPayloadPanelOpen)}
+                  onClick={() => {
+                    if (isPayloadPanelOpen) {
+                      setIsPayloadPanelOpen(false);
+                      return;
+                    }
+                    setPayloadPanelTab("payload");
+                    setIsPayloadPanelOpen(true);
+                  }}
                 >
                   <Activity className="w-4 h-4 shrink-0 text-brand" />
                   <span className="truncate">
                     {isPayloadPanelOpen ? "收起 Payload" : "检查 Payload"}
                   </span>
-                  {validationResult.errors.length > 0 && (
+                  {validationErrors.length > 0 && (
                     <span className="ml-1.5 w-2 h-2 rounded-full bg-[#b03939]" />
                   )}
                 </Button>
@@ -1563,42 +1834,73 @@ function VideoFlowCanvasInner({
                       Payload 预览与检查
                     </span>
                   </div>
+                  <div className="grid grid-cols-2 gap-1 rounded-lg border border-border-soft bg-surface-app p-1">
+                    <button
+                      type="button"
+                      className={cn(
+                        "rounded-md px-2 py-1.5 text-[11px] font-bold transition-colors",
+                        payloadPanelTab === "payload"
+                          ? "bg-surface-raised text-brand shadow-sm"
+                          : "text-text-subtle hover:text-text",
+                      )}
+                      onClick={() => setPayloadPanelTab("payload")}
+                    >
+                      Payload
+                    </button>
+                    <button
+                      type="button"
+                      className={cn(
+                        "rounded-md px-2 py-1.5 text-[11px] font-bold transition-colors",
+                        payloadPanelTab === "inspector"
+                          ? "bg-surface-raised text-brand shadow-sm"
+                          : "text-text-subtle hover:text-text",
+                      )}
+                      onClick={() => setPayloadPanelTab("inspector")}
+                    >
+                      节点
+                    </button>
+                  </div>
+                  {payloadPanelTab === "payload" && (
                   <div className="flex-1 overflow-y-auto scrollbar-thin flex flex-col gap-3 pr-1">
-                    {validationResult.errors.length > 0 && (
+                    {validationErrors.length > 0 && (
                       <div className="flex flex-col gap-1">
                         <span className="text-[10px] font-bold text-[#b03939]">
                           错误 (阻断执行)
                         </span>
-                        {validationResult.errors.map((err, i) => (
-                          <div
+                        {validationErrors.map((issue, i) => (
+                          <button
                             key={i}
-                            className="text-[10px] bg-[#b03939]/10 border border-[#b03939]/20 text-[#b03939] p-1.5 rounded flex items-start gap-1.5"
+                            type="button"
+                            className="text-left text-[10px] bg-[#b03939]/10 border border-[#b03939]/20 text-[#b03939] p-1.5 rounded flex items-start gap-1.5 hover:border-[#b03939]/50"
+                            onClick={() => issue.nodeId && focusNodeById(issue.nodeId)}
                           >
                             <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" />
-                            <span className="leading-tight">{err}</span>
-                          </div>
+                            <span className="leading-tight">{issue.message}</span>
+                          </button>
                         ))}
                       </div>
                     )}
-                    {validationResult.warnings.length > 0 && (
+                    {validationWarnings.length > 0 && (
                       <div className="flex flex-col gap-1">
                         <span className="text-[10px] font-bold text-yellow-500">
                           警告 (建议修复)
                         </span>
-                        {validationResult.warnings.map((warn, i) => (
-                          <div
+                        {validationWarnings.map((issue, i) => (
+                          <button
                             key={i}
-                            className="text-[10px] bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 p-1.5 rounded flex items-start gap-1.5"
+                            type="button"
+                            className="text-left text-[10px] bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 p-1.5 rounded flex items-start gap-1.5 hover:border-yellow-500/50"
+                            onClick={() => issue.nodeId && focusNodeById(issue.nodeId)}
                           >
                             <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" />
-                            <span className="leading-tight">{warn}</span>
-                          </div>
+                            <span className="leading-tight">{issue.message}</span>
+                          </button>
                         ))}
                       </div>
                     )}
                     {/* Quick Fixes */}
-                    {(validationResult.errors.length > 0 ||
-                      validationResult.warnings.length > 0) && (
+                    {(validationErrors.length > 0 ||
+                      validationWarnings.length > 0) && (
                       <div className="flex flex-wrap gap-1.5 mt-1 pt-2 border-t border-border-soft">
                         <span className="text-[10px] font-bold text-text-subtle w-full mb-0.5">
                           快捷修复:
@@ -1661,7 +1963,7 @@ function VideoFlowCanvasInner({
                       </div>
                     )}
                     <CodeEditorPanel
-                      title="最终 Payload (模拟)"
+                      title="最终 Payload"
                       language="json"
                       value={
                         validationResult.payload
@@ -1672,7 +1974,110 @@ function VideoFlowCanvasInner({
                       maxHeight="240px"
                       className="mt-1"
                     />
+                    {validationResult.fieldSources.length > 0 && (
+                      <div className="flex flex-col gap-1 border-t border-border-soft pt-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-bold text-text-subtle">
+                            字段来源
+                          </span>
+                          <span className="text-[10px] text-text-muted">
+                            {validationResult.fieldSources.length} 项
+                          </span>
+                        </div>
+                        <div className="flex max-h-36 flex-col gap-1 overflow-y-auto pr-1 scrollbar-thin">
+                          {validationResult.fieldSources.map((source, index) => (
+                            <button
+                              key={`${source.path}-${source.nodeId}-${index}`}
+                              type="button"
+                              className="flex shrink-0 items-center justify-between gap-2 rounded border border-border-soft bg-surface-app px-2 py-1 text-left text-[10px] hover:border-brand/40"
+                              onClick={() => {
+                                focusNodeById(source.nodeId);
+                              }}
+                            >
+                              <span className="truncate font-mono text-text-subtle">{source.path}</span>
+                              <span className="truncate text-text">{source.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
+                  )}
+                  {payloadPanelTab === "inspector" && (
+                    <div className="flex-1 overflow-y-auto scrollbar-thin flex flex-col gap-3 pr-1">
+                      {selectedNode ? (
+                        <>
+                          <div className="rounded-lg border border-border-soft bg-surface-app p-2">
+                            <div className="truncate text-xs font-black text-text">
+                              {getPresetById(selectedNode.data.presetId as string)?.label ?? selectedNode.id}
+                            </div>
+                            <div className="mt-0.5 truncate text-[10px] text-text-subtle">
+                              {selectedNode.id}
+                            </div>
+                          </div>
+                          {selectedNodeReference && (
+                            <div className="rounded-lg border border-border-soft bg-surface-app p-2">
+                              <div className="text-[10px] font-bold text-text-subtle">素材引用</div>
+                              <div className="mt-1 flex items-center justify-between gap-2">
+                                <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-black text-brand">
+                                  @{selectedNodeReference.alias}
+                                </span>
+                                <span className="truncate text-[10px] text-text-subtle">
+                                  {selectedNodeReference.relativePath || selectedNodeReference.fileName}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                          {selectedNodeFieldSources.length > 0 && (
+                            <div className="rounded-lg border border-border-soft bg-surface-app p-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-[10px] font-bold text-text-subtle">MCP 字段映射</div>
+                                <span className="text-[10px] text-text-muted">{selectedNodeFieldSources.length} 项</span>
+                              </div>
+                              <div className="mt-1 flex max-h-28 flex-col gap-1 overflow-y-auto pr-1 scrollbar-thin">
+                                {selectedNodeFieldSources.map((source, index) => (
+                                  <div key={`${source.path}-${index}`} className="flex shrink-0 items-center justify-between gap-2 text-[10px]">
+                                    <span className="truncate font-mono text-text-subtle">{source.path}</span>
+                                    <span className="truncate text-text">{source.label}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {selectedNode.data.rawResult !== undefined && (
+                            <div className="flex flex-col gap-2">
+                              {selectedNode.data.presetId === "VideoResultNode" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 text-xs"
+                                  onClick={() => continueFromLastFrame(selectedNode.id)}
+                                >
+                                  尾帧继续生成
+                                </Button>
+                              )}
+                              <CodeEditorPanel
+                                title="Raw Result"
+                                language="json"
+                                value={JSON.stringify(selectedNode.data.rawResult, null, 2)}
+                                maxHeight="180px"
+                              />
+                            </div>
+                          )}
+                          <CodeEditorPanel
+                            title="节点数据"
+                            language="json"
+                            value={JSON.stringify(cleanFlowData(selectedNode.data, transientNodeDataKeys), null, 2)}
+                            maxHeight="180px"
+                          />
+                        </>
+                      ) : (
+                        <div className="rounded-lg border border-dashed border-border-soft bg-surface-app p-4 text-center text-xs text-text-subtle">
+                          选择一个节点后查看节点数据、素材引用和字段映射。
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

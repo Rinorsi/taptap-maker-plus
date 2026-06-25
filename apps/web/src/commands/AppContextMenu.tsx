@@ -1,15 +1,22 @@
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { ChevronRight } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AppCommandContext, Command } from "./types";
 import { formatShortcut } from "./keyboard";
 import { useCommandRegistry } from "./CommandProvider";
+import { requestCommandRun } from "./commandBus";
 import { cn } from "../lib/utils";
-import { notifyContextMenuOpen, shouldUseNativeContextMenu } from "./contextMenuLayer";
+import {
+  closeAllContextMenus,
+  CONTEXT_MENU_CLOSE_EVENT,
+  notifyContextMenuOpen,
+  shouldUseNativeContextMenu,
+} from "./contextMenuLayer";
 import { ContextMenuStyles } from "../components/ui/ContextMenuStyles";
 type AppContextMenuProps = {
   context: AppCommandContext;
   children: ReactNode;
+  triggerClassName?: string;
 };
 
 export type MenuCommandItem = {
@@ -36,8 +43,10 @@ type MenuTemplateItem =
   | { type: "separator"; id: string }
   | { type: "submenu"; id: string; title: string; commandIds: string[] };
 
+type MenuTemplateKey = AppCommandContext["objectType"] | "assetListSelection";
+
 const MENU_TEMPLATES: Partial<
-  Record<AppCommandContext["objectType"], MenuTemplateItem[]>
+  Record<MenuTemplateKey, MenuTemplateItem[]>
 > = {
   global: [
     "app.openCommandPalette",
@@ -112,6 +121,14 @@ const MENU_TEMPLATES: Partial<
     "assetList.moveToDirectory",
     "assetList.addVisibleToSelection",
     { type: "separator", id: "assetList:danger" },
+    "assetList.deleteSelected",
+  ],
+  assetListSelection: [
+    "assetList.cutSelection",
+    "assetList.copySelection",
+    "assetList.copyToDirectory",
+    "assetList.moveToDirectory",
+    { type: "separator", id: "assetListSelection:danger" },
     "assetList.deleteSelected",
   ],
   assetDirectory: [
@@ -231,19 +248,71 @@ const MENU_TEMPLATES: Partial<
   ],
 };
 
-export function AppContextMenu({ context, children }: AppContextMenuProps) {
+export function AppContextMenu({ context, children, triggerClassName }: AppContextMenuProps) {
   const registry = useCommandRegistry();
+  const lastCommandRunRef = useRef<{ commandId: string; at: number } | null>(null);
+  const [open, setOpen] = useState(false);
   const commands = getContextMenuCommands(registry.list(context));
+
+  useEffect(() => {
+    const onClose = () => setOpen(false);
+    window.addEventListener(CONTEXT_MENU_CLOSE_EVENT, onClose);
+    return () => window.removeEventListener(CONTEXT_MENU_CLOSE_EVENT, onClose);
+  }, []);
 
   if (commands.length === 0) return <>{children}</>;
 
-  const primaryMenuItems = buildContextMenuItems(context.objectType, commands);
+  const menuObjectType =
+    context.objectType === "assetList" && context.menuMode === "selection"
+      ? "assetListSelection"
+      : context.objectType;
+  const primaryMenuItems = buildContextMenuItems(menuObjectType, commands);
+
+  function runMenuCommand(command: Command) {
+    const now = Date.now();
+    const lastRun = lastCommandRunRef.current;
+    if (lastRun?.commandId === command.commandId && now - lastRun.at < 120) return;
+    lastCommandRunRef.current = { commandId: command.commandId, at: now };
+    console.debug("[AppContextMenu] run command", command.commandId, context);
+    closeAllContextMenus();
+    window.setTimeout(() => requestCommandRun(command.commandId, context), 0);
+  }
 
   function renderCommandItem(command: Command) {
     return (
       <ContextMenu.Item
         key={command.commandId}
-        onSelect={() => void registry.run(command.commandId, context)}
+        asChild
+        onSelect={(event) => {
+          event.preventDefault();
+          runMenuCommand(command);
+        }}
+      >
+        <button
+          type="button"
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            event.stopPropagation();
+            runMenuCommand(command);
+          }}
+          onMouseDown={(event) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            event.stopPropagation();
+            runMenuCommand(command);
+          }}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            runMenuCommand(command);
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            event.stopPropagation();
+            runMenuCommand(command);
+          }}
         className={cn(
           ContextMenuStyles.item,
           command.danger && "text-red-500 data-[highlighted]:bg-red-500/10 data-[highlighted]:text-red-400"
@@ -263,6 +332,7 @@ export function AppContextMenu({ context, children }: AppContextMenuProps) {
             {formatShortcut(command.shortcut)}
           </span>
         ) : null}
+        </button>
       </ContextMenu.Item>
     );
   }
@@ -304,12 +374,13 @@ export function AppContextMenu({ context, children }: AppContextMenuProps) {
   const submenuTriggerClasses = ContextMenuStyles.item;
 
   return (
-    <ContextMenu.Root modal={false} onOpenChange={(open) => {
-      if (open) notifyContextMenuOpen("radix");
+    <ContextMenu.Root modal={false} open={open} onOpenChange={(nextOpen) => {
+      setOpen(nextOpen);
+      if (nextOpen) notifyContextMenuOpen("radix");
     }}>
       <ContextMenu.Trigger asChild>
         <div
-          className="contents"
+          className={triggerClassName ?? "contents"}
           data-app-context-menu
           onContextMenuCapture={(event) => {
             if (
@@ -373,7 +444,7 @@ function contextMenuTitle(objectType: AppCommandContext["objectType"]) {
 }
 
 export function buildContextMenuItems(
-  objectType: AppCommandContext["objectType"],
+  objectType: MenuTemplateKey,
   commands: Command[],
 ): MenuItem[] {
   const byId = new Map(commands.map((command) => [command.commandId, command]));

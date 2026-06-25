@@ -20,6 +20,7 @@ type Props = {
   onOpenSettings: () => void;
   onSelectProject: (projectId: string) => void;
   onOpenModule: (module: WorkbenchModule) => void;
+  onOpenLogs: () => void;
   onSelect: (selection: InspectorSelection) => void;
   appMenu?: ReactNode;
   searchFocusSignal?: number;
@@ -40,7 +41,7 @@ function isWindowDragTarget(target: EventTarget | null) {
   );
 }
 
-export function TopBar({ project, runtime, notice, toolCount, theme, projects = [], tools = [], assets = [], tasks = [], onThemeToggle, onOpenSettings, onSelectProject, onOpenModule, onSelect, appMenu, searchFocusSignal = 0 }: Props) {
+export function TopBar({ project, runtime, notice, toolCount, theme, projects = [], tools = [], assets = [], tasks = [], onThemeToggle, onOpenSettings, onSelectProject, onOpenModule, onOpenLogs, onSelect, appMenu, searchFocusSignal = 0 }: Props) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -71,7 +72,7 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
       return;
     }
     onSelect({ type: "task", item: result.task });
-    onOpenModule("runs");
+    onOpenLogs();
   }
 
   const runtimeStatus = runtime?.status?.toUpperCase() ?? "IDLE";

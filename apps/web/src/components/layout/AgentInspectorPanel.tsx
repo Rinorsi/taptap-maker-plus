@@ -53,6 +53,17 @@ type Props = {
   videoRecoveryCooldowns?: Record<string, number>;
 };
 
+type TaskStatusFilter = "all" | "running" | "succeeded" | "failed" | "queued" | "canceled";
+
+const taskStatusFilterOptions: Array<{ value: TaskStatusFilter; label: string }> = [
+  { value: "all", label: "全部" },
+  { value: "running", label: "运行中" },
+  { value: "succeeded", label: "成功" },
+  { value: "failed", label: "失败" },
+  { value: "queued", label: "排队" },
+  { value: "canceled", label: "取消" },
+];
+
 export function AgentInspectorPanel({ 
   project, 
   tools, 
@@ -1045,6 +1056,11 @@ function ConsoleTab({
   recoveringVideoTaskId?: string;
   videoRecoveryCooldowns?: Record<string, number>;
 }) {
+  const [statusFilter, setStatusFilter] = useState<TaskStatusFilter>("all");
+  const filteredTasks = useMemo(
+    () => tasks.filter((task) => statusFilter === "all" || task.status === statusFilter),
+    [statusFilter, tasks],
+  );
   const activeTask = selectedTask
     ? tasks.find((task) => task.taskId === selectedTask.taskId) ?? selectedTask
     : undefined;
@@ -1064,11 +1080,35 @@ function ConsoleTab({
 
   return (
     <div className="flex-1 flex flex-col min-h-0 gap-3">
+      <div className="flex shrink-0 gap-1 overflow-x-auto rounded-control border border-border-soft bg-surface-muted p-1 scrollbar-thin">
+        {taskStatusFilterOptions.map((option) => {
+          const count = option.value === "all" ? tasks.length : tasks.filter((task) => task.status === option.value).length;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setStatusFilter(option.value)}
+              className={cn(
+                "flex shrink-0 items-center gap-1 rounded-[4px] px-2 py-1 text-[10px] font-bold transition-colors",
+                statusFilter === option.value
+                  ? "bg-surface-panel text-brand-strong shadow-sm"
+                  : "text-text-subtle hover:bg-surface-panel/70 hover:text-text"
+              )}
+              title={`${option.label} ${count}`}
+            >
+              <span>{option.label}</span>
+              <span className="rounded bg-surface-raised px-1 font-mono text-[9px] text-text-subtle">{count}</span>
+            </button>
+          );
+        })}
+      </div>
       <div className="flex-1 flex flex-col min-h-0 overflow-y-auto pr-1 gap-2 scrollbar-thin">
-          {tasks.length === 0 ? (
-            <div className="text-center py-8 text-xs text-text-muted">暂无任务</div>
+          {filteredTasks.length === 0 ? (
+            <div className="text-center py-8 text-xs text-text-muted">
+              {tasks.length === 0 ? "暂无任务" : "没有匹配当前状态的任务"}
+            </div>
           ) : (
-            tasks.slice(0, 50).map(t => {
+            filteredTasks.slice(0, 50).map(t => {
               const isRunning = t.status === "running";
               const hasErrorInResult = taskHasMcpErrorResult(t);
               const isFailed = isTaskError(t);

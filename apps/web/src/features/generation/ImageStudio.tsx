@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronUp, ImagePlus, RefreshCw, Settings2, Trash2, Wand2, Activity, Layers, X, Loader2, Clock, ImageIcon } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { assetPreviewUrl, type AssetSummary, type ProjectSummary, type TaskRecord, type ToolSummary } from "../../api";
@@ -25,6 +25,14 @@ type Props = {
   onDeleteAssets: (relativePaths: string[]) => Promise<void>;
   onMoveAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
   onCopyAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
+  onRenameAsset: (relativePath: string, newName: string) => Promise<void>;
+  onRenameDirectory: (directoryPath: string, newName: string) => Promise<void>;
+  onMoveDirectory: (directoryPath: string, targetFolder: string) => Promise<void>;
+  onCopyDirectory: (directoryPath: string, targetFolder: string) => Promise<void>;
+  onDeleteDirectory: (directoryPath: string) => Promise<void>;
+  onCreateFolder: (parentFolder: string) => Promise<void>;
+  onOpenLocalPath: (relativePath: string, mode: "file" | "directory") => Promise<void>;
+  onScanReferences: (relativePaths: string[]) => Promise<void>;
   onImportAssets: (files: File[], targetFolder: string) => Promise<void>;
 };
 
@@ -85,6 +93,14 @@ export function ImageStudio({
   onDeleteAssets,
   onMoveAssets,
   onCopyAssets,
+  onRenameAsset,
+  onRenameDirectory,
+  onMoveDirectory,
+  onCopyDirectory,
+  onDeleteDirectory,
+  onCreateFolder,
+  onOpenLocalPath,
+  onScanReferences,
   onImportAssets
 }: Props) {
   const [mode, setMode] = useState<ImageMode>("generate");
@@ -104,6 +120,8 @@ export function ImageStudio({
   const [viewTab, setViewTab] = useState<"preview" | "manage">("preview");
   const [lightboxAsset, setLightboxAsset] = useState<AssetSummary | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [leftPanelWidth, setLeftPanelWidth] = useState(420);
+  const resizeStartRef = useRef<{ pointerX: number; width: number } | null>(null);
 
   const generateTool = useMemo(() => tools.find((tool) => tool.name === "generate_image"), [tools]);
   const batchTool = useMemo(() => tools.find((tool) => tool.name === "batch_generate_images"), [tools]);
@@ -229,6 +247,24 @@ export function ImageStudio({
     if (displayAsset) setEditSourceImage(displayAsset.relativePath);
   }
 
+  function startPanelResize(event: React.PointerEvent<HTMLButtonElement>) {
+    resizeStartRef.current = { pointerX: event.clientX, width: leftPanelWidth };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function resizePanels(event: React.PointerEvent<HTMLButtonElement>) {
+    const start = resizeStartRef.current;
+    if (!start) return;
+    const nextWidth = Math.min(620, Math.max(280, start.width + event.clientX - start.pointerX));
+    setLeftPanelWidth(nextWidth);
+  }
+
+  function stopPanelResize(event: React.PointerEvent<HTMLButtonElement>) {
+    if (!resizeStartRef.current) return;
+    resizeStartRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
   return (
     <div className="flex flex-col gap-5 p-6 h-full min-h-0 w-full max-w-[1600px] mx-auto relative">
       <StudioHeader
@@ -246,10 +282,13 @@ export function ImageStudio({
       />
 
       {(mode === "generate" || mode === "batch" || mode === "edit") && (
-        <div className="flex-1 flex gap-5 min-h-0 relative">
+          <div className="flex-1 flex gap-3 min-h-0 relative">
 
           {/* Left Parameters Panel */}
-          <div className="w-[280px] md:w-[320px] lg:w-[360px] xl:w-[420px] shrink-0 relative rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] flex flex-col min-h-0">
+          <div
+            className="shrink-0 relative rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] flex flex-col min-h-0"
+            style={{ width: leftPanelWidth }}
+          >
             {/* The Glass Layer with mask-image to fix Chromium bug */}
             <div className="absolute inset-0 bg-surface-app/40 backdrop-blur-2xl border border-white/5 rounded-3xl overflow-hidden [mask-image:linear-gradient(white,white)] pointer-events-none" />
 
@@ -303,7 +342,7 @@ export function ImageStudio({
         />
       )}
 
-    <div className={cn("grid gap-4", mode === "batch" ? "grid-cols-1" : "grid-cols-2")}>
+    <div className={cn("grid gap-4", mode === "batch" || leftPanelWidth < 380 ? "grid-cols-1" : "grid-cols-2")}>
       {mode !== "batch" && (
         <div className="flex flex-col gap-2">
           <Label htmlFor="name" className="text-xs font-bold text-text-muted">资源名称</Label>
@@ -345,7 +384,7 @@ export function ImageStudio({
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="grid grid-cols-2 gap-5 pt-5 pb-2">
+            <div className={cn("grid gap-5 pt-5 pb-2", leftPanelWidth < 430 ? "grid-cols-1" : "grid-cols-2")}>
               <StudioSelectField label="输出分辨率" value={resolution} onChange={(v) => setResolution(v as ResolutionValue)} options={resolutionOptions} />
               <StudioSelectField label="长宽比" value={aspectRatio} onChange={(ratio) => {
                 setAspectRatio(ratio);
@@ -368,7 +407,7 @@ export function ImageStudio({
               </div>
 
               {mode !== "edit" && (
-              <div className="col-span-2 flex flex-col gap-2 pt-2">
+              <div className={cn("flex flex-col gap-2 pt-2", leftPanelWidth < 430 ? "col-span-1" : "col-span-2")}>
                 <Label className="text-xs font-bold text-text-subtle flex items-center justify-between">
                   <span>附加参考图</span>
                   {referenceImage && <button type="button" className="text-[10px] text-brand hover:text-brand-strong bg-brand/10 px-2 py-0.5 rounded-full transition-colors" onClick={() => setReferenceImage("")}>清除</button>}
@@ -392,11 +431,11 @@ export function ImageStudio({
   </div>
 
   <div className="flex flex-col gap-4 p-6 pt-5 border-t border-white/5 bg-surface-panel/40 shrink-0 relative z-10 rounded-b-3xl">
-    <div className="flex items-end justify-between gap-4">
+    <div className={cn("flex gap-4", leftPanelWidth < 390 ? "flex-col items-stretch" : "items-end justify-between")}>
       <div className="flex-1">
         <StudioSelectField label="生成模型" value={model} onChange={(v) => setModel(v as ImageModelValue)} options={modelOptions} />
       </div>
-      <div className="shrink-0 mb-0.5">
+      <div className={cn("shrink-0", leftPanelWidth < 390 ? "" : "mb-0.5")}>
          <button type="button" onClick={() => setTransparent(!transparent)} className={cn("inline-flex items-center gap-2 rounded-xl border-2 h-10 px-4 text-[13px] font-bold transition-all", transparent ? "bg-brand/10 border-brand text-brand-strong" : "bg-surface-raised border-transparent text-text-muted hover:bg-surface-panel hover:text-text")}>
             <div className={cn("w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors", transparent ? "border-brand bg-brand text-[#04202a]" : "border-text-muted")}>
               {transparent && <Check className="w-2.5 h-2.5" />}
@@ -422,8 +461,22 @@ export function ImageStudio({
   </div>
             </div>
           </div>
+          <button
+            type="button"
+            aria-label="调整左右面板宽度"
+            title="拖动调整宽度，双击恢复默认"
+            className="group relative flex w-3 shrink-0 cursor-col-resize items-stretch justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+            onPointerDown={startPanelResize}
+            onPointerMove={resizePanels}
+            onPointerUp={stopPanelResize}
+            onPointerCancel={stopPanelResize}
+            onDoubleClick={() => setLeftPanelWidth(420)}
+          >
+            <span className="my-4 w-px rounded-full bg-border-soft transition-colors group-hover:bg-brand/60 group-active:bg-brand" />
+            <span className="absolute left-1/2 top-1/2 h-10 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-surface-raised opacity-0 shadow-sm ring-1 ring-border-soft transition-opacity group-hover:opacity-100 group-active:opacity-100" />
+          </button>
           {/* Right Gallery & File Manager Panel */}
-          <div className="flex-1 bg-surface-panel border border-border rounded-large flex flex-col min-h-0 overflow-hidden shadow-sm">
+          <div className="min-w-0 flex-1 bg-surface-panel border border-border rounded-large flex flex-col min-h-0 overflow-hidden shadow-sm">
             <div className="px-4 py-2.5 border-b border-border flex items-center justify-between gap-4 shrink-0 bg-surface-raised/40">
               <div className="flex p-1 bg-surface-app border border-border-soft rounded-lg shadow-inner shrink-0">
                 <button onClick={() => setViewTab("preview")} className={cn("px-3 py-1 text-[11px] font-bold rounded transition-all", viewTab === "preview" ? "bg-surface-raised shadow-sm text-text border border-border-soft" : "text-text-subtle hover:text-text")}>预览</button>
@@ -512,6 +565,14 @@ export function ImageStudio({
                   onDeleteAssets={onDeleteAssets}
                   onMoveAssets={onMoveAssets}
                   onCopyAssets={onCopyAssets}
+                  onRenameAsset={onRenameAsset}
+                  onRenameDirectory={onRenameDirectory}
+                  onMoveDirectory={onMoveDirectory}
+                  onCopyDirectory={onCopyDirectory}
+                  onDeleteDirectory={onDeleteDirectory}
+                  onCreateFolder={onCreateFolder}
+                  onOpenLocalPath={onOpenLocalPath}
+                  onScanReferences={onScanReferences}
                   onSelectAsset={(asset) => {
                     onSelectAsset?.(asset);
                     setLightboxAsset(asset);

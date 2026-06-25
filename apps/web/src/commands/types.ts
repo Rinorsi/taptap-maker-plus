@@ -20,16 +20,21 @@ export type CommandScope =
 export type AppCommandContext =
   | { objectType: "global" }
   | { objectType: "project"; projectId: string }
-  | { objectType: "asset"; relativePath: string }
+  | { objectType: "asset"; relativePath: string; panelId?: string }
   | {
       objectType: "assetList";
+      panelId?: string;
       visiblePaths: string[];
       selectedPaths: string[];
+      visibleDirectoryPaths?: string[];
+      selectedDirectoryPaths?: string[];
       primaryPath?: string;
+      primaryDirectoryPath?: string;
       currentDirectoryPath?: string;
       canPaste?: boolean;
+      menuMode?: "blank" | "selection";
     }
-  | { objectType: "assetDirectory"; directoryPath: string }
+  | { objectType: "assetDirectory"; directoryPath: string; panelId?: string }
   | { objectType: "task"; taskId: string }
   | { objectType: "mcpTool"; toolName: string }
   | { objectType: "workflowCanvas" }

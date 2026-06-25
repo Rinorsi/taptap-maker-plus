@@ -950,30 +950,15 @@ export function AssetManagerPanel({
       <div ref={containerRef} className="flex min-h-0 flex-1 flex-col overflow-hidden relative">
         <div className="shrink-0 border-b border-border bg-surface-panel px-3 py-2 flex flex-col gap-2">
           
-          {/* Top Row: Directory & Actions */}
+          {/* Top Row: Search & Actions */}
           <div className="flex items-center justify-between gap-2 w-full">
-            {!isNarrow && (
-              <div className="flex flex-1 items-center min-w-0">
-                {!toolbarSlot && activeNode.parentPath ? (
-                  <button
-                    type="button"
-                    className="mr-1 shrink-0 rounded px-1.5 py-1 text-[11px] font-bold text-text-muted hover:bg-surface-raised hover:text-brand"
-                    onClick={() => selectDirectoryPath(activeNode.parentPath)}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => handleDropOnDirectory(event, activeNode.parentPath)}
-                    title={`返回 ${activeNode.parentPath}`}
-                  >
-                    上一级
-                  </button>
-                ) : null}
-                <Breadcrumb
-                  panelId={panelId}
-                  path={activeNode.path}
-                  onSelectPath={(path) => selectDirectory(directories.find((directory) => directory.path === path) ?? tree)}
-                  onDropOnPath={(event, path) => handleDropOnDirectory(event, path)}
-                />
-              </div>
-            )}
+            <div className="min-w-0 flex-1">
+              <StudioSearchInput
+                value={query}
+                onChange={setQuery}
+                className={cn("w-full", isNarrow ? "min-w-0" : "sm:max-w-[320px]")}
+              />
+            </div>
             <div className="ml-auto flex shrink-0 items-center gap-1">
               <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border-soft bg-surface-muted p-0.5 ml-1 hidden sm:flex">
                 <button type="button" title="网格视图" className={cn("rounded-[4px] p-1.5 transition-colors", view === "grid" ? "bg-surface-panel text-text shadow-sm" : "text-text-muted hover:text-text")} onClick={() => setView("grid")}>
@@ -999,7 +984,7 @@ export function AssetManagerPanel({
             </div>
           </div>
 
-          {/* Bottom Row: Search, Filters & Bulk Actions */}
+          {/* Bottom Row: Directory, Filters & Bulk Actions */}
           <div className={cn(toolbarSlot ? "w-full min-h-[32px]" : "relative min-h-[28px] w-full")}>
             <AnimatePresence mode="wait">
               {selectedItems.length > 0 ? (
@@ -1068,9 +1053,30 @@ export function AssetManagerPanel({
                     "flex flex-1 items-center gap-2 min-w-0 overflow-hidden",
                     toolbarSlot && "gap-2 overflow-x-auto whitespace-nowrap scrollbar-thin",
                   )}>
-                    {!toolbarSlot && isNarrow && (
+                    {isNarrow ? (
                       <div className="flex shrink-0 items-center mr-3 border-r border-border pr-3">
-                        {activeNode.parentPath ? (
+                        {!toolbarSlot && activeNode.parentPath ? (
+                          <button
+                            type="button"
+                            className="mr-1 shrink-0 rounded px-1.5 py-1 text-[11px] font-bold text-text-muted hover:bg-surface-raised hover:text-brand"
+                            onClick={() => selectDirectoryPath(activeNode.parentPath)}
+                            onDragOver={(event) => event.preventDefault()}
+                            onDrop={(event) => handleDropOnDirectory(event, activeNode.parentPath)}
+                            title={`返回 ${activeNode.parentPath}`}
+                          >
+                            上一级
+                          </button>
+                        ) : null}
+                        <Breadcrumb
+                          panelId={panelId}
+                          path={activeNode.path}
+                          onSelectPath={(path) => selectDirectory(directories.find((directory) => directory.path === path) ?? tree)}
+                          onDropOnPath={(event, path) => handleDropOnDirectory(event, path)}
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex min-w-0 shrink items-center overflow-hidden">
+                        {!toolbarSlot && activeNode.parentPath ? (
                           <button
                             type="button"
                             className="mr-1 shrink-0 rounded px-1.5 py-1 text-[11px] font-bold text-text-muted hover:bg-surface-raised hover:text-brand"
@@ -1106,16 +1112,6 @@ export function AssetManagerPanel({
                         <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[9px] font-bold text-text-subtle">{tree.totalAssetCount}</span>
                       </Button>
                     ) : null}
-
-                    <StudioSearchInput
-                      value={query}
-                      onChange={setQuery}
-                      className={cn(
-                        "min-w-[140px] shrink-0",
-                        toolbarSlot ? "w-full sm:max-w-[260px]" : "w-[160px] sm:w-[280px]",
-                        isNarrow && "min-w-0 flex-1",
-                      )}
-                    />
 
                     {!toolbarSlot ? typeFilterContent : null}
                   </div>

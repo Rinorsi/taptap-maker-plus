@@ -17,6 +17,8 @@ import { Label } from "../../components/ui/Label";
 import { FileTypeChips, SelectionBox, StatusBadge, StudioBulkActionBar, StudioMediaDropzone, StudioModeButton, StudioSelectField } from "../../components/studio/StudioKit";
 import { collectBatchModelGovernanceActions, managedAssetRoots, modelGovernanceCategoryLabels, modelGovernanceCategoryOrder, modelGovernanceLabels, modelGovernanceTones, modelPackageBelongsToGovernanceCategory, type BatchModelGovernanceAction } from "../assets/assetGovernance";
 import { cn } from "../../lib/utils";
+import { TaskProgressBar } from "../../components/studio/TaskProgressBar";
+import { calculateAverageDuration } from "../../lib/taskStats";
 
 function clampFaceLimit(value: string) {
   const parsed = Number.parseInt(value, 10);
@@ -147,6 +149,7 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
   const [mdlConverting, setMdlConverting] = useState(false);
   const [mdlError, setMdlError] = useState<string | null>(null);
   const [mdlPreview, setMdlPreview] = useState<{ sourcePath: string; gltfPath: string; version: number } | null>(null);
+  const [elapsedTime, setElapsedTime] = useState(0);
 
   const activeModelPackage = useMemo(() => packages.find(p => p.id === selectedIds[0]), [packages, selectedIds]);
   const displayAssetPath = useMemo(() => {
@@ -211,6 +214,19 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
     if (!onImportAssets || files.length === 0) return;
     void onImportAssets(files, managedAssetRoots.modelReferences).then(() => onScanAssets());
   }
+
+  useEffect(() => {
+    if (!activeGenerationTask) {
+      setElapsedTime(0);
+      return;
+    }
+    const start = new Date(activeGenerationTask.startedAt).getTime();
+    setElapsedTime(Math.floor((Date.now() - start) / 1000));
+    const interval = setInterval(() => {
+      setElapsedTime(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [activeGenerationTask]);
 
   useEffect(() => {
     if (!project || !displayAssetPath?.toLowerCase().endsWith(".mdl")) {
@@ -437,6 +453,14 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
           
           {/* Bottom Action Area */}
           <div className="flex flex-col gap-2 border-t border-white/5 bg-surface-panel/40 p-4 backdrop-blur-md shrink-0 relative z-10">
+            {activeGenerationTask && (
+              <TaskProgressBar
+                elapsedSeconds={elapsedTime}
+                estimatedSeconds={calculateAverageDuration(tasks, "create_3d_model_task") ?? 120}
+                status={activeGenerationTask.status as "queued" | "running"}
+              />
+            )}
+
             <div className="flex items-center gap-3 w-full">
               <div className="flex shrink-0 items-center gap-1.5" title="面数限制 48-20000。积分/价格以 MCP 返回的 raw result 为准。">
                 <Label className="text-[11px] font-bold text-text whitespace-nowrap">面数限制</Label>

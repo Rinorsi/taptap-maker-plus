@@ -11,6 +11,12 @@ const requiredRuntimePaths = [
   "apps/web/dist"
 ];
 
+const bundledReadOnlyPaths = [
+  "docs/help",
+  "docs/templates",
+  "docs/workflow-templates"
+];
+
 function run(command, args) {
   const usesCmdShim = process.platform === "win32" && command === "npm";
   const executable = usesCmdShim ? "cmd.exe" : command;
@@ -50,6 +56,10 @@ for (const relativePath of requiredRuntimePaths) {
   copyRelative(relativePath);
 }
 
+for (const relativePath of bundledReadOnlyPaths) {
+  copyRelative(relativePath);
+}
+
 const dependencyPaths = run("npm", ["ls", "--workspace", "@taptap/server", "--omit=dev", "--parseable", "--all"])
   .split(/\r?\n/)
   .map((line) => line.trim())
@@ -63,5 +73,6 @@ for (const dependencyPath of dependencyPaths) {
 console.log(JSON.stringify({
   ok: true,
   outputRoot: path.relative(workspaceRoot, outputRoot).replaceAll(path.sep, "/"),
-  dependencies: dependencyPaths.length
+  dependencies: dependencyPaths.length,
+  bundledReadOnlyPaths
 }, null, 2));

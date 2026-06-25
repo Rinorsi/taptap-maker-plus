@@ -9,6 +9,8 @@ import { StudioHeader, StudioPromptField, StudioSelectField } from "../../compon
 import { AssetManagerPanel } from "../assets/AssetManagerPanel";
 import { defaultAssetImportFolders, defaultMusicAssetName, managedAssetRoots } from "../assets/assetGovernance";
 import { cn } from "../../lib/utils";
+import { TaskProgressBar } from "../../components/studio/TaskProgressBar";
+import { calculateAverageDuration } from "../../lib/taskStats";
 
 type Props = {
   project?: ProjectSummary;
@@ -358,6 +360,14 @@ export function MusicStudio({
           </div>
 
           <div className="p-6 bg-surface-raised/40 border-t border-white/5 shrink-0 relative z-10 flex flex-col gap-4 rounded-b-3xl">
+             {activeGenerationTask && (
+               <TaskProgressBar
+                 elapsedSeconds={elapsedTime}
+                 estimatedSeconds={calculateAverageDuration(tasks, "text_to_music") ?? 60}
+                 status={activeGenerationTask.status as "queued" | "running"}
+               />
+             )}
+
              {/* Bottom Bar Options */}
              <div className="grid grid-cols-2 gap-4 w-full">
                <div className="col-span-1">

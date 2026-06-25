@@ -41,6 +41,8 @@ import {
 } from "../assets/assetGovernance";
 import { cn } from "../../lib/utils";
 import type { AppCommandContext } from "../../commands";
+import { TaskProgressBar } from "../../components/studio/TaskProgressBar";
+import { calculateAverageDuration } from "../../lib/taskStats";
 
 type Props = {
   project?: ProjectSummary;
@@ -205,6 +207,18 @@ function readVideoTaskStatuses(rawResultJson: string) {
 
 function pushStatus(statuses: string[], value: unknown) {
   if (typeof value === "string") statuses.push(value);
+}
+
+function getVideoTaskPhase(rawResultJson?: string): string {
+  if (!rawResultJson) return "排队中";
+  const statuses = readVideoTaskStatuses(rawResultJson);
+  for (const status of statuses) {
+    const lower = status.toLowerCase();
+    if (lower.includes("rendering") || lower.includes("render")) return "渲染中";
+    if (lower.includes("processing") || lower.includes("process")) return "处理中";
+    if (lower.includes("queued") || lower.includes("queue")) return "排队中";
+  }
+  return "运行中";
 }
 
 function defaultVideoName() {
@@ -963,28 +977,12 @@ export function VideoStudio({
                             正在调度视频生成任务，请耐心等待...
                           </p>
 
-                          <div className="w-full bg-surface-raised rounded-2xl p-6 shadow-inner border border-white/5 relative overflow-hidden">
-                            <div className="flex items-center justify-between mb-3">
-                              <div className="flex items-center gap-2 text-brand">
-                                <Clock className="w-4 h-4" />
-                                <span className="text-sm font-bold">
-                                  已用时: {elapsedTime} 秒
-                                </span>
-                              </div>
-                              <span className="text-xs font-bold text-text-muted">
-                                预计 180 秒
-                              </span>
-                            </div>
-
-                            <div className="h-2 w-full bg-surface-app rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-brand transition-all ease-linear duration-1000"
-                                style={{
-                                  width: `${Math.min(100, (elapsedTime / 180) * 100)}%`,
-                                }}
-                              ></div>
-                            </div>
-                          </div>
+                          <TaskProgressBar
+                            elapsedSeconds={elapsedTime}
+                            estimatedSeconds={calculateAverageDuration(tasks, activeGenerationTask.toolName) ?? 180}
+                            status={activeGenerationTask.status as "queued" | "running"}
+                            phase={getVideoTaskPhase(activeGenerationTask.rawResultJson)}
+                          />
                         </div>
                       ) : displayAsset ? (
                         <div className="flex flex-col items-center max-w-full w-full mt-4">

@@ -26,6 +26,8 @@ export type AppCommandContext =
       visiblePaths: string[];
       selectedPaths: string[];
       primaryPath?: string;
+      currentDirectoryPath?: string;
+      canPaste?: boolean;
     }
   | { objectType: "assetDirectory"; directoryPath: string }
   | { objectType: "task"; taskId: string }

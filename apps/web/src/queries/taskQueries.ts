@@ -26,5 +26,17 @@ export function useClearTasksMutation() {
 }
 
 export function activeTaskRefetchInterval(tasks?: TaskRecord[]) {
-  return tasks?.some((task) => task.status === "queued" || task.status === "running") ? 5_000 : false;
+  const activeTasks = tasks?.filter((task) => task.status === "queued" || task.status === "running");
+  if (!activeTasks?.length) return false;
+
+  // 计算最早的活跃任务已运行时长
+  const now = Date.now();
+  const earliestStartTime = Math.min(...activeTasks.map((task) => new Date(task.startedAt).getTime()));
+  const elapsed = now - earliestStartTime;
+
+  // 指数退避：5s -> 10s -> 20s -> 30s（最大）
+  if (elapsed < 30_000) return 5_000;   // 0-30秒：5秒
+  if (elapsed < 120_000) return 10_000; // 30秒-2分钟：10秒
+  if (elapsed < 300_000) return 20_000; // 2-5分钟：20秒
+  return 30_000;                         // >5分钟：30秒
 }

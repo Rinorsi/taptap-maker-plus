@@ -188,7 +188,7 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
         </div>
         
         <Button variant="ghost" size="icon" onClick={onThemeToggle} title="切换主题">
-          {theme === "light" ? <Moon className="w-[18px] h-[18px]" /> : <Sun className="w-[18px] h-[18px]" />}
+          <ThemeToggleIcon theme={theme} />
         </Button>
         
         <Button variant="ghost" size="icon" onClick={onOpenSettings} title="设置">
@@ -197,6 +197,62 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
         <DesktopWindowControls />
       </div>
     </header>
+  );
+}
+
+function ThemeToggleIcon({ theme }: { theme: "light" | "dark" }) {
+  const isDark = theme === "dark";
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{
+        transform: isDark ? "rotate(-90deg)" : "rotate(0deg)",
+        transition: "transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)"
+      }}
+    >
+      <mask id="moon-mask-topbar">
+        <rect x="0" y="0" width="100%" height="100%" fill="white" />
+        <circle
+          cx={isDark ? "12" : "25"}
+          cy={isDark ? "4" : "0"}
+          r="6"
+          fill="black"
+          style={{ transition: "cx 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), cy 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)" }}
+        />
+      </mask>
+      <circle
+        cx="12"
+        cy="12"
+        r={isDark ? "9" : "5"}
+        fill="currentColor"
+        mask="url(#moon-mask-topbar)"
+        style={{ transition: "r 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)" }}
+      />
+      <g
+        style={{
+          opacity: isDark ? 0 : 1,
+          transform: isDark ? "scale(0.5)" : "scale(1)",
+          transformOrigin: "center",
+          transition: "opacity 0.5s ease, transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)"
+        }}
+      >
+        <line x1="12" y1="1" x2="12" y2="3" />
+        <line x1="12" y1="21" x2="12" y2="23" />
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+        <line x1="1" y1="12" x2="3" y2="12" />
+        <line x1="21" y1="12" x2="23" y2="12" />
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+      </g>
+    </svg>
   );
 }
 

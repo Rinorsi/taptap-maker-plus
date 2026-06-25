@@ -1,21 +1,65 @@
+import { lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import type { AgentPageState, AssetSummary, ProjectSummary, RuntimeSummary, TaskRecord, ToolSummary } from "../../api";
+import type { AgentPageState, AssetDirectoryNode, AssetMutationResponse, AssetSummary, ProjectSummary, RuntimeSummary, TaskRecord, ToolSummary } from "../../api";
 import type { InspectorSelection } from "./AgentInspectorPanel";
 import type { WorkbenchModule } from "../../app/routes";
 import type { AppCommandContext } from "../../commands";
-import { ProjectOverview } from "../../features/projects/ProjectOverview";
-import { WelcomeView } from "../../features/projects/WelcomeView";
-import { AssetHub } from "../../features/assets/AssetHub";
-import { ToolStudio } from "../../features/generation/ToolStudio";
-import { ImageStudio } from "../../features/generation/ImageStudio";
-import { VideoStudio } from "../../features/generation/VideoStudio";
-import { RunsView } from "../../features/runs/RunsView";
-import { SettingsView } from "../../features/settings/SettingsView";
-import { BuildCenter } from "../../features/build/BuildCenter";
-import { WorkflowCanvas } from "../../features/workflow/WorkflowCanvas";
-import { MusicStudio } from "../../features/generation/MusicStudio";
-import { Model3DStudio } from "../../features/generation/Model3DStudio";
-import { AgentContextView } from "../../features/agent/AgentContextView";
+
+const WelcomeView = lazy(() =>
+  import("../../features/projects/WelcomeView").then((module) => ({
+    default: module.WelcomeView,
+  })),
+);
+const AssetHub = lazy(() =>
+  import("../../features/assets/AssetHub").then((module) => ({
+    default: module.AssetHub,
+  })),
+);
+const ImageStudio = lazy(() =>
+  import("../../features/generation/ImageStudio").then((module) => ({
+    default: module.ImageStudio,
+  })),
+);
+const VideoStudio = lazy(() =>
+  import("../../features/generation/VideoStudio").then((module) => ({
+    default: module.VideoStudio,
+  })),
+);
+const MusicStudio = lazy(() =>
+  import("../../features/generation/MusicStudio").then((module) => ({
+    default: module.MusicStudio,
+  })),
+);
+const Model3DStudio = lazy(() =>
+  import("../../features/generation/Model3DStudio").then((module) => ({
+    default: module.Model3DStudio,
+  })),
+);
+const WorkflowCanvas = lazy(() =>
+  import("../../features/workflow/WorkflowCanvas").then((module) => ({
+    default: module.WorkflowCanvas,
+  })),
+);
+const BuildCenter = lazy(() =>
+  import("../../features/build/BuildCenter").then((module) => ({
+    default: module.BuildCenter,
+  })),
+);
+const RunsView = lazy(() =>
+  import("../../features/runs/RunsView").then((module) => ({
+    default: module.RunsView,
+  })),
+);
+const AgentContextView = lazy(() =>
+  import("../../features/agent/AgentContextView").then((module) => ({
+    default: module.AgentContextView,
+  })),
+);
+const SettingsView = lazy(() =>
+  import("../../features/settings/SettingsView").then((module) => ({
+    default: module.SettingsView,
+  })),
+);
 
 type Props = {
   activeModule: WorkbenchModule;
@@ -23,6 +67,7 @@ type Props = {
   runtime?: RuntimeSummary;
   tools: ToolSummary[];
   assets: AssetSummary[];
+  assetTree?: AssetDirectoryNode;
   tasks: TaskRecord[];
   statusText: string;
   busy: boolean;
@@ -32,7 +77,17 @@ type Props = {
   onMoveAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
   onCopyAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
   onRenameAsset: (relativePath: string, newName: string) => Promise<void>;
+  onRenameDirectory: (directoryPath: string, newName: string) => Promise<void>;
+  onMoveDirectory: (directoryPath: string, targetFolder: string) => Promise<void>;
+  onCopyDirectory: (directoryPath: string, targetFolder: string) => Promise<void>;
+  onDeleteDirectory: (directoryPath: string) => Promise<void>;
+  onOpenLocalAssetPath: (relativePath: string, mode: "file" | "directory") => Promise<void>;
   onImportAssets: (files: File[], targetFolder: string) => Promise<void>;
+  onCreateFolder: (parentFolder: string) => Promise<void>;
+  onConfirmReferenceMutation: (relativePaths: string[], actionLabel: string, allowUpdateReferences: boolean) => Promise<"update" | "skip" | "cancel">;
+  onAssetMutationResult: (prefix: string, result: AssetMutationResponse) => void;
+  onScanAssetReferences: (relativePaths: string[]) => Promise<void>;
+  onNotice: (notice: string) => void;
   onCallStatusLite: () => void;
   onCallTool: (toolName: string, args: Record<string, unknown>) => Promise<unknown>;
   onSelect: (selection: InspectorSelection) => void;
@@ -47,6 +102,153 @@ type Props = {
 };
 
 export function WorkbenchViewport(props: Props) {
+  const moduleView = (
+    <>
+      {props.activeModule === "home" ? (
+        <WelcomeView
+          projects={props.projects}
+          onSelectProject={props.onSelectProject}
+          onScanProjects={props.onScanProjects}
+          onOpenModule={props.onOpenModule}
+          busy={props.busy}
+        />
+      ) : null}
+      {props.activeModule === "assets" ? (
+        <AssetHub
+          project={props.project}
+          assets={props.assets}
+          assetTree={props.assetTree}
+          onScanAssets={props.onScanAssets}
+          onDeleteAssets={props.onDeleteAssets}
+          onMoveAssets={props.onMoveAssets}
+          onCopyAssets={props.onCopyAssets}
+          onRenameAsset={props.onRenameAsset}
+          onRenameDirectory={props.onRenameDirectory}
+          onMoveDirectory={props.onMoveDirectory}
+          onCopyDirectory={props.onCopyDirectory}
+          onDeleteDirectory={props.onDeleteDirectory}
+          onOpenLocalPath={props.onOpenLocalAssetPath}
+          onImportAssets={props.onImportAssets}
+          onCreateFolder={props.onCreateFolder}
+          onConfirmReferenceMutation={props.onConfirmReferenceMutation}
+          onAssetMutationResult={props.onAssetMutationResult}
+          onScanReferences={props.onScanAssetReferences}
+          onNotice={props.onNotice}
+          onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })}
+        />
+      ) : null}
+      {props.activeModule === "studio-image" ? (
+        <ImageStudio
+          project={props.project}
+          tools={props.tools}
+          assets={props.assets}
+          tasks={props.tasks}
+          busy={props.busy}
+          onCallTool={props.onCallTool}
+          onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })}
+          onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })}
+          onScanAssets={props.onScanAssets}
+          onDeleteAssets={props.onDeleteAssets}
+          onMoveAssets={props.onMoveAssets}
+          onCopyAssets={props.onCopyAssets}
+          onImportAssets={props.onImportAssets}
+        />
+      ) : null}
+      {props.activeModule === "studio-video" ? (
+        <VideoStudio
+          project={props.project}
+          tools={props.tools}
+          assets={props.assets}
+          tasks={props.tasks}
+          busy={props.busy}
+          onCallTool={props.onCallTool}
+          onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })}
+          onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })}
+          onScanAssets={props.onScanAssets}
+          onDeleteAssets={props.onDeleteAssets}
+          onMoveAssets={props.onMoveAssets}
+          onCopyAssets={props.onCopyAssets}
+          onRenameAsset={props.onRenameAsset}
+          onImportAssets={props.onImportAssets}
+          onCollapseSidebar={props.onCollapseSidebar}
+          onShowError={props.onShowError}
+          onCommandContextChange={props.onCanvasCommandContextChange}
+        />
+      ) : null}
+      {props.activeModule === "studio-music" ? (
+        <MusicStudio
+          project={props.project}
+          tools={props.tools}
+          assets={props.assets}
+          tasks={props.tasks}
+          busy={props.busy}
+          onCallTool={props.onCallTool}
+          onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })}
+          onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })}
+          onScanAssets={props.onScanAssets}
+          onDeleteAssets={props.onDeleteAssets}
+          onMoveAssets={props.onMoveAssets}
+          onCopyAssets={props.onCopyAssets}
+          onRenameAsset={props.onRenameAsset}
+          onImportAssets={props.onImportAssets}
+        />
+      ) : null}
+      {props.activeModule === "studio-3d" ? (
+        <Model3DStudio
+          project={props.project}
+          tools={props.tools}
+          assets={props.assets}
+          tasks={props.tasks}
+          busy={props.busy}
+          onCallTool={props.onCallTool}
+          onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })}
+          onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })}
+          onScanAssets={props.onScanAssets}
+          onDeleteAssets={props.onDeleteAssets}
+          onMoveAssets={props.onMoveAssets}
+          onRenameAsset={props.onRenameAsset}
+          onImportAssets={props.onImportAssets}
+        />
+      ) : null}
+      {props.activeModule === "workflow" ? (
+        <WorkflowCanvas
+          project={props.project}
+          tools={props.tools}
+          tasks={props.tasks}
+          onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })}
+          onCommandContextChange={props.onCanvasCommandContextChange}
+        />
+      ) : null}
+      {props.activeModule === "build" ? (
+        <BuildCenter
+          project={props.project}
+          runtime={props.runtime}
+          tools={props.tools}
+          tasks={props.tasks}
+          busy={props.busy}
+          onCallTool={props.onCallTool}
+          onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })}
+        />
+      ) : null}
+      {props.activeModule === "runs" ? (
+        <RunsView
+          tasks={props.tasks}
+          onSelectTask={(task) => props.onSelect({ type: "task", item: task })}
+        />
+      ) : null}
+      {props.activeModule === "agent" ? (
+        <AgentContextView project={props.project} page={props.agentPage} />
+      ) : null}
+      {props.activeModule === "settings" ? (
+        <SettingsView
+          project={props.project}
+          runtime={props.runtime}
+          tools={props.tools}
+        />
+      ) : null}
+    </>
+  );
+
   return (
     <main className="flex-1 min-h-0 relative">
       <AnimatePresence mode="wait">
@@ -58,107 +260,31 @@ export function WorkbenchViewport(props: Props) {
           transition={{ duration: 0.2 }}
           className="absolute inset-0 overflow-auto"
         >
-          {props.activeModule === "home" ? (
-            <WelcomeView
-              projects={props.projects}
-              onSelectProject={props.onSelectProject}
-              onScanProjects={props.onScanProjects}
-              onOpenModule={props.onOpenModule}
-              busy={props.busy}
-            />
-          ) : null}
-          {props.activeModule === "assets" ? <AssetHub project={props.project} assets={props.assets} onScanAssets={props.onScanAssets} onDeleteAssets={props.onDeleteAssets} onMoveAssets={props.onMoveAssets} onCopyAssets={props.onCopyAssets}
-              onImportAssets={props.onImportAssets}
-              onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })} /> : null}
-          {props.activeModule === "studio-image" ? (
-            <ImageStudio
-              project={props.project}
-              tools={props.tools}
-              assets={props.assets}
-              tasks={props.tasks}
-              busy={props.busy}
-              onCallTool={props.onCallTool}
-              onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })}
-              onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })}
-              onScanAssets={props.onScanAssets}
-              onDeleteAssets={props.onDeleteAssets}
-              onMoveAssets={props.onMoveAssets}
-              onCopyAssets={props.onCopyAssets}
-              onImportAssets={props.onImportAssets}
-            />
-          ) : null}
-          {props.activeModule === "studio-video" ? (
-            <VideoStudio
-              project={props.project}
-              tools={props.tools}
-              assets={props.assets}
-              tasks={props.tasks}
-              busy={props.busy}
-              onCallTool={props.onCallTool}
-              onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })}
-              onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })}
-              onScanAssets={props.onScanAssets}
-              onDeleteAssets={props.onDeleteAssets}
-              onMoveAssets={props.onMoveAssets}
-              onCopyAssets={props.onCopyAssets}
-              onRenameAsset={props.onRenameAsset}
-              onImportAssets={props.onImportAssets}
-              onCollapseSidebar={props.onCollapseSidebar}
-              onShowError={props.onShowError}
-              onCommandContextChange={props.onCanvasCommandContextChange}
-            />
-          ) : null}
-          {props.activeModule === "studio-music" ? (
-            <MusicStudio
-              project={props.project}
-              tools={props.tools}
-              assets={props.assets}
-              tasks={props.tasks}
-              busy={props.busy}
-              onCallTool={props.onCallTool}
-              onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })}
-              onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })}
-              onScanAssets={props.onScanAssets}
-              onDeleteAssets={props.onDeleteAssets}
-              onMoveAssets={props.onMoveAssets}
-              onCopyAssets={props.onCopyAssets}
-              onRenameAsset={props.onRenameAsset}
-              onImportAssets={props.onImportAssets}
-            />
-          ) : null}
-          {props.activeModule === "studio-3d" ? (
-            <Model3DStudio
-              project={props.project}
-              tools={props.tools}
-              assets={props.assets}
-              tasks={props.tasks}
-              busy={props.busy}
-              onCallTool={props.onCallTool}
-              onDeleteAssets={props.onDeleteAssets}
-              onMoveAssets={props.onMoveAssets}
-              onRenameAsset={props.onRenameAsset}
-              onImportAssets={props.onImportAssets}
-              onScanAssets={props.onScanAssets}
-            />
-          ) : null}
-          {props.activeModule === "workflow" ? <WorkflowCanvas project={props.project} tools={props.tools} tasks={props.tasks} onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })} onCommandContextChange={props.onCanvasCommandContextChange} /> : null}
-
-          {props.activeModule === "build" ? (
-            <BuildCenter
-              project={props.project}
-              runtime={props.runtime}
-              tools={props.tools}
-              tasks={props.tasks}
-              busy={props.busy}
-              onCallTool={props.onCallTool}
-              onSelectTool={(tool) => props.onSelect({ type: "tool", item: tool })}
-            />
-          ) : null}
-          {props.activeModule === "runs" ? <RunsView tasks={props.tasks} onSelectTask={(task) => props.onSelect({ type: "task", item: task })} /> : null}
-          {props.activeModule === "agent" ? <AgentContextView project={props.project} page={props.agentPage} /> : null}
-          {props.activeModule === "settings" ? <SettingsView project={props.project} runtime={props.runtime} tools={props.tools} /> : null}
+          <Suspense fallback={<WorkbenchModuleFallback />}>
+            {moduleView}
+          </Suspense>
         </motion.div>
       </AnimatePresence>
     </main>
+  );
+}
+
+function WorkbenchModuleFallback() {
+  return (
+    <div className="flex flex-col h-full min-h-[320px] items-center justify-center gap-4 text-text-subtle">
+      <div className="relative flex items-center justify-center w-10 h-10">
+        {/* Subtle background ring */}
+        <div className="absolute inset-0 rounded-full border-2 border-brand/10 dark:border-brand/5"></div>
+        {/* Fast spinning outer ring */}
+        <div className="absolute inset-0 rounded-full border-2 border-brand border-t-transparent border-l-transparent animate-[spin_0.8s_linear_infinite]"></div>
+        {/* Slow spinning inner dash */}
+        <div className="absolute inset-[4px] rounded-full border-[1.5px] border-brand/40 border-b-transparent border-r-transparent animate-[spin_1.2s_linear_infinite_reverse]"></div>
+        {/* Core pulsing dot */}
+        <div className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse shadow-[0_0_8px_rgba(0,217,197,0.6)]"></div>
+      </div>
+      <div className="text-[13px] font-medium tracking-wider text-text-muted animate-pulse">
+        正在加载模块...
+      </div>
+    </div>
   );
 }

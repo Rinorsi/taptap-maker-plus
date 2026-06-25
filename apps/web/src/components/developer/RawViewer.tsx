@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
-import Editor from "@monaco-editor/react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Braces, Copy } from "lucide-react";
 import { Button } from "../ui/Button";
 import { copyText } from "../../lib/clipboard";
 import { cn } from "../../lib/utils";
+
+const MonacoEditor = lazy(() => import("@monaco-editor/react"));
 
 type RawViewerProps = {
   title: string;
@@ -61,32 +62,50 @@ export function RawViewer({
         </div>
       </div>
       <div className="min-h-0 flex-1" style={{ height }}>
-        <Editor
-          height="100%"
-          language={monacoLanguage}
-          theme={theme}
-          value={viewerValue}
-          options={{
-            readOnly: true,
-            domReadOnly: true,
-            minimap: { enabled: false },
-            scrollBeyondLastLine: false,
-            wordWrap: wrapLines ? "on" : "off",
-            lineNumbers: "on",
-            folding: true,
-            automaticLayout: true,
-            renderLineHighlight: "none",
-            fontSize: 11,
-            lineHeight: 18,
-            tabSize: 2,
-            scrollbar: {
-              verticalScrollbarSize: 8,
-              horizontalScrollbarSize: 8
-            }
-          }}
-        />
+        <Suspense fallback={<RawViewerFallback />}>
+          <MonacoEditor
+            height="100%"
+            language={monacoLanguage}
+            theme={theme}
+            value={viewerValue}
+            options={{
+              readOnly: true,
+              domReadOnly: true,
+              minimap: { enabled: false },
+              scrollBeyondLastLine: false,
+              wordWrap: wrapLines ? "on" : "off",
+              lineNumbers: "on",
+              folding: true,
+              automaticLayout: true,
+              renderLineHighlight: "none",
+              fontSize: 11,
+              lineHeight: 18,
+              tabSize: 2,
+              scrollbar: {
+                verticalScrollbarSize: 8,
+                horizontalScrollbarSize: 8
+              }
+            }}
+          />
+        </Suspense>
       </div>
     </section>
+  );
+}
+
+function RawViewerFallback() {
+  return (
+    <div className="flex flex-col h-full min-h-[160px] items-center justify-center bg-surface-muted/30 text-text-subtle gap-3">
+      <div className="relative flex items-center justify-center w-8 h-8">
+        <div className="absolute inset-0 rounded-full border-[1.5px] border-brand/10 dark:border-brand/5"></div>
+        <div className="absolute inset-0 rounded-full border-[1.5px] border-brand border-t-transparent border-l-transparent animate-[spin_0.8s_linear_infinite]"></div>
+        <div className="absolute inset-[3px] rounded-full border-[1px] border-brand/40 border-b-transparent border-r-transparent animate-[spin_1.2s_linear_infinite_reverse]"></div>
+        <div className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse shadow-[0_0_8px_rgba(0,217,197,0.6)]"></div>
+      </div>
+      <div className="text-[12px] font-medium tracking-wider text-text-muted animate-pulse">
+        正在加载代码查看器...
+      </div>
+    </div>
   );
 }
 

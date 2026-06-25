@@ -72,6 +72,26 @@ export type AssetReferenceScanResult = {
   references: AssetReferenceEvidence[];
 };
 
+export type AssetReferenceUpdateFileSummary = {
+  sourceType: AssetReferenceSourceType;
+  sourcePath: string;
+  replacements: number;
+  backupPath?: string;
+};
+
+export type AssetReferenceUpdateSkippedSummary = {
+  oldPath: string;
+  newPath: string;
+  reason: string;
+};
+
+export type AssetReferenceUpdateSummary = {
+  requested: { oldPath: string; newPath: string }[];
+  updatedFiles: AssetReferenceUpdateFileSummary[];
+  skipped: AssetReferenceUpdateSkippedSummary[];
+  totalReplacements: number;
+};
+
 export type ModelPackageGovernanceState = "in_use" | "adopted" | "packaged_unused" | "draft" | "source_orphan" | "runtime_orphan" | "discarded" | "broken";
 
 export type ModelPackageIssue = {

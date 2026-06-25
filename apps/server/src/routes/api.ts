@@ -32,7 +32,17 @@ import {
 import { scanMakerProjects } from "../services/projectDiscovery.js";
 import { scanProjectAssets } from "../services/assetScanner.js";
 import { scanAssetReferences } from "../services/assetReferenceScanner.js";
-import { buildAssetDirectoryTree } from "../services/assetTree.js";
+import {
+  AssetFileOperationError,
+  copyAssetFolder,
+  createAssetFolder,
+  deleteAssetFolder,
+  moveAssetFiles,
+  moveAssetFolder,
+  renameAssetFile,
+  renameAssetFolder
+} from "../services/assetFileOperations.js";
+import { buildAssetDirectoryTree, listProjectAssetDirectories } from "../services/assetTree.js";
 import { rebuildAssetProvenance } from "../services/assetProvenance.js";
 import { runtimeManager } from "../services/mcpRuntime.js";
 import { executeToolCall, syncCreditRecordsFromTasks } from "../services/toolExecution.js";
@@ -56,14 +66,42 @@ const assetPathsSchema = z.object({
 const assetReferenceScanSchema = assetPathsSchema;
 
 const assetMoveSchema = assetPathsSchema.extend({
+  targetFolder: z.string().min(1),
+  updateReferences: z.boolean().default(false)
+});
+const assetCopySchema = assetPathsSchema.extend({
   targetFolder: z.string().min(1)
 });
-const assetCopySchema = assetMoveSchema;
 const assetOpenSchema = z.object({
   relativePath: z.string().min(1),
   mode: z.enum(["file", "directory"]).default("file")
 });
-const assetRenameSchema = z.object({ relativePath: z.string(), newName: z.string() });
+const assetRenameSchema = z.object({
+  relativePath: z.string().min(1),
+  newName: z.string().min(1),
+  updateReferences: z.boolean().default(false)
+});
+const assetFolderCreateSchema = z.object({
+  parentFolder: z.string().min(1),
+  name: z.string().min(1)
+});
+const assetFolderRenameSchema = z.object({
+  directoryPath: z.string().min(1),
+  newName: z.string().min(1),
+  updateReferences: z.boolean().default(false)
+});
+const assetFolderMoveSchema = z.object({
+  directoryPath: z.string().min(1),
+  targetFolder: z.string().min(1),
+  updateReferences: z.boolean().default(false)
+});
+const assetFolderPathSchema = z.object({
+  directoryPath: z.string().min(1)
+});
+const assetFolderCopySchema = z.object({
+  directoryPath: z.string().min(1),
+  targetFolder: z.string().min(1)
+});
 
 const assetImportSchema = z.object({
   fileName: z.string().min(1),
@@ -189,6 +227,14 @@ function requireProject(projectId: string): ProjectSummary {
   const project = getProject(projectId);
   if (!project) throw new Error(`Project not found: ${projectId}`);
   return project;
+}
+
+function sendAssetFileOperationError(reply: FastifyReply, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (error instanceof AssetFileOperationError) {
+    return reply.code(error.statusCode).send({ error: message });
+  }
+  return reply.code(500).send({ error: message });
 }
 
 function withRuntime(project: ProjectSummary) {
@@ -601,18 +647,18 @@ export async function registerApiRoutes(app: FastifyInstance) {
     const project = requireProject(request.params.projectId);
     const parsed = assetMoveSchema.safeParse(request.body ?? {});
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
-    const targetDir = resolveProjectPath(project.rootPath, parsed.data.targetFolder);
-    fs.mkdirSync(targetDir, { recursive: true });
-    for (const relativePath of parsed.data.relativePaths) {
-      const asset = getAssetByRelativePath(project.id, relativePath);
-      if (!asset) continue;
-      const from = resolveProjectPath(project.rootPath, asset.relativePath);
-      const to = path.join(targetDir, path.basename(asset.relativePath));
-      if (!isSafeProjectPath(project.rootPath, to)) throw new Error(`Unsafe target path: ${parsed.data.targetFolder}`);
-      if (fs.existsSync(from)) fs.renameSync(from, to);
+    try {
+      const mutation = await moveAssetFiles(
+        project.rootPath,
+        parsed.data.relativePaths,
+        parsed.data.targetFolder,
+        parsed.data.updateReferences
+      );
+      const assets = await scanProjectAssets(project);
+      return { ok: true, assets, count: assets.length, ...mutation };
+    } catch (error) {
+      return sendAssetFileOperationError(reply, error);
     }
-    const assets = await scanProjectAssets(project);
-    return { ok: true, assets, count: assets.length };
   });
 
   app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/assets/copy", async (request, reply) => {
@@ -632,6 +678,81 @@ export async function registerApiRoutes(app: FastifyInstance) {
     }
     const assets = await scanProjectAssets(project);
     return { ok: true, assets, count: assets.length };
+  });
+
+  app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/assets/folders/create", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    const parsed = assetFolderCreateSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
+      const result = await createAssetFolder(project.rootPath, parsed.data.parentFolder, parsed.data.name);
+      const assets = await scanProjectAssets(project);
+      return { ok: true, assets, count: assets.length, ...result };
+    } catch (error) {
+      return sendAssetFileOperationError(reply, error);
+    }
+  });
+
+  app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/assets/folders/rename", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    const parsed = assetFolderRenameSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
+      const mutation = await renameAssetFolder(
+        project.rootPath,
+        parsed.data.directoryPath,
+        parsed.data.newName,
+        parsed.data.updateReferences
+      );
+      const assets = await scanProjectAssets(project);
+      return { ok: true, assets, count: assets.length, ...mutation };
+    } catch (error) {
+      return sendAssetFileOperationError(reply, error);
+    }
+  });
+
+  app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/assets/folders/move", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    const parsed = assetFolderMoveSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
+      const mutation = await moveAssetFolder(
+        project.rootPath,
+        parsed.data.directoryPath,
+        parsed.data.targetFolder,
+        parsed.data.updateReferences
+      );
+      const assets = await scanProjectAssets(project);
+      return { ok: true, assets, count: assets.length, ...mutation };
+    } catch (error) {
+      return sendAssetFileOperationError(reply, error);
+    }
+  });
+
+  app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/assets/folders/delete", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    const parsed = assetFolderPathSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
+      const result = await deleteAssetFolder(project.rootPath, parsed.data.directoryPath);
+      const assets = await scanProjectAssets(project);
+      return { ok: true, assets, count: assets.length, ...result };
+    } catch (error) {
+      return sendAssetFileOperationError(reply, error);
+    }
+  });
+
+  app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/assets/folders/copy", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    const parsed = assetFolderCopySchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
+      const result = await copyAssetFolder(project.rootPath, parsed.data.directoryPath, parsed.data.targetFolder);
+      const assets = await scanProjectAssets(project);
+      return { ok: true, assets, count: assets.length, ...result };
+    } catch (error) {
+      return sendAssetFileOperationError(reply, error);
+    }
   });
 
   app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/assets/open-local", async (request, reply) => {
@@ -700,20 +821,18 @@ export async function registerApiRoutes(app: FastifyInstance) {
     const parsed = assetRenameSchema.safeParse(request.body ?? {});
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
 
-    const asset = getAssetByRelativePath(project.id, parsed.data.relativePath);
-    if (!asset) return reply.code(404).send({ error: "Asset not found" });
-
-    const newName = sanitizeFileName(parsed.data.newName);
-    if (!newName) return reply.code(400).send({ error: "newName is required" });
-
-    const from = resolveProjectPath(project.rootPath, asset.relativePath);
-    const targetPath = path.join(path.dirname(from), newName);
-    if (!isSafeProjectPath(project.rootPath, targetPath)) throw new Error(`Unsafe target path: ${newName}`);
-    if (fs.existsSync(targetPath)) return reply.code(409).send({ error: "Target file already exists" });
-    if (fs.existsSync(from)) fs.renameSync(from, targetPath);
-
-    const assets = await scanProjectAssets(project);
-    return { ok: true, assets, count: assets.length };
+    try {
+      const mutation = await renameAssetFile(
+        project.rootPath,
+        parsed.data.relativePath,
+        parsed.data.newName,
+        parsed.data.updateReferences
+      );
+      const assets = await scanProjectAssets(project);
+      return { ok: true, assets, count: assets.length, ...mutation };
+    } catch (error) {
+      return sendAssetFileOperationError(reply, error);
+    }
   });
 
   app.get<{ Params: { projectId: string }; Querystring: unknown }>("/api/projects/:projectId/assets", async (request, reply) => {
@@ -724,10 +843,11 @@ export async function registerApiRoutes(app: FastifyInstance) {
   });
 
   app.get<{ Params: { projectId: string }; Querystring: { rootPath?: string } }>("/api/projects/:projectId/assets/tree", async (request) => {
-    requireProject(request.params.projectId);
+    const project = requireProject(request.params.projectId);
     const rootPath = request.query.rootPath?.trim() || "assets";
     const assets = listAssets(request.params.projectId, { rootPrefix: rootPath, limit: 10000 });
-    return { tree: buildAssetDirectoryTree(assets, rootPath) };
+    const directories = listProjectAssetDirectories(project.rootPath, rootPath);
+    return { tree: buildAssetDirectoryTree(assets, rootPath, directories) };
   });
 
   app.post<{ Params: { projectId: string } }>("/api/projects/:projectId/assets/provenance/rebuild", async (request) => {

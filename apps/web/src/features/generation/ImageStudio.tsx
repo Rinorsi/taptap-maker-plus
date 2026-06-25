@@ -9,6 +9,8 @@ import { StudioHeader, StudioMediaDropzone, StudioModeButton, StudioPromptField,
 import { AssetManagerPanel } from "../assets/AssetManagerPanel";
 import { defaultAssetImportFolders, defaultImageAssetName, managedAssetRoots } from "../assets/assetGovernance";
 import { cn } from "../../lib/utils";
+import { TaskProgressBar } from "../../components/studio/TaskProgressBar";
+import { calculateAverageDuration } from "../../lib/taskStats";
 
 type Props = {
   project?: ProjectSummary;
@@ -442,18 +444,11 @@ export function ImageStudio({
                         <p className="text-sm text-text-subtle mb-8 text-center px-4">
                           正在调度 {activeGenerationTask.toolName === "generate_image" ? "生成" : "批量生成"} 任务，请稍候...
                         </p>
-                        <div className="w-full bg-surface-raised rounded-2xl p-6 shadow-inner border border-white/5 relative overflow-hidden">
-                          <div className="flex items-center justify-between mb-3">
-                             <div className="flex items-center gap-2 text-brand">
-                               <Clock className="w-4 h-4" />
-                               <span className="text-sm font-bold">已用时: {elapsedTime} 秒</span>
-                             </div>
-                             <span className="text-xs font-bold text-text-muted">预计 60 秒</span>
-                          </div>
-                          <div className="h-2 w-full bg-surface-app rounded-full overflow-hidden">
-                            <div className="h-full bg-brand transition-all ease-linear duration-1000" style={{ width: `${Math.min(100, (elapsedTime / 60) * 100)}%` }} />
-                          </div>
-                        </div>
+                        <TaskProgressBar
+                          elapsedSeconds={elapsedTime}
+                          estimatedSeconds={calculateAverageDuration(tasks, activeGenerationTask.toolName) ?? 60}
+                          status={activeGenerationTask.status as "queued" | "running"}
+                        />
                      </div>
                    ) : displayAsset ? (
                      <div className="flex flex-col items-center max-w-full w-full mt-4">

@@ -7,9 +7,11 @@ export type ConfirmConfig = {
   title: string;
   body?: ReactNode;
   confirmLabel?: string;
+  secondaryLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
   onConfirm: () => void;
+  onSecondary?: () => void;
   onCancel: () => void;
 };
 
@@ -36,6 +38,11 @@ export function ConfirmDialog({ config }: { config: ConfirmConfig }) {
             <Button type="button" variant="outline" onClick={config.onCancel}>
               {config.cancelLabel ?? "取消"}
             </Button>
+            {config.secondaryLabel && config.onSecondary ? (
+              <Button type="button" variant="outline" onClick={config.onSecondary}>
+                {config.secondaryLabel}
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="default"

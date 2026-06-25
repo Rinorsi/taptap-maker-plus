@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { AssetDirectoryNode, AssetSummary } from "../types.js";
 
 function normalizeAssetPath(value: string) {
@@ -17,7 +19,27 @@ function isPathUnderRoot(relativePath: string, rootPath: string) {
   return normalized === root || normalized.startsWith(`${root}/`);
 }
 
-export function buildAssetDirectoryTree(assets: AssetSummary[], rootPath = "assets"): AssetDirectoryNode {
+export function listProjectAssetDirectories(projectRoot: string, rootPath = "assets") {
+  const normalizedRoot = normalizeAssetPath(rootPath);
+  const rootAbsolutePath = path.resolve(projectRoot, normalizedRoot);
+  const projectAbsolutePath = path.resolve(projectRoot);
+  if (rootAbsolutePath !== projectAbsolutePath && !rootAbsolutePath.startsWith(`${projectAbsolutePath}${path.sep}`)) return [];
+  if (!fs.existsSync(rootAbsolutePath) || !fs.statSync(rootAbsolutePath).isDirectory()) return [];
+
+  const directories = [normalizedRoot];
+  const walk = (absoluteDirectory: string) => {
+    for (const entry of fs.readdirSync(absoluteDirectory, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const absoluteChild = path.join(absoluteDirectory, entry.name);
+      directories.push(normalizeAssetPath(path.relative(projectAbsolutePath, absoluteChild)));
+      walk(absoluteChild);
+    }
+  };
+  walk(rootAbsolutePath);
+  return directories;
+}
+
+export function buildAssetDirectoryTree(assets: AssetSummary[], rootPath = "assets", directories: string[] = []): AssetDirectoryNode {
   const normalizedRoot = normalizeAssetPath(rootPath);
   const root: AssetDirectoryNode = {
     name: normalizedRoot || "assets",
@@ -51,6 +73,12 @@ export function buildAssetDirectoryTree(assets: AssetSummary[], rootPath = "asse
     parent.children.sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN"));
     nodes.set(normalized, node);
     return node;
+  }
+
+  for (const directory of directories) {
+    const normalizedDirectory = normalizeAssetPath(directory);
+    if (!normalizedDirectory || normalizedDirectory === normalizedRoot || !isPathUnderRoot(normalizedDirectory, normalizedRoot)) continue;
+    ensureNode(normalizedDirectory);
   }
 
   for (const asset of assets) {

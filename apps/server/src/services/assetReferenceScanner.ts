@@ -3,7 +3,7 @@ import path from "node:path";
 import type { AssetReferenceEvidence, AssetReferenceScanResult, AssetReferenceSourceType } from "../types.js";
 import { normalizeProjectPath } from "./assetGovernance.js";
 
-type ScanSource = {
+export type AssetReferenceScanSource = {
   sourceType: AssetReferenceSourceType;
   sourcePath: string;
   absolutePath: string;
@@ -13,15 +13,15 @@ function projectFile(rootPath: string, relativePath: string) {
   return path.join(rootPath, ...relativePath.split("/"));
 }
 
-function isSafeProjectRelativePath(relativePath: string) {
+export function isSafeProjectRelativePath(relativePath: string) {
   const normalized = normalizeProjectPath(relativePath).trim();
   if (!normalized || normalized.startsWith("/") || normalized.includes("\0")) return false;
   return !normalized.split("/").some((segment) => segment === "" || segment === "." || segment === "..");
 }
 
-async function walkFiles(rootPath: string, relativeDir: string, extension: string, sourceType: AssetReferenceSourceType): Promise<ScanSource[]> {
+async function walkFiles(rootPath: string, relativeDir: string, extension: string, sourceType: AssetReferenceSourceType): Promise<AssetReferenceScanSource[]> {
   const startDir = projectFile(rootPath, relativeDir);
-  const output: ScanSource[] = [];
+  const output: AssetReferenceScanSource[] = [];
 
   async function walk(dir: string) {
     const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
@@ -43,9 +43,9 @@ async function walkFiles(rootPath: string, relativeDir: string, extension: strin
   return output;
 }
 
-async function scanSources(rootPath: string): Promise<ScanSource[]> {
+export async function scanAssetReferenceSources(rootPath: string): Promise<AssetReferenceScanSource[]> {
   const resourcesPath = projectFile(rootPath, ".project/resources.json");
-  const sources: ScanSource[] = [];
+  const sources: AssetReferenceScanSource[] = [];
 
   if (await fs.stat(resourcesPath).then((stats) => stats.isFile()).catch(() => false)) {
     sources.push({
@@ -60,7 +60,7 @@ async function scanSources(rootPath: string): Promise<ScanSource[]> {
   return sources;
 }
 
-function findTextEvidence(source: ScanSource, content: string, relativePath: string): AssetReferenceEvidence[] {
+export function findAssetReferenceTextEvidence(source: AssetReferenceScanSource, content: string, relativePath: string): AssetReferenceEvidence[] {
   const references: AssetReferenceEvidence[] = [];
   const lines = content.split(/\r?\n/);
 
@@ -88,13 +88,13 @@ export async function scanAssetReferences(rootPath: string, relativePaths: strin
   const results = new Map<string, AssetReferenceEvidence[]>();
   for (const relativePath of normalizedPaths) results.set(relativePath, []);
 
-  const sources = await scanSources(rootPath);
+  const sources = await scanAssetReferenceSources(rootPath);
   for (const source of sources) {
     const content = await fs.readFile(source.absolutePath, "utf8").catch(() => undefined);
     if (content === undefined) continue;
 
     for (const relativePath of normalizedPaths) {
-      results.get(relativePath)!.push(...findTextEvidence(source, content, relativePath));
+      results.get(relativePath)!.push(...findAssetReferenceTextEvidence(source, content, relativePath));
     }
   }
 

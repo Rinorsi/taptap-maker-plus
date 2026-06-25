@@ -8,6 +8,8 @@ import {
   ServerCog,
   Settings,
   Trash2,
+  PlaySquare,
+  X,
 } from "lucide-react";
 import type { ProjectSummary, RuntimeSummary, ToolSummary } from "../../api";
 import {
@@ -32,6 +34,7 @@ import { copyText } from "../../lib/clipboard";
 type Props = { project?: ProjectSummary; runtime?: RuntimeSummary; tools: ToolSummary[] };
 
 export function SettingsView({ project, runtime, tools }: Props) {
+  const [showPreview, setShowPreview] = useState(false);
   const [developerMode, setDeveloperMode] = useState(isDeveloperModeEnabled);
   const [developerLogVersion, setDeveloperLogVersion] = useState(0);
   const [serverLogPath, setServerLogPath] = useState("");
@@ -188,6 +191,16 @@ export function SettingsView({ project, runtime, tools }: Props) {
               size="sm"
               variant="outline"
               className="gap-1.5"
+              onClick={() => setShowPreview(true)}
+            >
+              <PlaySquare className="h-3.5 w-3.5" />
+              预览启动动画
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
               onClick={() =>
                 void copyText(visibleLogs, {
                   successMessage: "诊断日志已复制",
@@ -228,6 +241,25 @@ export function SettingsView({ project, runtime, tools }: Props) {
           <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words text-[11px] text-[#b03939]">{runtime.lastError}</pre>
         </div>
       ) : null}
+
+      {showPreview && (
+        <div className="fixed inset-0 z-[9999] flex flex-col bg-black">
+          <div className="relative flex h-14 items-center justify-end bg-black px-4 shadow-sm">
+            <button
+              onClick={() => setShowPreview(false)}
+              className="flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/20"
+            >
+              <X className="h-4 w-4" />
+              关闭预览
+            </button>
+          </div>
+          <iframe
+            src="/desktop-loading.html?preview=true"
+            className="h-full w-full border-0 bg-white dark:bg-[#09090b]"
+            title="Splash Preview"
+          />
+        </div>
+      )}
     </section>
   );
 }

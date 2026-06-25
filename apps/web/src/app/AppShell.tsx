@@ -1,21 +1,27 @@
-import { Terminal, FolderSync, Search, Settings, Moon, PanelLeft, PanelRight, RefreshCw, Copy, Trash2, Eye, Save, Play, Code, ClipboardList, Scan, Edit2, Move, ExternalLink, Image, FolderOpen, Download, Crosshair, Check } from "lucide-react";
+import { Terminal, FolderSync, Search, Settings, Moon, Sun, PanelLeft, PanelRight, RefreshCw, Copy, Trash2, Eye, Save, Play, Code, ClipboardList, Scan, Edit2, Move, ExternalLink, Image, FolderOpen, Download, Crosshair, Check } from "lucide-react";
 import { useEffect, useMemo, useState, useRef } from "react";
 import {
   callTool,
+  copyAssetFolder,
   copyAssets,
+  createAssetFolder,
   deleteAssets,
-  renameAsset,
+  deleteAssetFolder,
   getRuntimeStatus,
   getStatusLite,
+  getAssetTree,
   importAsset,
   importLocalAssetPaths,
   listAssets,
   listProjects,
   listTasks,
   listTools,
-  moveAssets,
+  moveAssetFolder,
+  moveAssetsWithResult,
   openLocalAssetPath,
   refreshTools,
+  renameAssetFolder,
+  renameAssetWithResult,
   scanAssets,
   scanAssetReferences,
   scanProjects,
@@ -23,6 +29,8 @@ import {
   startRuntime,
   clearTasks,
   type AgentPageState,
+  type AssetDirectoryNode,
+  type AssetMutationResponse,
   type AgentSelectionReference,
   type AssetReferenceScanResult,
   type AssetSummary,
@@ -31,6 +39,7 @@ import {
   type TaskRecord,
   type ToolSummary,
 } from "../api";
+import { filterAssetsForDirectory } from "../features/assets/assetTree";
 import { type WorkbenchModule } from "./routes";
 import { TopBar } from "../components/layout/TopBar";
 import { ProjectSidebar } from "../components/layout/ProjectSidebar";
@@ -76,8 +85,10 @@ const DESKTOP_ASPECT_WIDTH = 16;
 const DESKTOP_ASPECT_HEIGHT = 9;
 const DESKTOP_MIN_WIDTH = 1024;
 const DESKTOP_MIN_HEIGHT = 576;
+const ASSET_REFERENCE_CACHE_TTL_MS = 30_000;
 
 type ResizeEdge = "n" | "e" | "s" | "w" | "ne" | "nw" | "se" | "sw";
+type ReferenceMutationDecision = "update" | "skip" | "cancel";
 
 function readPlainDragText(dataTransfer?: DataTransfer | null) {
   try {
@@ -107,6 +118,7 @@ export function AppShell() {
   const [theme, setTheme] = useState<"light" | "dark">(() =>
     localStorage.getItem("taptap.theme") === "dark" ? "dark" : "light",
   );
+  const [cinemaThemeState, setCinemaThemeState] = useState<{ active: boolean, toTheme: "light" | "dark" }>({ active: false, toTheme: "light" });
   const [activeModule, setActiveModule] = useState<WorkbenchModule>(() => {
     const hasProject = localStorage.getItem("taptap.selectedProjectId");
     return hasProject ? DEFAULT_PROJECT_MODULE : "home";
@@ -117,12 +129,19 @@ export function AppShell() {
   );
   const [tools, setTools] = useState<ToolSummary[]>([]);
   const [assets, setAssets] = useState<AssetSummary[]>([]);
+  const [assetTree, setAssetTree] = useState<AssetDirectoryNode>();
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [runtime, setRuntime] = useState<RuntimeSummary | undefined>();
   const [statusText, setStatusText] = useState("");
   const [busy, setBusy] = useState(false);
   const [selection, setSelection] = useState<InspectorSelection>();
   const [notice, setNotice] = useState("准备就绪");
+  const assetReferenceScanCacheRef = useRef(
+    new Map<string, { expiresAt: number; results: AssetReferenceScanResult[] }>(),
+  );
+  const activeReferenceScanRef = useRef<
+    { key: string; controller: AbortController } | undefined
+  >(undefined);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() =>
     Number(localStorage.getItem("taptap.sidebarWidth") ?? 240),
@@ -166,6 +185,7 @@ export function AppShell() {
   );
 
   const previousFailedTasksRef = useRef<Set<string>>(new Set());
+  const previousTaskStatusRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     const currentFailedIds = new Set(failedTasks.map((t) => t.taskId));
@@ -188,6 +208,45 @@ export function AppShell() {
     () => projects.find((project) => project.id === selectedProjectId),
     [projects, selectedProjectId],
   );
+
+  // 任务完成事件通知
+  useEffect(() => {
+    const GENERATION_TOOLS = ["generate_image", "text_to_music", "create_video_task"];
+    
+    for (const task of tasks) {
+      const previousStatus = previousTaskStatusRef.current.get(task.taskId);
+      const currentStatus = task.status;
+      
+      // 检测从 running 变为 succeeded/failed
+      if (previousStatus === "running" && (currentStatus === "succeeded" || currentStatus === "failed")) {
+        // 发送全局事件
+        window.dispatchEvent(
+          new CustomEvent("taptap:task-completed", {
+            detail: {
+              taskId: task.taskId,
+              task,
+              toolName: task.toolName,
+            },
+          })
+        );
+        
+        // 生成任务完成时刷新资产树
+        if (currentStatus === "succeeded" && GENERATION_TOOLS.includes(task.toolName) && selectedProject) {
+          void refreshAssetTree(selectedProject.id);
+        }
+      }
+      
+      previousTaskStatusRef.current.set(task.taskId, currentStatus);
+    }
+    
+    // 清理已不存在的任务
+    const currentTaskIds = new Set(tasks.map((t) => t.taskId));
+    for (const taskId of previousTaskStatusRef.current.keys()) {
+      if (!currentTaskIds.has(taskId)) {
+        previousTaskStatusRef.current.delete(taskId);
+      }
+    }
+  }, [tasks, selectedProject]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -252,10 +311,11 @@ export function AppShell() {
   }
 
   async function refreshProject(projectId: string) {
-    const [status, toolData, assetList, taskList] = await Promise.all([
+    const [status, toolData, assetList, nextAssetTree, taskList] = await Promise.all([
       getRuntimeStatus(projectId).catch(() => undefined),
       listTools(projectId).catch(() => undefined),
       listAssets(projectId).catch(() => []),
+      getAssetTree(projectId).catch(() => undefined),
       listTasks(projectId).catch(() => []),
     ]);
     if (status?.project) {
@@ -271,7 +331,19 @@ export function AppShell() {
       setRuntime(toolData.runtime ?? status?.runtime);
     }
     setAssets(assetList);
+    setAssetTree(nextAssetTree);
     setTasks(taskList);
+  }
+
+  async function refreshAssetTree(projectId: string) {
+    const nextAssetTree = await getAssetTree(projectId).catch(() => undefined);
+    setAssetTree(nextAssetTree);
+    return nextAssetTree;
+  }
+
+  async function applyAssetMutationResult(result: AssetMutationResponse) {
+    setAssets(result.assets);
+    if (selectedProject) await refreshAssetTree(selectedProject.id);
   }
 
   // Auto-refresh tasks every 10 seconds if any task is running
@@ -318,6 +390,7 @@ export function AppShell() {
     setSelectedProjectId("");
     setTools([]);
     setAssets([]);
+    setAssetTree(undefined);
     setTasks([]);
     setRuntime(undefined);
     setStatusText("");
@@ -435,6 +508,7 @@ export function AppShell() {
     try {
       const nextAssets = await scanAssets(selectedProject.id);
       setAssets(nextAssets);
+      await refreshAssetTree(selectedProject.id);
       setNotice(`资产索引完成：${nextAssets.length} 个文件`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
@@ -443,20 +517,107 @@ export function AppShell() {
     }
   }
 
+  async function scanAssetReferencesWithCache(
+    projectId: string,
+    relativePaths: string[],
+    noticeLabel = "正在扫描引用...",
+    signal?: AbortSignal,
+  ) {
+    const normalizedPaths = [...new Set(relativePaths)].sort();
+    if (!normalizedPaths.length) return [];
+
+    const cacheKey = `${projectId}:${normalizedPaths.join("|")}`;
+    const now = Date.now();
+    for (const [key, entry] of assetReferenceScanCacheRef.current) {
+      if (entry.expiresAt <= now) assetReferenceScanCacheRef.current.delete(key);
+    }
+
+    const cached = assetReferenceScanCacheRef.current.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      return cached.results;
+    }
+
+    setNotice(noticeLabel);
+    const results = await scanAssetReferences(projectId, normalizedPaths, signal);
+    assetReferenceScanCacheRef.current.set(cacheKey, {
+      expiresAt: now + ASSET_REFERENCE_CACHE_TTL_MS,
+      results,
+    });
+    return results;
+  }
+
   async function confirmAssetReferenceMutation(
     projectId: string,
     relativePaths: string[],
     actionLabel: string,
   ) {
-    const results = await scanAssetReferences(projectId, relativePaths);
+    const decision = await requestReferenceMutationDecision({
+      projectId,
+      relativePaths,
+      actionLabel,
+      allowUpdateReferences: false,
+    });
+    return decision !== "cancel";
+  }
+
+  async function handleConfirmAssetReferenceMutation(
+    relativePaths: string[],
+    actionLabel: string,
+    allowUpdateReferences: boolean,
+  ): Promise<ReferenceMutationDecision> {
+    if (!selectedProject) return "cancel";
+    if (!relativePaths.length) return "skip";
+    return requestReferenceMutationDecision({
+      projectId: selectedProject.id,
+      relativePaths,
+      actionLabel,
+      allowUpdateReferences,
+    });
+  }
+
+  function handleAssetMutationResult(prefix: string, result: AssetMutationResponse) {
+    void applyAssetMutationResult(result);
+    setSelection(undefined);
+    setNotice(buildAssetMutationNotice(prefix, result));
+  }
+
+  async function requestReferenceMutationDecision({
+    projectId,
+    relativePaths,
+    actionLabel,
+    allowUpdateReferences,
+  }: {
+    projectId: string;
+    relativePaths: string[];
+    actionLabel: string;
+    allowUpdateReferences: boolean;
+  }): Promise<ReferenceMutationDecision> {
+    const results = await scanAssetReferencesWithCache(
+      projectId,
+      relativePaths,
+      `正在扫描引用，准备${actionLabel}...`,
+    );
     const referencedResults = results.filter(
       (result) => result.referenceCount > 0,
     );
-    if (!referencedResults.length) return true;
-    return requestConfirm({
+    if (!referencedResults.length) return "skip";
+
+    if (!allowUpdateReferences) {
+      const confirmed = await requestConfirm({
+        title: `${actionLabel}已引用资产？`,
+        body: buildAssetReferenceConfirmationMessage(actionLabel, referencedResults),
+        confirmLabel: `继续${actionLabel}`,
+        danger: true,
+      });
+      return confirmed ? "skip" : "cancel";
+    }
+
+    return requestConfirmChoice({
       title: `${actionLabel}已引用资产？`,
       body: buildAssetReferenceConfirmationMessage(actionLabel, referencedResults),
-      confirmLabel: `继续${actionLabel}`,
+      confirmLabel: "同步更新引用",
+      secondaryLabel: `仅${actionLabel}，引用可能缺失`,
+      cancelLabel: "取消",
       danger: true,
     });
   }
@@ -486,6 +647,7 @@ export function AppShell() {
       }
       const nextAssets = await deleteAssets(selectedProject.id, relativePaths);
       setAssets(nextAssets);
+      await refreshAssetTree(selectedProject.id);
       setSelection(undefined);
       setNotice(`已删除 ${relativePaths.length} 个资产`);
     } catch (error) {
@@ -502,23 +664,25 @@ export function AppShell() {
     if (!selectedProject || !relativePaths.length) return;
     setBusy(true);
     try {
-      const confirmed = await confirmAssetReferenceMutation(
-        selectedProject.id,
+      const decision = await requestReferenceMutationDecision({
+        projectId: selectedProject.id,
         relativePaths,
-        "移动",
-      );
-      if (!confirmed) {
+        actionLabel: "移动",
+        allowUpdateReferences: true,
+      });
+      if (decision === "cancel") {
         setNotice("已取消移动资产");
         return;
       }
-      const nextAssets = await moveAssets(
+      const result = await moveAssetsWithResult(
         selectedProject.id,
         relativePaths,
         targetFolder,
+        decision === "update",
       );
-      setAssets(nextAssets);
+      await applyAssetMutationResult(result);
       setSelection(undefined);
-      setNotice(`已移动 ${relativePaths.length} 个资产到 ${targetFolder}`);
+      setNotice(buildAssetMutationNotice(`已移动 ${relativePaths.length} 个资产到 ${targetFolder}`, result));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
@@ -539,6 +703,7 @@ export function AppShell() {
         targetFolder,
       );
       setAssets(nextAssets);
+      await refreshAssetTree(selectedProject.id);
       setNotice(`已复制 ${relativePaths.length} 个资产到 ${targetFolder}`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
@@ -551,23 +716,50 @@ export function AppShell() {
     if (!selectedProject) return;
     setBusy(true);
     try {
-      const confirmed = await confirmAssetReferenceMutation(
-        selectedProject.id,
-        [relativePath],
-        "重命名",
-      );
-      if (!confirmed) {
+      const decision = await requestReferenceMutationDecision({
+        projectId: selectedProject.id,
+        relativePaths: [relativePath],
+        actionLabel: "重命名",
+        allowUpdateReferences: true,
+      });
+      if (decision === "cancel") {
         setNotice("已取消重命名资产");
         return;
       }
-      const nextAssets = await renameAsset(
+      const result = await renameAssetWithResult(
         selectedProject.id,
         relativePath,
         newName,
+        decision === "update",
       );
-      setAssets(nextAssets);
+      await applyAssetMutationResult(result);
       setSelection(undefined);
-      setNotice(`已重命名文件为 ${newName}`);
+      setNotice(buildAssetMutationNotice(`已重命名文件为 ${newName}`, result));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function renameFolderDirect(directoryPath: string, newName: string) {
+    if (!selectedProject) return;
+    setBusy(true);
+    try {
+      const paths = assets.filter((asset) => isAssetUnderDirectory(asset.relativePath, directoryPath)).map((asset) => asset.relativePath);
+      const decision = await requestReferenceMutationDecision({
+        projectId: selectedProject.id,
+        relativePaths: paths,
+        actionLabel: "重命名",
+        allowUpdateReferences: true,
+      });
+      if (decision === "cancel") {
+        setNotice("已取消重命名文件夹");
+        return;
+      }
+      const result = await renameAssetFolder(selectedProject.id, directoryPath, newName, decision === "update");
+      await applyAssetMutationResult(result);
+      setNotice(buildAssetMutationNotice(`已重命名文件夹为 ${result.directoryPath ?? newName}`, result));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
@@ -599,7 +791,6 @@ export function AppShell() {
         detail: { action: "movePaths", paths: relativePaths },
       }),
     );
-    if (activeModule === "assets") return;
     const currentFolder =
       relativePaths[0]?.split(/[\\/]/).slice(0, -1).join("/") || "assets";
     
@@ -616,6 +807,224 @@ export function AppShell() {
       },
       onCancel: () => setPromptConfig((prev) => ({ ...prev, isOpen: false })),
     });
+  }
+
+  async function handleCreateFolder(parentFolder: string) {
+    if (!selectedProject) return;
+    const normalizedParent = parentFolder || "assets";
+    setPromptConfig({
+      isOpen: true,
+      title: "新建文件夹",
+      defaultValue: "New Folder",
+      confirmLabel: "创建",
+      onConfirm: async (folderName) => {
+        setPromptConfig((prev) => ({ ...prev, isOpen: false }));
+        setBusy(true);
+        try {
+          const result = await createAssetFolder(selectedProject.id, normalizedParent, folderName);
+          await applyAssetMutationResult(result);
+          setNotice(`已创建文件夹 ${result.directoryPath ?? folderName}`);
+        } catch (error) {
+          setNotice(error instanceof Error ? error.message : String(error));
+        } finally {
+          setBusy(false);
+        }
+      },
+      onCancel: () => setPromptConfig((prev) => ({ ...prev, isOpen: false })),
+    });
+  }
+
+  async function handleRenameFolder(directoryPath: string) {
+    if (!selectedProject) return;
+    const currentName = directoryPath.split(/[\\/]/).filter(Boolean).at(-1) ?? directoryPath;
+    setPromptConfig({
+      isOpen: true,
+      title: "重命名文件夹",
+      defaultValue: currentName,
+      confirmLabel: "重命名",
+      onConfirm: async (newName) => {
+        setPromptConfig((prev) => ({ ...prev, isOpen: false }));
+        if (newName !== currentName) await renameFolderDirect(directoryPath, newName);
+      },
+      onCancel: () => setPromptConfig((prev) => ({ ...prev, isOpen: false })),
+    });
+  }
+
+  async function handleMoveFolder(directoryPath: string) {
+    if (!selectedProject) return;
+    const currentFolder = directoryPath.split(/[\\/]/).slice(0, -1).join("/") || "assets";
+    setPromptConfig({
+      isOpen: true,
+      title: "移动文件夹到",
+      defaultValue: currentFolder,
+      confirmLabel: "移动",
+      onConfirm: async (targetFolder) => {
+        setPromptConfig((prev) => ({ ...prev, isOpen: false }));
+        setBusy(true);
+        try {
+          const paths = assets.filter((asset) => isAssetUnderDirectory(asset.relativePath, directoryPath)).map((asset) => asset.relativePath);
+          const decision = await requestReferenceMutationDecision({
+            projectId: selectedProject.id,
+            relativePaths: paths,
+            actionLabel: "移动",
+            allowUpdateReferences: true,
+          });
+          if (decision === "cancel") {
+            setNotice("已取消移动文件夹");
+            return;
+          }
+          const result = await moveAssetFolder(selectedProject.id, directoryPath, targetFolder, decision === "update");
+          await applyAssetMutationResult(result);
+          setNotice(buildAssetMutationNotice(`已移动文件夹到 ${result.directoryPath ?? targetFolder}`, result));
+        } catch (error) {
+          setNotice(error instanceof Error ? error.message : String(error));
+        } finally {
+          setBusy(false);
+        }
+      },
+      onCancel: () => setPromptConfig((prev) => ({ ...prev, isOpen: false })),
+    });
+  }
+
+  async function moveFolderDirect(directoryPath: string, targetFolder: string) {
+    if (!selectedProject) return;
+    setBusy(true);
+    try {
+      const paths = assets.filter((asset) => isAssetUnderDirectory(asset.relativePath, directoryPath)).map((asset) => asset.relativePath);
+      const decision = await requestReferenceMutationDecision({
+        projectId: selectedProject.id,
+        relativePaths: paths,
+        actionLabel: "移动",
+        allowUpdateReferences: true,
+      });
+      if (decision === "cancel") {
+        setNotice("已取消移动文件夹");
+        return;
+      }
+      const result = await moveAssetFolder(selectedProject.id, directoryPath, targetFolder, decision === "update");
+      await applyAssetMutationResult(result);
+      setNotice(buildAssetMutationNotice(`已移动文件夹到 ${result.directoryPath ?? targetFolder}`, result));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCopyFolder(directoryPath: string) {
+    if (!selectedProject) return;
+    setPromptConfig({
+      isOpen: true,
+      title: "复制文件夹到",
+      defaultValue: "assets",
+      confirmLabel: "复制",
+      onConfirm: async (targetFolder) => {
+        setPromptConfig((prev) => ({ ...prev, isOpen: false }));
+        setBusy(true);
+        try {
+          const result = await copyAssetFolder(selectedProject.id, directoryPath, targetFolder);
+          await applyAssetMutationResult(result);
+          setNotice(`已复制文件夹到 ${result.directoryPath ?? targetFolder}`);
+        } catch (error) {
+          setNotice(error instanceof Error ? error.message : String(error));
+        } finally {
+          setBusy(false);
+        }
+      },
+      onCancel: () => setPromptConfig((prev) => ({ ...prev, isOpen: false })),
+    });
+  }
+
+  async function copyFolderDirect(directoryPath: string, targetFolder: string) {
+    if (!selectedProject) return;
+    setBusy(true);
+    try {
+      const result = await copyAssetFolder(selectedProject.id, directoryPath, targetFolder);
+      await applyAssetMutationResult(result);
+      setNotice(`已复制文件夹到 ${result.directoryPath ?? targetFolder}`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openLocalAssetPathDirect(relativePath: string, mode: "file" | "directory") {
+    if (!selectedProject) return;
+    try {
+      await openLocalAssetPath(selectedProject.id, relativePath, mode);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function handleDeleteFolder(directoryPath: string) {
+    if (!selectedProject) return;
+    
+    // Step 1: Get folder statistics
+    const folderAssets = filterAssetsForDirectory(assets, directoryPath, true);
+    const subDirectories = new Set(
+      folderAssets
+        .map(asset => {
+          const relativePath = asset.relativePath.replace(/\\/g, '/');
+          const dirPath = directoryPath.replace(/\\/g, '/');
+          const pathAfterDir = relativePath.startsWith(dirPath + '/')
+            ? relativePath.slice(dirPath.length + 1)
+            : relativePath;
+          const slashIndex = pathAfterDir.indexOf('/');
+          return slashIndex >= 0 ? pathAfterDir.slice(0, slashIndex) : null;
+        })
+        .filter((dir): dir is string => dir !== null)
+    );
+    
+    // Step 2: Show statistics confirmation
+    const statsConfirmed = await requestConfirm({
+      title: "确认删除文件夹？",
+      body: (
+        <div className="flex flex-col gap-2 text-sm">
+          <p className="font-medium">{directoryPath}</p>
+          <div className="rounded-lg border border-border-soft bg-surface-panel p-3 space-y-1">
+            <p className="text-text-muted">📦 资产数量: <span className="font-semibold text-text-strong">{folderAssets.length}</span></p>
+            <p className="text-text-muted">📁 子目录数量: <span className="font-semibold text-text-strong">{subDirectories.size}</span></p>
+          </div>
+        </div>
+      ),
+      confirmLabel: "继续",
+      danger: true,
+    });
+    
+    if (!statsConfirmed) {
+      setNotice("已取消删除文件夹");
+      return;
+    }
+    
+    // Step 3: Scan references and get user decision
+    const assetPaths = folderAssets.map(asset => asset.relativePath);
+    const decision = await requestReferenceMutationDecision({
+      projectId: selectedProject.id,
+      relativePaths: assetPaths,
+      actionLabel: "删除",
+      allowUpdateReferences: false,
+    });
+    
+    if (decision === "cancel") {
+      setNotice("已取消删除文件夹");
+      return;
+    }
+    
+    // Step 4: Execute deletion
+    setBusy(true);
+    try {
+      const result = await deleteAssetFolder(selectedProject.id, directoryPath);
+      await applyAssetMutationResult(result);
+      setSelection(undefined);
+      const referencedCount = result.referenceScan?.reduce((total, item) => total + item.referenceCount, 0) ?? 0;
+      setNotice(referencedCount > 0 ? `已删除文件夹；删除前检测到 ${referencedCount} 处引用` : "已删除文件夹");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
   }
 
   function requestConfirm({
@@ -643,16 +1052,60 @@ export function AppShell() {
     });
   }
 
+  function requestConfirmChoice({
+    title,
+    body,
+    confirmLabel,
+    secondaryLabel,
+    cancelLabel,
+    danger,
+  }: Omit<ConfirmConfig, "isOpen" | "onConfirm" | "onSecondary" | "onCancel">) {
+    return new Promise<ReferenceMutationDecision>((resolve) => {
+      const close = (result: ReferenceMutationDecision) => {
+        setConfirmConfig((prev) => ({ ...prev, isOpen: false }));
+        resolve(result);
+      };
+      setConfirmConfig({
+        isOpen: true,
+        title,
+        body,
+        confirmLabel,
+        secondaryLabel,
+        cancelLabel,
+        danger,
+        onConfirm: () => close("update"),
+        onSecondary: () => close("skip"),
+        onCancel: () => close("cancel"),
+      });
+    });
+  }
+
   async function handleScanAssetReferencesNotice(relativePaths: string[]) {
     if (!selectedProject || !relativePaths.length) return;
-    setBusy(true);
+    const normalizedPaths = [...new Set(relativePaths)].sort();
+    const scanKey = `${selectedProject.id}:${normalizedPaths.join("|")}`;
+    const activeScan = activeReferenceScanRef.current;
+    if (activeScan?.key === scanKey) {
+      activeScan.controller.abort();
+      activeReferenceScanRef.current = undefined;
+      setNotice("已取消引用扫描");
+      return;
+    }
+    activeScan?.controller.abort();
+    const controller = new AbortController();
+    activeReferenceScanRef.current = { key: scanKey, controller };
     try {
-      const results = await scanAssetReferences(selectedProject.id, relativePaths);
+      const results = await scanAssetReferencesWithCache(
+        selectedProject.id,
+        normalizedPaths,
+        "正在扫描引用，再次执行可取消...",
+        controller.signal,
+      );
       const total = results.reduce((sum, result) => sum + result.referenceCount, 0);
       const title =
-        relativePaths.length === 1
-          ? `引用情况：${relativePaths[0]}`
-          : `目录引用报告：${relativePaths.length} 个资产`;
+        normalizedPaths.length === 1
+          ? `引用情况：${normalizedPaths[0]}`
+          : `目录引用报告：${normalizedPaths.length} 个资产`;
       setSelection({
         type: "assetReferences",
         title,
@@ -663,9 +1116,12 @@ export function AppShell() {
       setInspectorMinimized(false);
       setNotice(total > 0 ? `引用扫描完成：共 ${total} 处引用` : "引用扫描完成：未发现引用");
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
-      setBusy(false);
+      if (activeReferenceScanRef.current?.key === scanKey) {
+        activeReferenceScanRef.current = undefined;
+      }
     }
   }
 
@@ -686,6 +1142,7 @@ export function AppShell() {
       }
       const nextAssets = await listAssets(selectedProject.id);
       setAssets(nextAssets);
+      await refreshAssetTree(selectedProject.id);
       setNotice(`已导入 ${files.length} 个资源到 ${targetFolder}`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
@@ -1256,7 +1713,11 @@ export function AppShell() {
         when: (context) => context.objectType === "asset" && !!selectedProject,
         run: (context) => {
           if (context.objectType !== "asset") return;
-          void handlePromptRenameAsset(context.relativePath);
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-list-command", {
+              detail: { action: "renamePrimary", paths: [context.relativePath] },
+            }),
+          );
         },
       },
       {
@@ -1269,6 +1730,54 @@ export function AppShell() {
         run: (context) => {
           if (context.objectType !== "asset") return;
           void handlePromptMoveAssets([context.relativePath]);
+        },
+      },
+      {
+        commandId: "asset.cut",
+        title: "剪切",
+        icon: <Move className="h-4 w-4" />,
+        description: "剪切该资产，随后可粘贴到其他目录",
+        scope: "asset",
+        when: (context) => context.objectType === "asset",
+        run: (context) => {
+          if (context.objectType !== "asset") return;
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-list-command", {
+              detail: {
+                action: "selectPaths",
+                paths: [context.relativePath],
+              },
+            }),
+          );
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-list-command", {
+              detail: { action: "cutSelection", paths: [context.relativePath] },
+            }),
+          );
+        },
+      },
+      {
+        commandId: "asset.copy",
+        title: "复制",
+        icon: <Copy className="h-4 w-4" />,
+        description: "复制该资产，随后可粘贴到其他目录",
+        scope: "asset",
+        when: (context) => context.objectType === "asset",
+        run: (context) => {
+          if (context.objectType !== "asset") return;
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-list-command", {
+              detail: {
+                action: "selectPaths",
+                paths: [context.relativePath],
+              },
+            }),
+          );
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-list-command", {
+              detail: { action: "copySelection", paths: [context.relativePath] },
+            }),
+          );
         },
       },
       {
@@ -1336,6 +1845,84 @@ export function AppShell() {
         },
       },
       {
+        commandId: "assetList.createFolderHere",
+        title: "新建文件夹",
+        icon: <FolderOpen className="h-4 w-4" />,
+        description: "在当前资产目录创建文件夹",
+        scope: "assetList",
+        when: (context) => context.objectType === "assetList",
+        run: (context) => {
+          if (context.objectType !== "assetList") return;
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-list-command", {
+              detail: { action: "createFolder" },
+            }),
+          );
+        },
+      },
+      {
+        commandId: "assetList.pasteHere",
+        title: "粘贴",
+        icon: <Copy className="h-4 w-4" />,
+        description: "把剪贴板中的资产或文件夹粘贴到当前目录",
+        shortcut: { key: "v", ctrlKey: true },
+        scope: "assetList",
+        when: (context) => context.objectType === "assetList" && !!context.canPaste,
+        run: (context) => {
+          if (context.objectType !== "assetList") return;
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-list-command", {
+              detail: { action: "pasteHere" },
+            }),
+          );
+        },
+      },
+      {
+        commandId: "assetList.openCurrentDirectory",
+        title: "打开当前目录",
+        icon: <FolderOpen className="h-4 w-4" />,
+        description: "在本地文件资源管理器打开当前资产目录",
+        scope: "assetList",
+        when: (context) => context.objectType === "assetList" && !!selectedProject,
+        run: (context) => {
+          if (context.objectType !== "assetList") return;
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-list-command", {
+              detail: { action: "openCurrentDirectory" },
+            }),
+          );
+        },
+      },
+      {
+        commandId: "assetList.copyCurrentDirectoryPath",
+        title: "复制当前目录相对路径",
+        icon: <Copy className="h-4 w-4" />,
+        description: "复制当前资产目录相对路径",
+        scope: "assetList",
+        when: (context) => context.objectType === "assetList",
+        run: (context) => {
+          if (context.objectType !== "assetList") return;
+          void copyText(context.currentDirectoryPath ?? "assets", {
+            successMessage: "目录路径已复制",
+          });
+        },
+      },
+      {
+        commandId: "assetList.copyCurrentDirectoryAbsolutePath",
+        title: "复制当前目录完整路径",
+        icon: <Copy className="h-4 w-4" />,
+        description: "复制当前资产目录本机完整路径",
+        scope: "assetList",
+        when: (context) => context.objectType === "assetList" && !!selectedProject,
+        run: (context) => {
+          if (context.objectType !== "assetList" || !selectedProject) return;
+          void copyText(
+            buildProjectPath(selectedProject.rootPath, context.currentDirectoryPath ?? "assets"),
+            { successMessage: "目录完整路径已复制" },
+          );
+        },
+      },
+      {
         commandId: "assetList.selectAll",
         title: "全选可见资产",
         icon: <Check className="h-4 w-4" />,
@@ -1386,7 +1973,6 @@ export function AppShell() {
         title: "复制选中资产路径",
         icon: <Copy className="h-4 w-4" />,
         description: "复制资产列表当前选中路径",
-        shortcut: { key: "c", ctrlKey: true },
         scope: "assetList",
         when: (context) =>
           context.objectType === "assetList" && context.selectedPaths.length > 0,
@@ -1432,6 +2018,42 @@ export function AppShell() {
             }),
           );
           setNotice("正在打开文件夹选择器...");
+        },
+      },
+      {
+        commandId: "assetList.cutSelection",
+        title: "剪切",
+        icon: <Move className="h-4 w-4" />,
+        description: "剪切当前选中的资产或文件夹",
+        shortcut: { key: "x", ctrlKey: true },
+        scope: "assetList",
+        when: (context) =>
+          context.objectType === "assetList" && (context.selectedPaths.length > 0 || !!context.primaryPath),
+        run: (context) => {
+          if (context.objectType !== "assetList") return;
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-list-command", {
+              detail: { action: "cutSelection" },
+            }),
+          );
+        },
+      },
+      {
+        commandId: "assetList.copySelection",
+        title: "复制",
+        icon: <Copy className="h-4 w-4" />,
+        description: "复制当前选中的资产或文件夹",
+        shortcut: { key: "c", ctrlKey: true },
+        scope: "assetList",
+        when: (context) =>
+          context.objectType === "assetList" && (context.selectedPaths.length > 0 || !!context.primaryPath),
+        run: (context) => {
+          if (context.objectType !== "assetList") return;
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-list-command", {
+              detail: { action: "copySelection" },
+            }),
+          );
         },
       },
       {
@@ -1587,6 +2209,18 @@ export function AppShell() {
         },
       },
       {
+        commandId: "assetDirectory.createFolder",
+        title: "新建子文件夹",
+        icon: <FolderOpen className="h-4 w-4" />,
+        description: "在该目录下创建文件夹",
+        scope: "assetDirectory",
+        when: (context) => context.objectType === "assetDirectory" && !!selectedProject,
+        run: (context) => {
+          if (context.objectType !== "assetDirectory") return;
+          void handleCreateFolder(context.directoryPath);
+        },
+      },
+      {
         commandId: "assetDirectory.importFolderHere",
         title: "导入文件夹到此目录",
         icon: <FolderOpen className="h-4 w-4" />,
@@ -1607,6 +2241,22 @@ export function AppShell() {
         },
       },
       {
+        commandId: "assetDirectory.pasteHere",
+        title: "粘贴到此处",
+        icon: <Copy className="h-4 w-4" />,
+        description: "把剪贴板中的资产或文件夹粘贴到该目录",
+        scope: "assetDirectory",
+        when: (context) => context.objectType === "assetDirectory",
+        run: (context) => {
+          if (context.objectType !== "assetDirectory") return;
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-directory-command", {
+              detail: { action: "pasteHere", directoryPath: context.directoryPath },
+            }),
+          );
+        },
+      },
+      {
         commandId: "assetDirectory.refresh",
         title: "刷新资产索引",
         icon: <RefreshCw className="h-4 w-4" />,
@@ -1617,58 +2267,115 @@ export function AppShell() {
       },
       {
         commandId: "assetDirectory.rename",
-        title: "移动目录内资产",
+        title: "重命名文件夹",
         icon: <Edit2 className="h-4 w-4" />,
-        description: "把该目录下的资产移动到新目录",
+        description: "重命名整个文件夹，并可同步更新引用",
         scope: "assetDirectory",
-        when: (context) => context.objectType === "assetDirectory",
+        when: (context) => context.objectType === "assetDirectory" && context.directoryPath !== "assets",
         run: (context) => {
           if (context.objectType !== "assetDirectory") return;
-          const paths = assets
-            .filter((asset) =>
-              isAssetUnderDirectory(asset.relativePath, context.directoryPath),
-            )
-            .map((asset) => asset.relativePath);
-          void handlePromptMoveAssets(paths);
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-directory-command", {
+              detail: { action: "rename", directoryPath: context.directoryPath },
+            }),
+          );
+        },
+      },
+      {
+        commandId: "assetDirectory.cut",
+        title: "剪切",
+        icon: <Move className="h-4 w-4" />,
+        description: "剪切整个文件夹，随后可粘贴到其他目录",
+        scope: "assetDirectory",
+        when: (context) => context.objectType === "assetDirectory" && context.directoryPath !== "assets",
+        run: (context) => {
+          if (context.objectType !== "assetDirectory") return;
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-directory-command", {
+              detail: { action: "cutDirectory", directoryPath: context.directoryPath },
+            }),
+          );
+        },
+      },
+      {
+        commandId: "assetDirectory.copy",
+        title: "复制",
+        icon: <Copy className="h-4 w-4" />,
+        description: "复制整个文件夹，随后可粘贴到其他目录",
+        scope: "assetDirectory",
+        when: (context) => context.objectType === "assetDirectory" && context.directoryPath !== "assets",
+        run: (context) => {
+          if (context.objectType !== "assetDirectory") return;
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-directory-command", {
+              detail: { action: "copyDirectory", directoryPath: context.directoryPath },
+            }),
+          );
         },
       },
       {
         commandId: "assetDirectory.move",
-        title: "查看目录引用",
+        title: "移动文件夹",
         icon: <Move className="h-4 w-4" />,
+        description: "移动整个文件夹，并可同步更新引用",
+        scope: "assetDirectory",
+        when: (context) => context.objectType === "assetDirectory" && context.directoryPath !== "assets",
+        run: (context) => {
+          if (context.objectType !== "assetDirectory") return;
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-directory-command", {
+              detail: { action: "move", directoryPath: context.directoryPath },
+            }),
+          );
+        },
+      },
+      {
+        commandId: "assetDirectory.copyFolder",
+        title: "复制文件夹",
+        icon: <Copy className="h-4 w-4" />,
+        description: "复制整个文件夹到目标目录",
+        scope: "assetDirectory",
+        when: (context) => context.objectType === "assetDirectory" && context.directoryPath !== "assets",
+        run: (context) => {
+          if (context.objectType !== "assetDirectory") return;
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-directory-command", {
+              detail: { action: "copyFolder", directoryPath: context.directoryPath },
+            }),
+          );
+        },
+      },
+      {
+        commandId: "assetDirectory.scanReferences",
+        title: "查看目录引用",
+        icon: <Search className="h-4 w-4" />,
         description: "扫描该目录下资产的项目引用",
         scope: "assetDirectory",
         when: (context) => context.objectType === "assetDirectory",
         run: (context) => {
           if (context.objectType !== "assetDirectory") return;
-          const paths = assets
-            .filter((asset) =>
-              isAssetUnderDirectory(asset.relativePath, context.directoryPath),
-            )
-            .map((asset) => asset.relativePath);
-          void handleScanAssetReferencesNotice(paths);
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-directory-command", {
+              detail: { action: "scanReferences", directoryPath: context.directoryPath },
+            }),
+          );
         },
       },
       {
         commandId: "assetDirectory.delete",
-        title: "删除目录内资产",
+        title: "删除文件夹",
         icon: <Trash2 className="h-4 w-4" />,
-        description: "删除该目录下所有资产",
+        description: "删除整个文件夹树",
         scope: "assetDirectory",
         danger: true,
-        when: (context) =>
-          context.objectType === "assetDirectory" &&
-          assets.some((asset) =>
-            isAssetUnderDirectory(asset.relativePath, context.directoryPath),
-          ),
+        when: (context) => context.objectType === "assetDirectory" && context.directoryPath !== "assets",
         run: (context) => {
           if (context.objectType !== "assetDirectory") return;
-          const paths = assets
-            .filter((asset) =>
-              isAssetUnderDirectory(asset.relativePath, context.directoryPath),
-            )
-            .map((asset) => asset.relativePath);
-          void handleDeleteAssets(paths);
+          window.dispatchEvent(
+            new CustomEvent("taptap:asset-directory-command", {
+              detail: { action: "delete", directoryPath: context.directoryPath },
+            }),
+          );
         },
       },
       {
@@ -2610,6 +3317,15 @@ export function AppShell() {
 
   return (
     <CommandProvider registry={commandRegistry}>
+      <ThemeCinemaOverlay 
+         active={cinemaThemeState.active} 
+         toTheme={cinemaThemeState.toTheme} 
+         onMidpoint={(newTheme) => {
+           document.documentElement.dataset.theme = newTheme;
+           setTheme(newTheme);
+         }}
+         onComplete={() => setCinemaThemeState(prev => ({ ...prev, active: false }))}
+      />
       <div
         className="w-full h-full flex flex-col bg-surface-canvas overflow-hidden text-text"
         onClick={() => {
@@ -2629,9 +3345,10 @@ export function AppShell() {
           tools={tools}
           assets={assets}
           tasks={tasks}
-          onThemeToggle={() =>
-            setTheme((t) => (t === "light" ? "dark" : "light"))
-          }
+          onThemeToggle={() => {
+            const nextTheme = theme === "light" ? "dark" : "light";
+            setCinemaThemeState({ active: true, toTheme: nextTheme });
+          }}
           onOpenSettings={() => selectModule("settings")}
           onSelectProject={handleSelectProject}
           onOpenModule={selectModule}
@@ -2694,6 +3411,7 @@ export function AppShell() {
               runtime={runtimeView}
               tools={tools}
               assets={assets}
+              assetTree={assetTree}
               tasks={tasks}
               statusText={statusText}
               busy={busy}
@@ -2703,7 +3421,17 @@ export function AppShell() {
               onMoveAssets={handleMoveAssets}
               onCopyAssets={handleCopyAssets}
               onRenameAsset={handleRenameAsset}
+              onRenameDirectory={renameFolderDirect}
+              onMoveDirectory={moveFolderDirect}
+              onCopyDirectory={copyFolderDirect}
+              onDeleteDirectory={handleDeleteFolder}
+              onOpenLocalAssetPath={openLocalAssetPathDirect}
               onImportAssets={handleImportAssets}
+              onCreateFolder={handleCreateFolder}
+              onConfirmReferenceMutation={handleConfirmAssetReferenceMutation}
+              onAssetMutationResult={handleAssetMutationResult}
+              onScanAssetReferences={handleScanAssetReferencesNotice}
+              onNotice={setNotice}
               onCallStatusLite={handleStatusLite}
               onCallTool={handleCallTool}
               onSelect={handleSelectSelection}
@@ -3057,40 +3785,233 @@ function buildAssetReferenceConfirmationMessage(
   actionLabel: string,
   results: AssetReferenceScanResult[],
 ) {
+  // Group references by file type
+  const groupedByType = results.reduce((groups, result) => {
+    const references = result.references.map(ref => ({
+      ...ref,
+      assetPath: result.relativePath,
+      assetRefCount: result.referenceCount,
+    }));
+    
+    references.forEach(ref => {
+      const ext = ref.sourcePath.toLowerCase();
+      let type = 'Resources';
+      if (ext.endsWith('.lua')) type = 'Lua';
+      else if (ext.endsWith('.json') || ext.endsWith('.fsm') || ext.endsWith('.blendspace')) type = 'Flow';
+      
+      if (!groups[type]) groups[type] = [];
+      groups[type].push(ref);
+    });
+    
+    return groups;
+  }, {} as Record<string, Array<{ sourcePath: string; line: number; lineText: string; assetPath: string; assetRefCount: number }>>);
+
+  const typeOrder = ['Lua', 'Flow', 'Resources'];
+  const sortedTypes = typeOrder.filter(t => groupedByType[t]);
+
+  // Count badge color based on reference count
+  const getBadgeColor = (count: number) => {
+    if (count === 0) return 'bg-green-500/10 text-green-600';
+    if (count <= 5) return 'bg-yellow-500/10 text-yellow-600';
+    return 'bg-red-500/10 text-red-600';
+  };
+
   return (
     <div className="flex flex-col gap-3 text-sm text-text mt-1">
       <p className="font-medium text-text-strong">检测到以下资产仍被引用，确认{actionLabel}？</p>
-      <div className="flex flex-col gap-3 rounded-xl border border-border-soft bg-surface-app p-3 max-h-[300px] overflow-y-auto custom-scrollbar shadow-inner">
-        {results.map((result, idx) => (
-          <div key={idx} className="flex flex-col gap-1.5 border-b border-border-soft pb-3 last:border-0 last:pb-0">
-            <p className="font-bold text-brand-strong break-all text-[13px]">
-              {result.relativePath}
-              <span className="ml-2 inline-flex items-center rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand">
-                {result.referenceCount} 处引用
-              </span>
-            </p>
-            <ul className="flex flex-col gap-1.5 pl-1">
-              {result.references.slice(0, 5).map((ref, i) => (
-                <li key={i} className="flex items-start gap-2 text-xs text-text-muted">
-                  <span className="shrink-0 mt-1.5 h-1 w-1 rounded-full bg-border-soft" />
-                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="truncate font-mono text-[10px] text-text-subtle" title={`${ref.sourcePath}:${ref.line}`}>
-                      {ref.sourcePath}:{ref.line}
-                    </span>
-                    <span className="rounded bg-surface-panel px-1.5 py-1 font-mono text-[11px] text-text-muted border border-border-soft shadow-sm break-all">
-                      {ref.lineText.trim()}
-                    </span>
+      <div className="flex flex-col gap-2 rounded-xl border border-border-soft bg-surface-app p-3 max-h-[400px] overflow-y-auto custom-scrollbar shadow-inner">
+        {sortedTypes.map((type) => {
+          const refs = groupedByType[type];
+          const displayRefs = refs.slice(0, 20);
+          const hasMore = refs.length > 20;
+          
+          return (
+            <details key={type} open className="group">
+              <summary className="cursor-pointer list-none font-semibold text-text-strong text-[13px] py-2 px-2 rounded-lg hover:bg-surface-panel/50 select-none">
+                <span className="inline-flex items-center gap-2">
+                  <span className="text-xs">▶</span>
+                  <span>{type}</span>
+                  <span className="inline-flex items-center rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand">
+                    {refs.length} 处引用
+                  </span>
+                </span>
+              </summary>
+              <div className="flex flex-col gap-2 mt-2 pl-4">
+                {displayRefs.map((ref, i) => (
+                  <div key={i} className="flex flex-col gap-1.5 border-b border-border-soft/50 pb-2 last:border-0">
+                    <div className="flex items-start gap-2 text-xs text-text-muted">
+                      <span className="shrink-0 mt-1.5 h-1 w-1 rounded-full bg-border-soft" />
+                      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate font-mono text-[10px] text-text-subtle" title={`${ref.sourcePath}:${ref.line}`}>
+                            {ref.sourcePath}:{ref.line}
+                          </span>
+                          <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${getBadgeColor(ref.assetRefCount)}`}>
+                            {ref.assetRefCount}
+                          </span>
+                        </div>
+                        <code className="rounded bg-surface-panel px-1.5 py-1 font-mono text-[11px] text-text-muted border border-border-soft shadow-sm break-all">
+                          {ref.lineText.trim()}
+                        </code>
+                      </div>
+                    </div>
                   </div>
-                </li>
-              ))}
-              {result.references.length > 5 && (
-                <li className="text-xs italic text-text-subtle ml-3 mt-1">
-                  ...以及其他 {result.references.length - 5} 处引用
-                </li>
-              )}
-            </ul>
-          </div>
-        ))}
+                ))}
+                {hasMore && (
+                  <p className="text-xs italic text-text-subtle ml-3 mt-1">
+                    还有 {refs.length - 20} 条引用未显示
+                  </p>
+                )}
+              </div>
+            </details>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function buildAssetMutationNotice(prefix: string, result: AssetMutationResponse) {
+  const referenceUpdate = result.referenceUpdate;
+  if (!referenceUpdate) {
+    const referencedCount = result.referenceScan?.reduce(
+      (total, item) => total + item.referenceCount,
+      0,
+    ) ?? 0;
+    return referencedCount > 0
+      ? `${prefix}；未同步引用，可能有 ${referencedCount} 处引用缺失`
+      : prefix;
+  }
+  const fileCount = referenceUpdate.updatedFiles.length;
+  const skippedCount = referenceUpdate.skipped.length;
+  return `${prefix}；同步更新 ${referenceUpdate.totalReplacements} 处引用，涉及 ${fileCount} 个文件${skippedCount ? `，仍有 ${skippedCount} 项未同步` : ""}`;
+}
+
+function ThemeCinemaOverlay({ 
+  active, 
+  toTheme,
+  onMidpoint,
+  onComplete
+}: { 
+  active: boolean; 
+  toTheme: "light" | "dark";
+  onMidpoint: (theme: "light" | "dark") => void;
+  onComplete: () => void;
+}) {
+  const [phase, setPhase] = useState<"idle" | "fade-in" | "morph" | "fade-out">("idle");
+  const [iconState, setIconState] = useState<"light" | "dark">(toTheme === "dark" ? "light" : "dark");
+
+  const onMidpointRef = useRef(onMidpoint);
+  const onCompleteRef = useRef(onComplete);
+
+  useEffect(() => {
+    onMidpointRef.current = onMidpoint;
+    onCompleteRef.current = onComplete;
+  }, [onMidpoint, onComplete]);
+
+  useEffect(() => {
+    if (!active) {
+      setPhase("idle");
+      return;
+    }
+    
+    // 1. Fade in overlay completely first
+    setPhase("fade-in");
+    setIconState(toTheme === "dark" ? "light" : "dark");
+    
+    // 2. Wait 200ms until overlay is 100% opaque. Then trigger morph AND underlying theme change.
+    const t1 = setTimeout(() => {
+      setPhase("morph");
+      setIconState(toTheme);
+      // At this point, screen is perfectly solid color. Safe to freeze main thread for heavy DOM update.
+      onMidpointRef.current(toTheme);
+    }, 200); 
+
+    // 3. Wait 500ms for morph to finish beautifully. Then reveal.
+    const t2 = setTimeout(() => {
+      setPhase("fade-out");
+    }, 700); // 200 + 500
+
+    // 4. Wait 300ms for fade out. Clean up.
+    const t3 = setTimeout(() => {
+      onCompleteRef.current();
+    }, 1000); // 700 + 300
+
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  }, [active, toTheme]); // Removed function dependencies to fix the loop bug
+
+  if (!active) return null;
+
+  const bg = toTheme === "dark" ? "#18191B" : "#F7F9FA"; 
+  const brand = "#00D9C5";
+  
+  const opacity = phase === "idle" || phase === "fade-out" ? 0 : 1;
+  const isDarkIcon = iconState === "dark";
+  const easeCurve = "cubic-bezier(0.4, 0, 0.2, 1)"; // Smooth Material ease, NO BOUNCING
+
+  return (
+    <div 
+      className="fixed inset-0 z-[999999] pointer-events-none flex items-center justify-center transition-opacity duration-200"
+      style={{ backgroundColor: bg, opacity }}
+    >
+      <div 
+        className="transition-all duration-300"
+        style={{
+          transform: phase === "fade-out" ? "scale(2.5) blur(12px)" : "scale(1) blur(0px)",
+          opacity: phase === "fade-out" ? 0 : 1,
+          filter: `drop-shadow(0 0 50px ${brand}80)` 
+        }}
+      >
+        <svg
+          width="100"
+          height="100"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke={brand}
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{
+            transform: isDarkIcon ? "rotate(-90deg)" : "rotate(0deg)",
+            transition: `transform 0.4s ${easeCurve}`
+          }}
+        >
+          <mask id="moon-mask-cinema">
+            <rect x="0" y="0" width="100%" height="100%" fill="white" />
+            <circle
+              cx={isDarkIcon ? "16" : "28"}
+              cy={isDarkIcon ? "8" : "-4"}
+              r="9"
+              fill="black"
+              style={{ transition: `cx 0.4s ${easeCurve}, cy 0.4s ${easeCurve}` }}
+            />
+          </mask>
+          <circle
+            cx="12"
+            cy="12"
+            r={isDarkIcon ? "9" : "5"}
+            fill={isDarkIcon ? brand : "none"}
+            mask="url(#moon-mask-cinema)"
+            style={{ transition: `r 0.4s ${easeCurve}, fill 0.4s ease` }}
+          />
+          <g
+            style={{
+              opacity: isDarkIcon ? 0 : 1,
+              transform: isDarkIcon ? "scale(0.3) rotate(45deg)" : "scale(1) rotate(0deg)",
+              transformOrigin: "center",
+              transition: `opacity 0.2s ease, transform 0.4s ${easeCurve}`
+            }}
+          >
+            <line x1="12" y1="2" x2="12" y2="4" />
+            <line x1="12" y1="20" x2="12" y2="22" />
+            <line x1="4.93" y1="4.93" x2="6.34" y2="6.34" />
+            <line x1="17.66" y1="17.66" x2="19.07" y2="19.07" />
+            <line x1="2" y1="12" x2="4" y2="12" />
+            <line x1="20" y1="12" x2="22" y2="12" />
+            <line x1="4.93" y1="19.07" x2="6.34" y2="17.66" />
+            <line x1="17.66" y1="6.34" x2="19.07" y2="4.93" />
+          </g>
+        </svg>
       </div>
     </div>
   );

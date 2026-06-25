@@ -73,6 +73,42 @@ export type AssetReferenceScanResult = {
   references: AssetReferenceEvidence[];
 };
 
+export type AssetPathReplacement = {
+  oldPath: string;
+  newPath: string;
+};
+
+export type AssetReferenceUpdateFileSummary = {
+  sourceType: AssetReferenceSourceType;
+  sourcePath: string;
+  replacements: number;
+  backupPath?: string;
+};
+
+export type AssetReferenceUpdateSkippedSummary = {
+  oldPath: string;
+  newPath: string;
+  reason: string;
+};
+
+export type AssetReferenceUpdateSummary = {
+  requested: AssetPathReplacement[];
+  updatedFiles: AssetReferenceUpdateFileSummary[];
+  skipped: AssetReferenceUpdateSkippedSummary[];
+  totalReplacements: number;
+};
+
+export type AssetMutationResponse = {
+  ok: true;
+  assets: AssetSummary[];
+  count: number;
+  directoryPath?: string;
+  deletedPaths?: string[];
+  replacements?: AssetPathReplacement[];
+  referenceScan?: AssetReferenceScanResult[];
+  referenceUpdate?: AssetReferenceUpdateSummary;
+};
+
 export type ModelPackageSummary = {
   id: string;
   projectId: string;
@@ -475,12 +511,13 @@ export async function rebuildAssetProvenance(projectId: string): Promise<AssetSu
   return data.assets;
 }
 
-export async function scanAssetReferences(projectId: string, relativePaths: string[]): Promise<AssetReferenceScanResult[]> {
+export async function scanAssetReferences(projectId: string, relativePaths: string[], signal?: AbortSignal): Promise<AssetReferenceScanResult[]> {
   const data = await json<{ ok: true; results: AssetReferenceScanResult[] }>(
     await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/references/scan`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ relativePaths })
+      body: JSON.stringify({ relativePaths }),
+      signal,
     })
   );
   return data.results;
@@ -567,14 +604,23 @@ export async function deleteAssets(projectId: string, relativePaths: string[]): 
   return data.assets;
 }
 
-export async function moveAssets(projectId: string, relativePaths: string[], targetFolder: string): Promise<AssetSummary[]> {
-  const data = await json<{ assets: AssetSummary[] }>(
+export async function moveAssetsWithResult(
+  projectId: string,
+  relativePaths: string[],
+  targetFolder: string,
+  updateReferences = false
+): Promise<AssetMutationResponse> {
+  return json<AssetMutationResponse>(
     await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/move`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ relativePaths, targetFolder })
+      body: JSON.stringify({ relativePaths, targetFolder, updateReferences })
     })
   );
+}
+
+export async function moveAssets(projectId: string, relativePaths: string[], targetFolder: string): Promise<AssetSummary[]> {
+  const data = await moveAssetsWithResult(projectId, relativePaths, targetFolder);
   return data.assets;
 }
 
@@ -599,18 +645,84 @@ export async function openLocalAssetPath(projectId: string, relativePath: string
   );
 }
 
+export async function renameAssetWithResult(
+  projectId: string,
+  relativePath: string,
+  newName: string,
+  updateReferences = false
+): Promise<AssetMutationResponse> {
+  return json<AssetMutationResponse>(
+    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/rename`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ relativePath, newName, updateReferences })
+    })
+  );
+}
+
 export async function renameAsset(projectId: string, relativePath: string, newName: string): Promise<AssetSummary[]> {
-  const res = await fetch(`/api/projects/${projectId}/assets/rename`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ relativePath, newName })
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || "Failed to rename asset");
-  }
-  const data = await res.json();
+  const data = await renameAssetWithResult(projectId, relativePath, newName);
   return data.assets;
+}
+
+export async function createAssetFolder(projectId: string, parentFolder: string, name: string): Promise<AssetMutationResponse> {
+  return json<AssetMutationResponse>(
+    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/folders/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parentFolder, name })
+    })
+  );
+}
+
+export async function renameAssetFolder(
+  projectId: string,
+  directoryPath: string,
+  newName: string,
+  updateReferences = false
+): Promise<AssetMutationResponse> {
+  return json<AssetMutationResponse>(
+    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/folders/rename`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ directoryPath, newName, updateReferences })
+    })
+  );
+}
+
+export async function moveAssetFolder(
+  projectId: string,
+  directoryPath: string,
+  targetFolder: string,
+  updateReferences = false
+): Promise<AssetMutationResponse> {
+  return json<AssetMutationResponse>(
+    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/folders/move`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ directoryPath, targetFolder, updateReferences })
+    })
+  );
+}
+
+export async function deleteAssetFolder(projectId: string, directoryPath: string): Promise<AssetMutationResponse> {
+  return json<AssetMutationResponse>(
+    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/folders/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ directoryPath })
+    })
+  );
+}
+
+export async function copyAssetFolder(projectId: string, directoryPath: string, targetFolder: string): Promise<AssetMutationResponse> {
+  return json<AssetMutationResponse>(
+    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/folders/copy`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ directoryPath, targetFolder })
+    })
+  );
 }
 
 export async function importAsset(projectId: string, fileName: string, targetFolder: string, dataUrl: string): Promise<AssetSummary[]> {

@@ -119,17 +119,15 @@ export function installDeveloperDiagnostics() {
 
   console.error = (...args: unknown[]) => {
     const message = formatConsoleArgs(args);
-    if (!shouldIgnoreDeveloperLog(message)) {
-      addDeveloperLogEntry("error", "console", message);
-    }
+    if (shouldIgnoreDeveloperLog(message)) return;
+    addDeveloperLogEntry("error", "console", message);
     originalError(...args);
   };
 
   console.warn = (...args: unknown[]) => {
     const message = formatConsoleArgs(args);
-    if (!shouldIgnoreDeveloperLog(message)) {
-      addDeveloperLogEntry("warn", "console", message);
-    }
+    if (shouldIgnoreDeveloperLog(message)) return;
+    addDeveloperLogEntry("warn", "console", message);
     originalWarn(...args);
   };
 
@@ -210,7 +208,8 @@ function formatUnknownValue(value: unknown) {
 function shouldIgnoreDeveloperLog(message: string) {
   return (
     message.includes("Lit is in dev mode") ||
-    message.includes("Download the React DevTools")
+    message.includes("Download the React DevTools") ||
+    message.includes("Tracking Prevention blocked access")
   );
 }
 

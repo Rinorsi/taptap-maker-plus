@@ -17,6 +17,11 @@ const npmCacheDir = path.join(workspaceRoot, "data", "npm-cache");
 const desktopDistDir = path.join(workspaceRoot, "desktop-dist");
 const webIdentityName = 'name="taptap-maker-plus"';
 const webIdentityContent = 'content="web"';
+const bundledReadOnlyPaths = [
+  "docs/help",
+  "docs/templates",
+  "docs/workflow-templates"
+];
 
 type JsonObject = Record<string, unknown>;
 
@@ -254,6 +259,10 @@ function requireTauriConfig(rootPackage: JsonObject, tauriCliPackage: JsonObject
   requireFile(path.join(desktopDistDir, "apps", "server", "dist", "index.js"));
   requireFile(path.join(desktopDistDir, "apps", "server", "package.json"));
   requireFile(path.join(desktopDistDir, "apps", "web", "dist", "index.html"));
+  for (const relativePath of bundledReadOnlyPaths) {
+    requireDirectory(path.join(desktopDistDir, relativePath));
+  }
+  requireFile(path.join(desktopDistDir, "docs", "workflow-templates", "basic-asset-workflow.json"));
   requireDirectory(path.join(desktopDistDir, "node_modules", "fastify"));
   requireDirectory(path.join(desktopDistDir, "node_modules", "better-sqlite3"));
   const icons = requireArray(bundle.icon, "tauri.conf.json bundle.icon");

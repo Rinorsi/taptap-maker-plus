@@ -36,6 +36,16 @@ export type CanvasMentionToken = {
   use: CanvasAssetUse;
 };
 
+export type CanvasPromptReference = {
+  promptNodeId: string;
+  tokenId: string;
+  alias: string;
+  nodeId: string;
+  kind: CanvasAssetKind;
+  use: CanvasAssetUse;
+  broken: boolean;
+};
+
 export type CanvasCompileIssue = {
   severity: "error" | "warning";
   message: string;
@@ -57,6 +67,7 @@ export type CanvasCompileResult = {
   issues: CanvasCompileIssue[];
   fieldSources: CanvasPayloadFieldSource[];
   references: CanvasAssetReference[];
+  promptReferences?: CanvasPromptReference[];
   mode?: string;
 };
 

@@ -4,15 +4,15 @@ export function AppToaster() {
   return (
     <Toaster
       position="bottom-right"
-      richColors
+      theme="dark"
       closeButton
       toastOptions={{
         classNames: {
-          toast: "border-border bg-surface-panel text-text shadow-popover",
-          title: "text-text",
+          toast: "group border-border bg-surface-panel text-text shadow-popover rounded-xl",
+          title: "text-text font-medium",
           description: "text-text-muted",
-          actionButton: "bg-brand text-[#04202a]",
-          cancelButton: "bg-surface-muted text-text"
+          actionButton: "bg-brand text-[#04202a] font-medium",
+          cancelButton: "bg-surface-muted text-text font-medium"
         }
       }}
     />

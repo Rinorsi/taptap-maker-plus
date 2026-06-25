@@ -1,30 +1,31 @@
 import React, { useState, useEffect, useRef } from "react";
-import { ChevronDown, ChevronRight, Save, Download, Upload, Trash2, Clock, FileJson } from "lucide-react";
-import { NODE_PRESETS, type NodeCategory, getPresetsByCategory } from "./nodeRegistry";
+import { ChevronDown, ChevronRight, Save, Download, Upload, Trash2, Clock, FileJson, Pencil } from "lucide-react";
+import { getPresetGroupsForCanvas } from "./nodeRegistry";
 import { cn } from "../../lib/utils";
 import { useReactFlow } from "@xyflow/react";
-import { ProjectSummary, listFlows, saveFlow, deleteFlow, getFlow } from "../../api";
+import { ProjectSummary, listFlows, saveFlow, deleteFlow, getFlow, renameFlow, type CanvasFlowSummary } from "../../api";
 import { PromptDialog, type PromptConfig } from "../../components/ui/PromptDialog";
 import { ConfirmDialog, type ConfirmConfig } from "../../components/ui/ConfirmDialog";
 import { videoCanvasNodeRegistry } from "./videoCanvasRegistry";
+import {
+  createCleanCanvasStoragePayload,
+  migrateCanvasStoragePayload,
+  type CanvasKind,
+} from "../canvas-core";
 
-function createCanvasStoragePayload(data: any, kind: "video-reference" | "universal" = "video-reference") {
-  return {
-    schema: kind === "universal" ? "taptap.canvas.universal.v1" : "taptap.canvas.video.v1",
-    kind,
-    ...data,
-  };
+export const VIDEO_FLOW_SAVE_EVENT = "taptap:video-flow-save";
+
+function formatFlowTimestamp(date = new Date()) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return [
+    String(date.getFullYear()).slice(-2),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds()),
+  ].join("-");
 }
-
-const CATEGORIES: { id: NodeCategory; label: string }[] = [
-  { id: "prompt", label: "提示词 (Prompt)" },
-  { id: "image", label: "图片参考 (Image Ref)" },
-  { id: "video", label: "视频参考 (Video Ref)" },
-  { id: "audio", label: "音频参考 (Audio Ref)" },
-  { id: "settings", label: "参数设置 (Settings)" },
-  { id: "collector", label: "聚合器 (Collector)" },
-  { id: "executor", label: "执行器 (Executor)" }
-];
 
 declare global {
   interface Window {
@@ -36,22 +37,24 @@ export function NodeLibraryDrawer({
   isOpen,
   project,
   canvasKind = "video-reference",
+  width,
   onLoaded,
 }: {
   isOpen: boolean;
   project?: ProjectSummary;
-  canvasKind?: "video-reference" | "universal";
+  canvasKind?: CanvasKind;
+  width?: number;
   onLoaded?: (data: any) => void;
 }) {
   const [activeTab, setActiveTab] = useState<"presets" | "saved">("presets");
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
-    prompt: true,
-    image: true,
-    collector: true,
-    executor: true
+    "image-generation": true,
+    "audio-generation": true,
+    "video-prompt": true,
+    "video-run": true,
   });
   
-  const [savedFlows, setSavedFlows] = useState<{name: string, mtimeMs: number}[]>([]);
+  const [savedFlows, setSavedFlows] = useState<CanvasFlowSummary[]>([]);
   const [notice, setNotice] = useState("");
   const [promptConfig, setPromptConfig] = useState<PromptConfig>({
     isOpen: false,
@@ -67,6 +70,7 @@ export function NodeLibraryDrawer({
   });
   const reactFlow = useReactFlow();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const presetGroups = getPresetGroupsForCanvas(canvasKind);
 
   useEffect(() => {
     if (activeTab === "saved" && project) {
@@ -99,19 +103,24 @@ export function NodeLibraryDrawer({
     window.__taptapNodePresetDrag = undefined;
   };
 
-  const handleSaveCurrent = () => {
+  const handleSaveCurrent = React.useCallback(() => {
     if (!project) return;
     setPromptConfig({
       isOpen: true,
       title: "请输入保存的名称",
-      defaultValue: "我的画布-" + new Date().toLocaleTimeString().replace(/:/g, "-"),
+      defaultValue: "我的画布-" + formatFlowTimestamp(),
       confirmLabel: "保存",
       onConfirm: async (name) => {
         setPromptConfig((prev) => ({ ...prev, isOpen: false }));
         try {
-          const data = createCanvasStoragePayload(reactFlow.toObject(), canvasKind);
-          await saveFlow(project.id, name, data);
+          const data = createCleanCanvasStoragePayload(reactFlow.toObject(), canvasKind);
+          const saved = await saveFlow(project.id, name, data);
           setNotice(`已保存：${name}`);
+          setActiveTab("saved");
+          setSavedFlows((flows) => [
+            { id: saved.id, name: saved.name, mtimeMs: saved.mtimeMs ?? Date.now() },
+            ...flows.filter((flow) => flow.id !== saved.id),
+          ]);
           await refreshFlows();
         } catch (e) {
           setNotice("保存失败: " + String(e));
@@ -119,13 +128,13 @@ export function NodeLibraryDrawer({
       },
       onCancel: () => setPromptConfig((prev) => ({ ...prev, isOpen: false })),
     });
-  };
+  }, [canvasKind, project, reactFlow]);
 
   const handleLoadFlow = async (name: string) => {
     if (!project || !onLoaded) return;
     try {
       const data = await getFlow(project.id, name);
-      onLoaded(data);
+      onLoaded(migrateCanvasStoragePayload(data, canvasKind));
     } catch (e) {
       setNotice("加载失败: " + String(e));
     }
@@ -154,8 +163,38 @@ export function NodeLibraryDrawer({
     });
   };
 
+  const handleRenameFlow = (e: React.MouseEvent, flow: CanvasFlowSummary) => {
+    e.stopPropagation();
+    if (!project) return;
+    setPromptConfig({
+      isOpen: true,
+      title: "修改保存名称",
+      defaultValue: flow.name,
+      confirmLabel: "保存",
+      onConfirm: async (nextName) => {
+        setPromptConfig((prev) => ({ ...prev, isOpen: false }));
+        try {
+          await renameFlow(project.id, flow.id, nextName);
+          setNotice(`已重命名：${nextName}`);
+          await refreshFlows();
+        } catch (err) {
+          setNotice("重命名失败: " + String(err));
+        }
+      },
+      onCancel: () => setPromptConfig((prev) => ({ ...prev, isOpen: false })),
+    });
+  };
+
+  useEffect(() => {
+    const onSaveRequest = () => {
+      handleSaveCurrent();
+    };
+    window.addEventListener(VIDEO_FLOW_SAVE_EVENT, onSaveRequest);
+    return () => window.removeEventListener(VIDEO_FLOW_SAVE_EVENT, onSaveRequest);
+  }, [handleSaveCurrent]);
+
   const handleExportLocal = () => {
-    const data = createCanvasStoragePayload(reactFlow.toObject());
+    const data = createCleanCanvasStoragePayload(reactFlow.toObject(), canvasKind);
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -172,7 +211,7 @@ export function NodeLibraryDrawer({
     reader.onload = (event) => {
       try {
         const data = JSON.parse(event.target?.result as string);
-        onLoaded(data);
+        onLoaded(migrateCanvasStoragePayload(data, canvasKind));
       } catch (err) {
         setNotice("无效的 JSON 文件");
       }
@@ -186,9 +225,10 @@ export function NodeLibraryDrawer({
       className={cn(
         "h-full bg-surface-panel border-r border-border-soft flex flex-col overflow-hidden shrink-0 transition-[width,opacity,transform] duration-300 ease-out relative z-50",
         isOpen
-          ? "w-[320px] opacity-100 translate-x-0"
+          ? "opacity-100 translate-x-0"
           : "w-0 opacity-0 -translate-x-3 pointer-events-none border-r-0"
       )}
+      style={isOpen ? { width: width ?? 320 } : undefined}
       aria-hidden={!isOpen}
     >
       <div className="p-4 border-b border-border-soft bg-surface-app/30 flex flex-col gap-3">
@@ -212,8 +252,8 @@ export function NodeLibraryDrawer({
       </div>
       
       <div className="flex-1 overflow-y-auto overflow-x-hidden p-2 flex flex-col gap-1 custom-scrollbar">
-        {activeTab === "presets" && CATEGORIES.map(category => {
-          const presets = getPresetsByCategory(category.id);
+        {activeTab === "presets" && presetGroups.map(category => {
+          const presets = category.items;
           if (presets.length === 0) return null;
           
           const isExpanded = expandedCategories[category.id];
@@ -279,11 +319,11 @@ export function NodeLibraryDrawer({
             <div className="flex flex-col gap-1">
               <span className="text-[11px] font-bold text-text-subtle px-1 mb-1">自动保存</span>
               {(() => {
-                const autoSave = savedFlows.find(f => f.name === "_autosave");
+                const autoSave = savedFlows.find(f => f.id === "_autosave");
                 if (!autoSave) return <div className="px-2 py-1 text-[10px] text-text-muted">暂无自动保存记录</div>;
                 return (
                   <div 
-                    onClick={() => handleLoadFlow(autoSave.name)}
+                    onClick={() => handleLoadFlow(autoSave.id)}
                     className="flex items-center justify-between p-2.5 bg-surface-app/40 hover:bg-surface-app border border-transparent hover:border-brand/30 rounded-lg cursor-pointer transition-all group"
                   >
                     <div className="flex flex-col gap-1 overflow-hidden">
@@ -305,15 +345,15 @@ export function NodeLibraryDrawer({
 
             <div className="flex flex-col gap-1">
               <span className="text-[11px] font-bold text-text-subtle px-1 mb-1">手动保存</span>
-              {savedFlows.filter(f => f.name !== "_autosave").length === 0 && (
+              {savedFlows.filter(f => f.id !== "_autosave").length === 0 && (
                 <div className="text-center p-4 text-[11px] text-text-muted bg-surface-app/30 rounded-lg border border-dashed border-border">
                   暂无手动保存的画布
                 </div>
               )}
-              {savedFlows.filter(f => f.name !== "_autosave").sort((a,b) => b.mtimeMs - a.mtimeMs).map(flow => (
+              {savedFlows.filter(f => f.id !== "_autosave").sort((a,b) => b.mtimeMs - a.mtimeMs).map(flow => (
                 <div 
-                  key={flow.name}
-                  onClick={() => handleLoadFlow(flow.name)}
+                  key={flow.id}
+                  onClick={() => handleLoadFlow(flow.id)}
                   className="flex items-center justify-between p-2.5 bg-surface-app/50 hover:bg-surface-app border border-transparent hover:border-brand/30 rounded-lg cursor-pointer transition-all group"
                 >
                   <div className="flex flex-col gap-1 overflow-hidden flex-1 pr-2">
@@ -332,7 +372,7 @@ export function NodeLibraryDrawer({
                         e.stopPropagation();
                         if (!project) return;
                         try {
-                          const flowData = await getFlow(project.id, flow.name);
+                          const flowData = await getFlow(project.id, flow.id);
                           if (!flowData) return;
                           const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(flowData));
                           const a = document.createElement('a');
@@ -348,8 +388,15 @@ export function NodeLibraryDrawer({
                     >
                       <Download className="w-3.5 h-3.5" />
                     </button>
+                    <button
+                      onClick={(e) => handleRenameFlow(e, flow)}
+                      className="p-1.5 text-text-subtle hover:text-brand hover:bg-brand/10 rounded-md transition-colors"
+                      title="修改名称"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
                     <button 
-                      onClick={(e) => handleDeleteFlow(e, flow.name)}
+                      onClick={(e) => handleDeleteFlow(e, flow.id)}
                       className="p-1.5 text-text-subtle hover:text-red-500 hover:bg-red-500/10 rounded-md transition-colors"
                       title="删除记录"
                     >

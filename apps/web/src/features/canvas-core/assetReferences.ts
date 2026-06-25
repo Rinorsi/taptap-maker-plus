@@ -32,6 +32,7 @@ export function collectCanvasAssetReferences(nodes: Node[]): CanvasAssetReferenc
   const counts: Record<string, number> = {};
   return nodes
     .filter((node) => {
+      if (node.type !== "mediaNode") return false;
       const kind = getNodeAssetKind(node);
       return kind === "image" || kind === "video" || kind === "audio" || kind === "model";
     })

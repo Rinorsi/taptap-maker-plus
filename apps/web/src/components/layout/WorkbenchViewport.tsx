@@ -15,11 +15,6 @@ const AssetHub = lazy(() =>
     default: module.AssetHub,
   })),
 );
-const UniversalCanvas = lazy(() =>
-  import("../../features/generation/UniversalCanvas").then((module) => ({
-    default: module.UniversalCanvas,
-  })),
-);
 const ImageStudio = lazy(() =>
   import("../../features/generation/ImageStudio").then((module) => ({
     default: module.ImageStudio,
@@ -82,6 +77,7 @@ type Props = {
   onConfirmReferenceMutation: (relativePaths: string[], actionLabel: string, allowUpdateReferences: boolean) => Promise<"update" | "skip" | "cancel">;
   onAssetMutationResult: (prefix: string, result: AssetMutationResponse) => void;
   onScanAssetReferences: (relativePaths: string[]) => Promise<void>;
+  onRefreshProject?: () => void | Promise<void>;
   onNotice: (notice: string) => void;
   onCallStatusLite: () => void;
   onCallTool: (toolName: string, args: Record<string, unknown>) => Promise<unknown>;
@@ -132,17 +128,6 @@ export function WorkbenchViewport(props: Props) {
           onSelectAsset={(asset) => props.onSelect({ type: "asset", item: asset })}
         />
       ) : null}
-      {props.activeModule === "studio-canvas" ? (
-        <UniversalCanvas
-          project={props.project}
-          tools={props.tools}
-          assets={props.assets}
-          tasks={props.tasks}
-          onCallTool={props.onCallTool}
-          onShowError={props.onShowError}
-          onCommandContextChange={props.onCanvasCommandContextChange}
-        />
-      ) : null}
       {props.activeModule === "studio-image" ? (
         <ImageStudio
           project={props.project}
@@ -168,7 +153,7 @@ export function WorkbenchViewport(props: Props) {
           onImportAssets={props.onImportAssets}
         />
       ) : null}
-      {props.activeModule === "studio-video" ? (
+      {props.activeModule === "studio-video" || props.activeModule === "studio-canvas" || props.activeModule === "workflow" ? (
         <VideoStudio
           project={props.project}
           tools={props.tools}
@@ -193,6 +178,7 @@ export function WorkbenchViewport(props: Props) {
           onImportAssets={props.onImportAssets}
           onCollapseSidebar={props.onCollapseSidebar}
           onShowError={props.onShowError}
+          onRequestProjectRefresh={props.onRefreshProject}
           onCommandContextChange={props.onCanvasCommandContextChange}
         />
       ) : null}
@@ -244,17 +230,6 @@ export function WorkbenchViewport(props: Props) {
           onOpenLocalPath={props.onOpenLocalAssetPath}
           onScanReferences={props.onScanAssetReferences}
           onImportAssets={props.onImportAssets}
-        />
-      ) : null}
-      {props.activeModule === "workflow" ? (
-        <UniversalCanvas
-          project={props.project}
-          tools={props.tools}
-          assets={props.assets}
-          tasks={props.tasks}
-          onCallTool={props.onCallTool}
-          onShowError={props.onShowError}
-          onCommandContextChange={props.onCanvasCommandContextChange}
         />
       ) : null}
       {props.activeModule === "build" ? (

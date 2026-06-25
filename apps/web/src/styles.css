@@ -69,12 +69,9 @@
     background: var(--color-text-subtle);
   }
 
-  html, body, #root { height: 100%; margin: 0; }
+  html, body, #root { height: 100%; margin: 0; background: transparent; }
   body { 
-    background-color: var(--surface-app);
-    background-image: var(--app-background-image);
-    background-size: cover;
-    background-position: center;
+    background-color: transparent;
     color: var(--color-text); 
     font-family: Inter, "Segoe UI", system-ui, sans-serif; 
     overflow: hidden; 
@@ -220,6 +217,76 @@
 
   .video-flow-canvas .react-flow__pane.draggable {
     cursor: default !important;
+  }
+
+  .canvas-audio-player-range {
+    appearance: none;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    cursor: pointer;
+  }
+
+  .canvas-audio-player-range::-webkit-slider-runnable-track {
+    height: 4px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+  }
+
+  .canvas-audio-player-range::-webkit-slider-thumb {
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    margin-top: -4px;
+    border: 2px solid var(--surface-panel);
+    border-radius: 999px;
+    background: var(--color-brand);
+    box-shadow: 0 0 0 3px rgba(0, 217, 197, 0.16);
+  }
+
+  .canvas-audio-player-range::-moz-range-track {
+    height: 4px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+  }
+
+  .canvas-audio-player-range::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--surface-panel);
+    border-radius: 999px;
+    background: var(--color-brand);
+    box-shadow: 0 0 0 3px rgba(0, 217, 197, 0.16);
+  }
+
+  .canvas-prompt-editor .ProseMirror {
+    min-height: 96px;
+    outline: none;
+    white-space: pre-wrap;
+  }
+
+  .canvas-prompt-editor .ProseMirror p {
+    margin: 0;
+  }
+
+  .canvas-mention-token {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    background: rgba(0, 217, 197, 0.12);
+    color: var(--color-brand);
+    font-weight: 800;
+    padding: 0 6px;
+    line-height: 1.55;
+    cursor: pointer;
+  }
+
+  .canvas-mention-token-broken {
+    background: rgba(234, 179, 8, 0.14);
+    color: #ca8a04;
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
   }
 
   .workflow-flow .react-flow__controls,

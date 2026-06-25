@@ -7,6 +7,7 @@ import type {
   CanvasCompileResult,
   CanvasMentionToken,
   CanvasPayloadFieldSource,
+  CanvasPromptReference,
   CanvasToolName,
 } from "./types";
 
@@ -64,8 +65,9 @@ export function compileVideoCanvasPayload(nodes: Node[], edges: Edge[], executor
   const referencedAliases = new Set<string>();
   const textMentionAliases = new Set<string>();
   const mentionTokens: CanvasMentionToken[] = [];
+  const promptReferences: CanvasPromptReference[] = [];
 
-  collectPromptAndSettings(reachableNodes, promptParts, settings, settingSources, fieldSources, referencedAliases, textMentionAliases, mentionTokens);
+  collectPromptAndSettings(reachableNodes, promptParts, settings, settingSources, fieldSources, referencedAliases, textMentionAliases, mentionTokens, references, promptReferences);
 
   const prompt = composePrompt(promptParts, []);
   validateVideoSettings(settings, issues, settingSources, prompt);
@@ -81,7 +83,7 @@ export function compileVideoCanvasPayload(nodes: Node[], edges: Edge[], executor
 
   const mode = String(settings.mode);
   if (issues.some((issue) => issue.severity === "error")) {
-    return { ok: false, toolName: "create_video_task", issues, fieldSources, references, mode };
+    return { ok: false, toolName: "create_video_task", issues, fieldSources, references, promptReferences, mode };
   }
 
   const payload: Record<string, unknown> = {
@@ -114,7 +116,7 @@ export function compileVideoCanvasPayload(nodes: Node[], edges: Edge[], executor
     });
   }
 
-  return { ok: true, toolName: "create_video_task", payload, issues, fieldSources, references, mode };
+  return { ok: true, toolName: "create_video_task", payload, issues, fieldSources, references, promptReferences, mode };
 }
 
 function compileSimpleCanvasTool(
@@ -134,8 +136,9 @@ function compileSimpleCanvasTool(
   const referencedAliases = new Set<string>();
   const textMentionAliases = new Set<string>();
   const mentionTokens: CanvasMentionToken[] = [];
+  const promptReferences: CanvasPromptReference[] = [];
 
-  collectPromptAndSettings(reachableNodes, promptParts, settings, settingSources, fieldSources, referencedAliases, textMentionAliases, mentionTokens);
+  collectPromptAndSettings(reachableNodes, promptParts, settings, settingSources, fieldSources, referencedAliases, textMentionAliases, mentionTokens, references, promptReferences);
   const connectedReferences = collectConnectedReferences(reachableNodes, references, mentionTokens, textMentionAliases);
   validateMentionBindings(referencedAliases, mentionTokens, references, issues);
   validateReferencePaths(connectedReferences, issues);
@@ -149,9 +152,9 @@ function compileSimpleCanvasTool(
   validateRequiredFields(toolName, definition?.requiredFields ?? [], payload, executorNode.id, issues);
 
   if (issues.some((issue) => issue.severity === "error")) {
-    return { ok: false, toolName, issues, fieldSources, references };
+    return { ok: false, toolName, issues, fieldSources, references, promptReferences };
   }
-  return { ok: true, toolName, payload, issues, fieldSources, references };
+  return { ok: true, toolName, payload, issues, fieldSources, references, promptReferences };
 }
 
 function buildSimplePayload(
@@ -275,18 +278,36 @@ function collectPromptAndSettings(
   referencedAliases: Set<string>,
   textMentionAliases: Set<string>,
   mentionTokens: CanvasMentionToken[],
+  references: CanvasAssetReference[],
+  promptReferences: CanvasPromptReference[],
 ) {
+  const referenceNodeIds = new Set(references.map((reference) => reference.nodeId));
   for (const node of nodes) {
     if (node.type === "textNode") {
       const text = String(node.data?.text ?? "").trim();
       if (!text) continue;
-      promptParts.push(text);
+      const promptLabel = promptNodeLabel(node);
+      const promptText = promptLabel ? `${promptLabel}：${text}` : text;
+      promptParts.push(promptText);
       extractMentionAliases(text).forEach((alias) => {
         referencedAliases.add(alias);
         textMentionAliases.add(alias);
       });
-      if (Array.isArray(node.data?.mentionTokens)) mentionTokens.push(...(node.data.mentionTokens as CanvasMentionToken[]));
-      fieldSources.push({ path: "prompt", nodeId: node.id, label: "导演提示词", value: text });
+      if (Array.isArray(node.data?.mentionTokens)) {
+        for (const token of node.data.mentionTokens as CanvasMentionToken[]) {
+          mentionTokens.push(token);
+          promptReferences.push({
+            promptNodeId: node.id,
+            tokenId: token.id,
+            alias: token.alias,
+            nodeId: token.nodeId,
+            kind: token.kind,
+            use: token.use,
+            broken: !referenceNodeIds.has(token.nodeId),
+          });
+        }
+      }
+      fieldSources.push({ path: "prompt", nodeId: node.id, label: promptLabel || "提示词", value: promptText });
       continue;
     }
     if (node.type !== "settingsNode") continue;
@@ -296,6 +317,18 @@ function collectPromptAndSettings(
     settingSources.set(type, node.id);
     fieldSources.push({ path: type, nodeId: node.id, label: String(node.data?.presetId ?? "生成设置"), value: node.data?.value });
   }
+}
+
+function promptNodeLabel(node: Node) {
+  const labels: Record<string, string> = {
+    MainPromptNode: "导演提示词",
+    CameraPromptNode: "镜头语言",
+    MotionPromptNode: "动作描述",
+    StylePromptNode: "风格描述",
+    AtmospherePromptNode: "氛围描述",
+    ConstraintPromptNode: "约束描述",
+  };
+  return labels[String(node.data?.presetId ?? "")] ?? "";
 }
 
 function collectConnectedReferences(

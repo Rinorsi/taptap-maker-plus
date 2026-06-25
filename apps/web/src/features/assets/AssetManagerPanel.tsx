@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { DndContext } from "@dnd-kit/core";
 import { motion, AnimatePresence } from "framer-motion";
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
@@ -17,6 +17,7 @@ import {
   writeAssetDragData
 } from "../../components/interaction/assetDragData";
 import { Button } from "../../components/ui/Button";
+import { CanvasAudioPlayer } from "../../components/studio/CanvasAudioPlayer";
 import { SelectionBox, StudioBulkActionBar, StudioSearchInput } from "../../components/studio/StudioKit";
 import {
   AppContextMenu,
@@ -39,6 +40,7 @@ type AssetManagerPanelProps = {
   assetTypeFilter?: string;
   showTypeFilter?: boolean;
   showDirectoryTree?: boolean;
+  toolbarSlot?: (content: ReactNode) => void;
   importAccept?: string;
   onScanAssets: () => void;
   onImportAssets?: (files: File[], targetFolder: string) => Promise<void>;
@@ -183,6 +185,7 @@ export function AssetManagerPanel({
   assetTypeFilter,
   showTypeFilter = true,
   showDirectoryTree = true,
+  toolbarSlot,
   importAccept,
   onScanAssets,
   onImportAssets,
@@ -267,10 +270,38 @@ export function AssetManagerPanel({
     [activeNode.path, scopedAssets]
   );
 
-  const counts = ordinaryAssetTypeOrder.reduce<Record<string, number>>((acc, next) => {
+  const counts = useMemo(() => ordinaryAssetTypeOrder.reduce<Record<string, number>>((acc, next) => {
     acc[next] = next === "all" ? directoryAssets.length : directoryAssets.filter((asset) => asset.assetType === next).length;
     return acc;
-  }, {});
+  }, {}), [directoryAssets]);
+  const toolbarFilterSignature = useMemo(
+    () => `${type}:${ordinaryAssetTypeOrder.map((next) => counts[next] ?? 0).join(",")}:${showTypeFilter ? "1" : "0"}`,
+    [counts, showTypeFilter, type],
+  );
+  const lastToolbarFilterSignatureRef = useRef<string | null>(null);
+
+  const typeFilterContent = useMemo(() => showTypeFilter ? (
+    <div className="flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap scrollbar-thin">
+      {ordinaryAssetTypeOrder.map((nextType) => (
+        <button
+          key={nextType}
+          type="button"
+          className={cn("flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold transition-colors", type === nextType ? "bg-brand/10 text-brand-strong" : "text-text-muted hover:bg-surface-raised hover:text-text")}
+          onClick={() => setType(nextType)}
+        >
+          <span>{ordinaryAssetTypeLabels[nextType] ?? nextType}</span>
+          <span className={cn("rounded px-1.5 py-0.5 text-[9px] font-mono", type === nextType ? "bg-brand/20" : "bg-surface-muted text-text-subtle")}>{counts[nextType]}</span>
+        </button>
+      ))}
+    </div>
+  ) : null, [counts, showTypeFilter, type]);
+
+  useEffect(() => {
+    if (!toolbarSlot) return;
+    if (lastToolbarFilterSignatureRef.current === toolbarFilterSignature) return;
+    lastToolbarFilterSignatureRef.current = toolbarFilterSignature;
+    toolbarSlot(typeFilterContent);
+  }, [toolbarFilterSignature, toolbarSlot, typeFilterContent]);
 
   const allVisibleSelected =
     filteredAssets.length + childDirectories.length > 0 &&
@@ -921,7 +952,7 @@ export function AssetManagerPanel({
           
           {/* Top Row: Search & Actions */}
           <div className="flex items-center justify-between gap-2 w-full">
-            {!isNarrow && (
+            {!toolbarSlot && !isNarrow && (
               <div className="flex flex-1 items-center min-w-0">
                 {activeNode.parentPath ? (
                   <button
@@ -943,8 +974,15 @@ export function AssetManagerPanel({
                 />
               </div>
             )}
-            <div className={cn("flex shrink-0 items-center gap-1", isNarrow && "w-full justify-between")}>
-              <StudioSearchInput value={query} onChange={setQuery} className={isNarrow ? "flex-1 min-w-0" : "w-[120px] sm:w-[260px]"} />
+            {toolbarSlot ? (
+              <div className="min-w-0 flex-1">
+                <StudioSearchInput value={query} onChange={setQuery} className="w-full sm:max-w-[260px]" />
+              </div>
+            ) : null}
+            <div className={cn("flex shrink-0 items-center gap-1", !toolbarSlot && isNarrow && "w-full justify-between")}>
+              {!toolbarSlot ? (
+                <StudioSearchInput value={query} onChange={setQuery} className={isNarrow ? "flex-1 min-w-0" : "w-[120px] sm:w-[260px]"} />
+              ) : null}
               <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border-soft bg-surface-muted p-0.5 ml-1 hidden sm:flex">
                 <button type="button" title="网格视图" className={cn("rounded-[4px] p-1.5 transition-colors", view === "grid" ? "bg-surface-panel text-text shadow-sm" : "text-text-muted hover:text-text")} onClick={() => setView("grid")}>
                   <LayoutGrid className="h-3.5 w-3.5" />
@@ -967,7 +1005,7 @@ export function AssetManagerPanel({
                 </Button>
               ) : null}
               
-              {!isNarrow && (
+              {!toolbarSlot && !isNarrow && (
                 <>
                   <div className="mx-1 h-4 w-px bg-border-soft hidden sm:block" />
                   <label className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] font-semibold text-text-subtle hover:text-text" title="包含子目录">
@@ -982,7 +1020,7 @@ export function AssetManagerPanel({
 
           {/* Bottom Row: Swaps between Filters/Meta and Bulk Actions */}
           {(selectedItems.length > 0 || isNarrow || showTypeFilter || showDirectoryTree || assetClipboard) && (
-            <div className="relative min-h-[28px] w-full">
+          <div className={cn(toolbarSlot ? "w-full min-h-[32px]" : "relative min-h-[28px] w-full")}>
             <AnimatePresence mode="wait">
               {selectedItems.length > 0 ? (
                 <motion.div
@@ -991,7 +1029,10 @@ export function AssetManagerPanel({
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -5 }}
                   transition={{ duration: 0.15 }}
-                  className="absolute inset-0 flex items-center justify-between gap-3 bg-surface-panel z-10"
+                  className={cn(
+                    "flex items-center justify-between gap-3 bg-surface-panel",
+                    toolbarSlot ? "min-h-8" : "absolute inset-0 z-10",
+                  )}
                 >
                   <div className="flex items-center gap-3">
                     <button type="button" onClick={() => { setSelectedPaths([]); setSelectedDirectoryPaths([]); }} className="rounded-md p-1.5 text-text-subtle transition-colors hover:bg-surface-raised hover:text-text">
@@ -1037,11 +1078,17 @@ export function AssetManagerPanel({
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -5 }}
                   transition={{ duration: 0.15 }}
-                  className="absolute inset-0 flex items-center justify-between gap-4 w-full"
+                  className={cn(
+                    toolbarSlot
+                      ? "flex min-h-8 w-full items-center gap-2 overflow-hidden"
+                      : "absolute inset-0 flex items-center justify-between gap-4 w-full",
+                  )}
                 >
-                  <div className="flex flex-1 items-center min-w-0 overflow-hidden">
-                    {/* Breadcrumbs take up the left space when narrow */}
-                    {isNarrow && (
+                  <div className={cn(
+                    "flex flex-1 items-center min-w-0 overflow-hidden",
+                    toolbarSlot && "gap-2 overflow-x-auto whitespace-nowrap scrollbar-thin",
+                  )}>
+                    {!toolbarSlot && isNarrow && (
                       <div className="flex shrink-0 items-center mr-3 border-r border-border pr-3">
                         {activeNode.parentPath ? (
                           <button
@@ -1063,40 +1110,46 @@ export function AssetManagerPanel({
                         />
                       </div>
                     )}
-                    
+
                     {showDirectoryTree ? (
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => setTreeOpen(true)}
-                        className={cn("h-7 shrink-0 gap-1.5 rounded-md px-2 text-[11px] font-semibold transition-colors", showTypeFilter ? "mr-3 border-r border-border rounded-r-none pr-3" : "mr-2")}
+                        className={cn(
+                          "h-7 shrink-0 gap-1.5 rounded-md px-2 text-[11px] font-semibold transition-colors",
+                          !toolbarSlot && showTypeFilter ? "border-r border-border rounded-r-none pr-3" : "",
+                        )}
                       >
                         <PanelLeft className="h-3.5 w-3.5" />
                         目录
                         <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[9px] font-bold text-text-subtle">{tree.totalAssetCount}</span>
                       </Button>
                     ) : null}
-                    
-                    {/* Type Filters follow Breadcrumbs if they exist */}
-                    {showTypeFilter && (
-                      <div className="flex flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap scrollbar-thin">
-                        {ordinaryAssetTypeOrder.map((nextType) => (
-                          <button
-                            key={nextType}
-                            type="button"
-                            className={cn("flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold transition-colors", type === nextType ? "bg-brand/10 text-brand-strong" : "text-text-muted hover:bg-surface-raised hover:text-text")}
-                            onClick={() => setType(nextType)}
-                          >
-                            <span>{ordinaryAssetTypeLabels[nextType] ?? nextType}</span>
-                            <span className={cn("rounded px-1.5 py-0.5 text-[9px] font-mono", type === nextType ? "bg-brand/20" : "bg-surface-muted text-text-subtle")}>{counts[nextType]}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
+
+                    {toolbarSlot ? (
+                    <div className="flex min-w-[72px] shrink-0 items-center overflow-hidden">
+                      <Breadcrumb
+                        panelId={panelId}
+                        path={activeNode.path}
+                        onSelectPath={(path) => selectDirectory(directories.find((directory) => directory.path === path) ?? tree)}
+                        onDropOnPath={(event, path) => handleDropOnDirectory(event, path)}
+                      />
+                    </div>
+                    ) : null}
+
+                    {!toolbarSlot ? typeFilterContent : null}
                   </div>
-                  
-                  <div className="flex shrink-0 items-center gap-2.5 justify-end text-[10px] text-text-subtle">
-                    {isNarrow && (
+
+                  <div className="ml-auto flex shrink-0 items-center justify-end gap-2.5 text-[10px] text-text-subtle">
+                    {toolbarSlot ? (
+                      <>
+                        <label className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] font-semibold text-text-subtle hover:text-text" title="包含子目录">
+                          <input type="checkbox" checked={recursive} onChange={(event) => setRecursive(event.target.checked)} className="h-3.5 w-3.5 cursor-pointer rounded border-border bg-surface-app text-brand focus:ring-brand/30" />
+                          <span className="hidden xl:inline">包含</span>子目录
+                        </label>
+                      </>
+                    ) : isNarrow ? (
                       <>
                         <label className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] font-semibold text-text-subtle hover:text-text" title="包含子目录">
                           <input type="checkbox" checked={recursive} onChange={(event) => setRecursive(event.target.checked)} className="h-3.5 w-3.5 cursor-pointer rounded border-border bg-surface-app text-brand focus:ring-brand/30" />
@@ -1104,7 +1157,7 @@ export function AssetManagerPanel({
                         </label>
                         <span className="shrink-0 text-[10px] font-semibold text-text-subtle opacity-70">共{counts.all}项</span>
                       </>
-                    )}
+                    ) : null}
                     {assetClipboard ? (
                       <Button
                         variant="outline"
@@ -1360,7 +1413,12 @@ export function AssetManagerPanel({
                   <X className="h-4 w-4 text-text-muted" />
                 </Button>
               </div>
-              <audio controls autoPlay src={assetPreviewUrl(playingAsset.projectId, playingAsset.relativePath)} className="h-9 w-full min-w-0 opacity-90" />
+              <CanvasAudioPlayer
+                src={assetPreviewUrl(playingAsset.projectId, playingAsset.relativePath)}
+                autoPlay
+                compact
+                className="w-full min-w-0"
+              />
             </motion.div>
           )}
         </AnimatePresence>
@@ -2002,11 +2060,9 @@ function VideoThumb({
   asset: AssetSummary;
   compact?: boolean;
 }) {
-  const [shouldLoad, setShouldLoad] = useState(false);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    setShouldLoad(false);
     setFailed(false);
   }, [asset.projectId, asset.relativePath]);
 
@@ -2018,13 +2074,10 @@ function VideoThumb({
         "relative flex h-full w-full items-center justify-center overflow-hidden",
         compact ? "rounded-[4px]" : "rounded-md"
       )}
-      onPointerEnter={() => setShouldLoad(true)}
-      onMouseEnter={() => setShouldLoad(true)}
-      onFocus={() => setShouldLoad(true)}
     >
-      {shouldLoad && !failed ? (
+      {!failed ? (
         <video
-          src={assetPreviewUrl(asset.projectId, asset.relativePath)}
+          src={`${assetPreviewUrl(asset.projectId, asset.relativePath)}#t=0.1`}
           className="h-full w-full object-cover"
           muted
           playsInline

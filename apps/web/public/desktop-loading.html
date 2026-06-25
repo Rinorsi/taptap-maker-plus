@@ -52,6 +52,8 @@
         color: var(--text-primary);
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
         overflow: hidden;
+        cursor: default;
+        user-select: none;
       }
 
       body {
@@ -420,6 +422,16 @@
       const logPercentEl = document.getElementById("log-percent");
       const progressEl = document.getElementById("progress");
       const splash = document.getElementById("splash");
+
+      window.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        const tauriWindow = window.__TAURI__ && window.__TAURI__.window;
+        const getCurrentWindow = tauriWindow && tauriWindow.getCurrentWindow;
+        if (typeof getCurrentWindow !== "function") return;
+        const appWindow = getCurrentWindow();
+        if (!appWindow || typeof appWindow.startDragging !== "function") return;
+        appWindow.startDragging().catch(() => {});
+      });
 
       const targets = [
         "http://localhost:5173",

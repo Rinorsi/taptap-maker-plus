@@ -863,29 +863,33 @@ export async function deleteWorkflow(projectId: string, workflowId: string) {
 }
 
 // --- Flows (Multimodal Canvas) ---
-export async function listFlows(projectId: string): Promise<{ name: string, mtimeMs: number }[]> {
-  const res = await fetch(`/api/projects/${projectId}/flows`);
+export type CanvasFlowSummary = { id: string; name: string; mtimeMs: number };
+
+export async function listFlows(projectId: string): Promise<CanvasFlowSummary[]> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/flows`);
   if (!res.ok) throw new Error(`Failed to list flows: ${res.statusText}`);
-  return (await res.json()).flows;
+  const flows = (await res.json()).flows as Array<{ id?: string; name: string; mtimeMs: number }>;
+  return flows.map((flow) => ({ id: flow.id ?? flow.name, name: flow.name, mtimeMs: flow.mtimeMs }));
 }
 
 export async function getFlow(projectId: string, name: string): Promise<any> {
-  const res = await fetch(`/api/projects/${projectId}/flows/${name}`);
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/flows/${encodeURIComponent(name)}`);
   if (!res.ok) throw new Error(`Failed to get flow: ${res.statusText}`);
   return (await res.json()).data;
 }
 
-export async function saveFlow(projectId: string, name: string, data: any): Promise<void> {
-  const res = await fetch(`/api/projects/${projectId}/flows`, {
+export async function saveFlow(projectId: string, name: string, data: any): Promise<{ id: string; name: string; mtimeMs?: number }> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/flows`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, data }),
   });
   if (!res.ok) throw new Error(`Failed to save flow: ${res.statusText}`);
+  return res.json();
 }
 
 export async function autoSaveFlow(projectId: string, data: any): Promise<void> {
-  const res = await fetch(`/api/projects/${projectId}/flows/auto-save`, {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/flows/auto-save`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ data }),
@@ -894,8 +898,17 @@ export async function autoSaveFlow(projectId: string, data: any): Promise<void> 
 }
 
 export async function deleteFlow(projectId: string, name: string): Promise<void> {
-  const res = await fetch(`/api/projects/${projectId}/flows/${name}`, { method: "DELETE" });
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/flows/${encodeURIComponent(name)}`, { method: "DELETE" });
   if (!res.ok) throw new Error(`Failed to delete flow: ${res.statusText}`);
+}
+
+export async function renameFlow(projectId: string, name: string, nextName: string): Promise<void> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/flows/${encodeURIComponent(name)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: nextName }),
+  });
+  if (!res.ok) throw new Error(`Failed to rename flow: ${res.statusText}`);
 }
 
 export type CreditRecord = {

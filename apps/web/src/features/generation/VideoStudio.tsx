@@ -17,6 +17,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { VideoFlowCanvas } from "./VideoFlowCanvas";
 import { writeAssetDragData } from "./dragData";
+import { ResizablePanelHandle, useResizablePanelWidth } from "./ResizablePanelWidth";
 import {
   assetPreviewUrl,
   type AssetSummary,
@@ -42,6 +43,7 @@ import {
 import { cn } from "../../lib/utils";
 import type { AppCommandContext } from "../../commands";
 import { TaskProgressBar } from "../../components/studio/TaskProgressBar";
+import { CanvasAudioPlayer } from "../../components/studio/CanvasAudioPlayer";
 import { calculateAverageDuration } from "../../lib/taskStats";
 
 type Props = {
@@ -77,6 +79,7 @@ type Props = {
   onImportAssets: (files: File[], targetFolder: string) => Promise<void>;
   onCollapseSidebar?: () => void;
   onShowError?: () => void;
+  onRequestProjectRefresh?: () => void | Promise<void>;
   onCommandContextChange?: (context?: AppCommandContext) => void;
 };
 
@@ -233,6 +236,12 @@ function defaultVideoName() {
 }
 
 const videoTaskQueryIntervalMs = 120_000;
+const flowGenerationToolNames = new Set([
+  "generate_image",
+  "text_to_music",
+  "create_video_task",
+  "query_video_task",
+]);
 
 export function VideoStudio({
   project,
@@ -257,6 +266,7 @@ export function VideoStudio({
   onImportAssets,
   onCollapseSidebar,
   onShowError,
+  onRequestProjectRefresh,
   onCommandContextChange,
 }: Props) {
   const [videoMode, setVideoMode] = useState("text_to_video");
@@ -281,6 +291,12 @@ export function VideoStudio({
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [isFlowFullscreen, setIsFlowFullscreen] = useState(false);
   const [previewAsset, setPreviewAsset] = useState<AssetSummary | null>(null);
+  const rightPanelWidth = useResizablePanelWidth({
+    defaultWidth: 360,
+    minWidth: 300,
+    maxWidth: 560,
+    side: "right",
+  });
 
   const generateTool = useMemo(
     () =>
@@ -295,7 +311,13 @@ export function VideoStudio({
   const canvasTools = useMemo(
     () =>
       tools.filter((tool) =>
-        ["generate_image", "edit_image", "create_video_task", "text_to_music"].includes(tool.name),
+        [
+          "generate_image",
+          "edit_image",
+          "create_video_task",
+          "query_video_task",
+          "text_to_music",
+        ].includes(tool.name),
       ),
     [tools],
   );
@@ -348,20 +370,20 @@ export function VideoStudio({
   // Auto-switch to preview video when task finishes
   const previousActiveTask = useRef(activeGenerationTask);
   useEffect(() => {
-    if (previousActiveTask.current && !activeGenerationTask) {
+    if (studioMode === "standard" && previousActiveTask.current && !activeGenerationTask) {
       setResourceType("video");
       setViewTab("preview");
       setPreviewAsset(null);
     }
     previousActiveTask.current = activeGenerationTask;
-  }, [activeGenerationTask]);
+  }, [activeGenerationTask, studioMode]);
 
   const taskRecord = useMemo(() => {
     if (!project) return undefined;
     return tasks.find(
       (task) =>
         task.projectId === project.id &&
-        task.toolName.includes("video") &&
+        flowGenerationToolNames.has(task.toolName) &&
         (task.status === "queued" || task.status === "running"),
     );
   }, [project, tasks]);
@@ -477,21 +499,17 @@ export function VideoStudio({
 
   async function setFlowFullscreen(nextValue: boolean) {
     setIsFlowFullscreen(nextValue);
-    try {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      await getCurrentWindow().setFullscreen(nextValue);
-    } catch {
-      // Browser preview has no desktop shell.
-    }
   }
 
   const handleCallTool = async (
     toolName: string,
     args: Record<string, unknown>,
   ) => {
-    setViewTab("preview");
-    setIsRightPanelOpen(true);
-    await onCallTool(toolName, args);
+    if (studioMode === "standard") {
+      setViewTab("preview");
+      setIsRightPanelOpen(true);
+    }
+    return await onCallTool(toolName, args);
   };
 
   function handleGenerate() {
@@ -542,18 +560,23 @@ export function VideoStudio({
   }
 
   function openPreview(asset: AssetSummary) {
-    if (asset.assetType === "audio") return;
     setPreviewAsset(asset);
   }
-  const shouldShowRightPanel = isRightPanelOpen || studioMode === "standard";
+  const shouldShowRightPanel = studioMode === "standard" || isRightPanelOpen;
+  const effectiveViewTab = studioMode === "flow" ? "manage" : viewTab;
   return (
     <div
       className={cn(
         "flex flex-col h-full min-h-0 w-full overflow-hidden transition-[inset,padding,border-radius,box-shadow,background-color] duration-300 ease-out",
         isFlowFullscreen
-          ? "fixed inset-0 z-[90] bg-surface-app p-0 max-w-none"
+          ? "fixed inset-0 z-[90] h-[100dvh] min-h-[100dvh] max-h-[100dvh] bg-surface-app p-0 max-w-none"
           : "gap-5 p-6 max-w-[1600px] mx-auto",
       )}
+      style={
+        isFlowFullscreen
+          ? { height: "100dvh", minHeight: "100dvh", maxHeight: "100dvh" }
+          : undefined
+      }
     >
       {!isFlowFullscreen && (
         <StudioHeader
@@ -565,7 +588,10 @@ export function VideoStudio({
             <div className="flex items-center p-1 bg-surface-muted rounded-pill border border-border-soft">
               <StudioModeButton
                 active={studioMode === "standard"}
-                onClick={() => setStudioMode("standard")}
+                onClick={() => {
+                  setStudioMode("standard");
+                  setIsRightPanelOpen(true);
+                }}
                 icon={<FileVideo className="w-4 h-4" />}
               >
                 标准生成
@@ -574,7 +600,8 @@ export function VideoStudio({
                 active={studioMode === "flow"}
                 onClick={() => {
                   setStudioMode("flow");
-                  setIsRightPanelOpen(false);
+                  setViewTab("manage");
+                  setIsRightPanelOpen(true);
                   onCollapseSidebar?.();
                 }}
                 icon={<Boxes className="w-4 h-4" />}
@@ -586,7 +613,7 @@ export function VideoStudio({
         />
       )}
 
-      <div className="flex-1 flex gap-5 min-h-0 overflow-hidden">
+      <div className={cn("flex-1 flex min-h-0 overflow-hidden", isFlowFullscreen ? "gap-0" : "gap-5")}>
         {studioMode === "standard" ? (
           <div className="w-[280px] md:w-[320px] lg:w-[360px] xl:w-[420px] shrink-0 relative rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] flex flex-col min-h-0">
             <div className="absolute inset-0 bg-surface-app/40 backdrop-blur-2xl border border-white/5 rounded-3xl overflow-hidden [mask-image:linear-gradient(white,white)] pointer-events-none" />
@@ -886,9 +913,10 @@ export function VideoStudio({
               onToggleFullscreen={() => void setFlowFullscreen(!isFlowFullscreen)}
               onCallTool={handleCallTool}
               onShowError={onShowError}
+              onRequestProjectRefresh={onRequestProjectRefresh}
               onCommandContextChange={onCommandContextChange}
               onPreviewMedia={(asset) => {
-                if (asset.assetType !== "audio") setPreviewAsset(asset);
+                setPreviewAsset(asset);
               }}
             />
           </div>
@@ -897,10 +925,19 @@ export function VideoStudio({
         {/* Right Gallery Panel */}
         <AnimatePresence initial={false}>
           {shouldShowRightPanel && (
+            <>
+            {studioMode !== "standard" && (
+              <ResizablePanelHandle
+                className="z-[60] -mx-1"
+                title="拖动调整素材库宽度，双击恢复默认"
+                onDoubleClick={rightPanelWidth.resetWidth}
+                {...rightPanelWidth.resizeHandleProps}
+              />
+            )}
             <motion.div
               initial={{ width: 0, opacity: 0 }}
               animate={{
-                width: studioMode === "standard" ? "100%" : 360,
+                width: studioMode === "standard" ? "100%" : rightPanelWidth.width,
                 opacity: 1,
               }}
               exit={{ width: 0, opacity: 0 }}
@@ -915,17 +952,19 @@ export function VideoStudio({
                   {/* Left: Context & Navigation */}
                   <div className="flex flex-wrap items-center gap-3 min-w-0 flex-1">
                     <div className="flex p-1 bg-surface-app border border-border-soft rounded-lg shadow-inner shrink-0">
-                      <button
-                        onClick={() => setViewTab("preview")}
-                        className={cn(
-                          "px-3 py-1 text-[11px] font-bold rounded transition-all",
-                          viewTab === "preview"
-                            ? "bg-surface-raised shadow-sm text-text border border-border-soft"
-                            : "text-text-subtle hover:text-text",
-                        )}
-                      >
-                        预览
-                      </button>
+                      {studioMode === "standard" && (
+                        <button
+                          onClick={() => setViewTab("preview")}
+                          className={cn(
+                            "px-3 py-1 text-[11px] font-bold rounded transition-all",
+                            viewTab === "preview"
+                              ? "bg-surface-raised shadow-sm text-text border border-border-soft"
+                              : "text-text-subtle hover:text-text",
+                          )}
+                        >
+                          预览
+                        </button>
+                      )}
                       <button
                         onClick={() => {
                           setViewTab("manage");
@@ -985,7 +1024,7 @@ export function VideoStudio({
                 </div>
 
                 <div className="flex min-h-0 flex-1 gap-0 overflow-hidden">
-                  {viewTab === "preview" ? (
+                  {effectiveViewTab === "preview" ? (
                     <div className="flex min-h-0 flex-1 flex-col items-center justify-center bg-surface-panel p-6 overflow-y-auto relative">
                       {activeGenerationTask ? (
                         <div className="flex flex-col items-center justify-center w-full h-full max-w-md mx-auto animate-in fade-in duration-500">
@@ -1128,57 +1167,71 @@ export function VideoStudio({
                       )}
                     </div>
                   ) : (
-                    <AssetManagerPanel
-                      assets={currentAssets}
-                      disabled={!project}
-                      rootPath={currentRoot}
-                      title={
-                        resourceType === "video"
-                          ? "视频管理"
-                          : resourceType === "image"
-                            ? "图片管理"
-                            : "音频管理"
-                      }
-                      defaultTargetFolder={currentImportFolder}
-                      assetTypeFilter={resourceType}
-                      showTypeFilter={false}
-                      showDirectoryTree={false}
-                      importAccept={
-                        resourceType === "video"
-                          ? "video/*"
-                          : resourceType === "image"
-                            ? "image/*"
-                            : "audio/*"
-                      }
-                      onScanAssets={onScanAssets}
-                      onImportAssets={onImportAssets}
-                      onDeleteAssets={async (paths) => {
-                        await onDeleteAssets(paths);
-                        if (
-                          previewAsset &&
-                          paths.includes(previewAsset.relativePath)
-                        )
-                          setPreviewAsset(null);
-                      }}
-                      onMoveAssets={onMoveAssets}
-                      onCopyAssets={onCopyAssets}
-                      onRenameAsset={onRenameAsset}
-                      onRenameDirectory={onRenameDirectory}
-                      onMoveDirectory={onMoveDirectory}
-                      onCopyDirectory={onCopyDirectory}
-                      onDeleteDirectory={onDeleteDirectory}
-                      onCreateFolder={onCreateFolder}
-                      onOpenLocalPath={onOpenLocalPath}
-                      onScanReferences={onScanReferences}
-                      onSelectAsset={(asset) => {
-                        onSelectAsset?.(asset);
-                        if (asset.assetType !== "audio") openPreview(asset);
-                      }}
-                      onAssetDragStart={writeAssetDragData}
-                    />
+                    <div className="flex min-h-0 flex-1 flex-col">
+                      {studioMode !== "standard" && taskRecord && (
+                        <div className="shrink-0 border-b border-border bg-brand/10 px-3 py-2 text-xs text-text">
+                          <div className="flex items-center gap-2 font-bold text-brand">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <span>任务运行中</span>
+                          </div>
+                          <div className="mt-1 truncate text-[11px] text-text-subtle">
+                            {taskRecord.toolName} · {taskRecord.status} · {getVideoTaskPhase(taskRecord.rawResultJson)}
+                          </div>
+                        </div>
+                      )}
+                      <AssetManagerPanel
+                        assets={currentAssets}
+                        disabled={!project}
+                        rootPath={currentRoot}
+                        title={
+                          resourceType === "video"
+                            ? "视频管理"
+                            : resourceType === "image"
+                              ? "图片管理"
+                              : "音频管理"
+                        }
+                        defaultTargetFolder={currentImportFolder}
+                        assetTypeFilter={resourceType}
+                        showTypeFilter={false}
+                        showDirectoryTree={false}
+                        importAccept={
+                          resourceType === "video"
+                            ? "video/*"
+                            : resourceType === "image"
+                              ? "image/*"
+                              : "audio/*"
+                        }
+                        onScanAssets={onScanAssets}
+                        onImportAssets={onImportAssets}
+                        onDeleteAssets={async (paths) => {
+                          await onDeleteAssets(paths);
+                          if (
+                            previewAsset &&
+                            paths.includes(previewAsset.relativePath)
+                          )
+                            setPreviewAsset(null);
+                        }}
+                        onMoveAssets={onMoveAssets}
+                        onCopyAssets={onCopyAssets}
+                        onRenameAsset={onRenameAsset}
+                        onRenameDirectory={onRenameDirectory}
+                        onMoveDirectory={onMoveDirectory}
+                        onCopyDirectory={onCopyDirectory}
+                        onDeleteDirectory={onDeleteDirectory}
+                        onCreateFolder={onCreateFolder}
+                        onOpenLocalPath={onOpenLocalPath}
+                        onScanReferences={onScanReferences}
+                        onSelectAsset={(asset) => {
+                          onSelectAsset?.(asset);
+                          openPreview(asset);
+                        }}
+                        onAssetDragStart={writeAssetDragData}
+                      />
+                    </div>
                   )}
                 </div>
             </motion.div>
+            </>
           )}
         </AnimatePresence>
       </div>
@@ -1202,7 +1255,28 @@ export function VideoStudio({
             className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6"
             onClick={() => setPreviewAsset(null)}
           >
-            {previewAsset.assetType === "video" ? (
+            {previewAsset.assetType === "audio" ? (
+              <div
+                className="flex w-[min(560px,90vw)] flex-col gap-4 rounded-2xl border border-white/10 bg-surface-panel/95 p-5 shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-bold text-text">
+                    {previewAsset.fileName}
+                  </div>
+                  <div className="mt-1 truncate text-xs text-text-subtle">
+                    {previewAsset.relativePath}
+                  </div>
+                </div>
+                <CanvasAudioPlayer
+                  src={assetPreviewUrl(
+                    previewAsset.projectId,
+                    previewAsset.relativePath,
+                  )}
+                  autoPlay
+                />
+              </div>
+            ) : previewAsset.assetType === "video" ? (
               <video
                 src={assetPreviewUrl(
                   previewAsset.projectId,

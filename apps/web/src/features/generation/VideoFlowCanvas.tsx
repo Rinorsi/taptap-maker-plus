@@ -37,6 +37,7 @@ import {
   Maximize2,
   Minimize2,
   Play,
+  RefreshCw,
   Trash2,
   Scan,
   Map as MapIcon,
@@ -55,6 +56,7 @@ import { ChevronRight, ChevronLeft, Plus } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { CodeEditorPanel } from "../../components/ui/CodeEditorPanel";
 import { ContextMenuStyles } from "../../components/ui/ContextMenuStyles";
+import { CanvasAudioPlayer } from "../../components/studio/CanvasAudioPlayer";
 import {
   clampContextMenuPosition,
   CONTEXT_MENU_CLOSE_EVENT,
@@ -67,15 +69,25 @@ import {
   type AppCommandContext,
 } from "../../commands";
 import { NodeLibraryDrawer } from "./NodeLibraryDrawer";
-import { getPresetById, NODE_PRESETS, type NodePreset } from "./nodeRegistry";
+import { ResizablePanelHandle, useResizablePanelWidth } from "./ResizablePanelWidth";
+import { getPresetById, getPresetGroupsForCanvas, type NodePreset, type NodePresetGroup } from "./nodeRegistry";
 import { readAssetDragPath } from "./dragData";
 import {
-  collectCanvasAssetReferences,
-  compileCanvasPayload,
+  createSharedCanvasModel,
   createVideoReferenceTemplate,
   createUniversalCanvasTemplate,
+  createCanvasStoragePayload,
+  createCleanCanvasStoragePayload,
+  cleanCanvasDataForStorage,
+  cleanCanvasEdgeForStorage,
+  cleanCanvasNodeForStorage,
+  CANVAS_TRANSIENT_NODE_DATA_KEYS,
   executeCompiledCanvasTool,
   extractCanvasResultAssets,
+  extractCanvasTaskId,
+  migrateCanvasStoragePayload,
+  normalizeCanvasEdges,
+  type CanvasKind,
   getCanvasResultPresetForTool,
   getNodeAssetKind,
   nextAssetAlias,
@@ -135,58 +147,11 @@ function CustomEdge({
   );
 }
 function cleanFlowNodeForStorage(node: Node): Node {
-  return {
-    id: node.id,
-    type: node.type,
-    position: node.position,
-    width: node.width,
-    height: node.height,
-    selected: false,
-    dragging: false,
-    data: cleanFlowData(node.data, transientNodeDataKeys),
-  };
+  const normalizedNode = normalizeFlowNodeDimensions(node);
+  return cleanCanvasNodeForStorage(normalizedNode);
 }
 function cleanFlowEdgeForStorage(edge: Edge): Edge {
-  return {
-    id: edge.id,
-    source: edge.source,
-    target: edge.target,
-    sourceHandle: edge.sourceHandle,
-    targetHandle: edge.targetHandle,
-    type: edge.type,
-    animated: false,
-    selected: false,
-    style: edge.style,
-    markerEnd: edge.markerEnd,
-    data: cleanFlowData(edge.data, transientEdgeDataKeys),
-  };
-}
-function cleanFlowData(
-  data: Node["data"] | Edge["data"] | undefined,
-  transientKeys: Set<string>,
-) {
-  const clean: Record<string, unknown> = {};
-  if (!data) return clean;
-  for (const [key, value] of Object.entries(data)) {
-    if (transientKeys.has(key)) continue;
-    if (typeof value === "function") continue;
-    if (isPlainJsonValue(value)) clean[key] = value;
-  }
-  return clean;
-}
-function isPlainJsonValue(value: unknown): boolean {
-  if (value == null) return true;
-  if (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  )
-    return true;
-  if (Array.isArray(value)) return value.every(isPlainJsonValue);
-  if (typeof value !== "object") return false;
-  return Object.values(value as Record<string, unknown>).every(
-    isPlainJsonValue,
-  );
+  return cleanCanvasEdgeForStorage(edge);
 }
 const nodeTypes = {
   textNode: GenericTextNode,
@@ -204,45 +169,45 @@ const defaultEdgeOptions = {
   type: "custom",
   style: { stroke: "#00D9C5", strokeWidth: 2 },
 };
-const transientNodeDataKeys = new Set([
-  "allAssets",
-  "busy",
-  "error",
-  "imagesCount",
-  "isCloudVideoRunning",
-  "onAssetDrop",
-  "onChange",
-  "onDelete",
-  "onPreviewMedia",
-  "onRun",
-  "onFocusReference",
-  "project",
-  "promptCount",
-  "references",
-  "settingsCount",
-  "videosCount",
-  "audiosCount",
-]);
-const transientEdgeDataKeys = new Set(["onDelete"]);
+type FlowHistorySnapshot = {
+  nodes: Node[];
+  edges: Edge[];
+};
+const VIDEO_FLOW_RUN_SNAPSHOT_EVENT = "taptap:video-flow-run-snapshot";
+type VideoFlowRunSnapshotDetail = {
+  canvasKind: CanvasKind;
+  nodes: Node[];
+  edges: Edge[];
+};
+function createFlowHistorySnapshot(nodes: Node[], edges: Edge[]): FlowHistorySnapshot {
+  return {
+    nodes: normalizeFlowNodes(nodes).map(cleanFlowNodeForStorage),
+    edges: normalizeFlowEdges(edges).map(cleanFlowEdgeForStorage),
+  };
+}
+function getFlowHistorySignature(snapshot: FlowHistorySnapshot) {
+  return JSON.stringify(snapshot);
+}
 function formatCompileIssues(issues: CanvasCompileIssue[]): string {
   return issues.map((issue) => issue.message).join("\n");
 }
-function createVideoCanvasStoragePayload(
-  nodes: Node[],
-  edges: Edge[],
-  viewport: unknown,
-  kind: "video-reference" | "universal" = "video-reference",
-) {
-  return {
-    schema: kind === "universal" ? "taptap.canvas.universal.v1" : "taptap.canvas.video.v1",
-    kind,
-    nodes: nodes.map(cleanFlowNodeForStorage),
-    edges: edges.map(cleanFlowEdgeForStorage),
-    viewport,
-  };
-}
 function issuesBySeverity(issues: CanvasCompileIssue[], severity: CanvasCompileIssue["severity"]) {
   return issues.filter((issue) => issue.severity === severity);
+}
+function getPromptNodeLabel(presetId: unknown) {
+  const labels: Record<string, string> = {
+    MainPromptNode: "导演提示词",
+    CameraPromptNode: "镜头语言",
+    MotionPromptNode: "动作描述",
+    StylePromptNode: "风格描述",
+    AtmospherePromptNode: "氛围描述",
+    ConstraintPromptNode: "约束描述",
+  };
+  return labels[String(presetId ?? "")] ?? "";
+}
+function formatPromptNodeText(node: Node, text: string) {
+  const label = getPromptNodeLabel(node.data?.presetId);
+  return label ? `${label}：${text}` : text;
 }
 function assetTypeToCanvasKind(assetType: string): CanvasAssetKind {
   if (assetType === "image" || assetType === "video" || assetType === "audio" || assetType === "model") {
@@ -282,6 +247,111 @@ function collectDownstreamResultNodeIds(
   visit(executorNodeId);
   return resultIds;
 }
+function findNearestUpstreamExecutorId(
+  nodes: Node[],
+  edges: Edge[],
+  nodeId: string,
+) {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const upstreamMap = new Map<string, string[]>();
+  for (const edge of edges) {
+    const list = upstreamMap.get(edge.target) ?? [];
+    list.push(edge.source);
+    upstreamMap.set(edge.target, list);
+  }
+  const visited = new Set<string>();
+  const queue = [...(upstreamMap.get(nodeId) ?? [])];
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    if (visited.has(currentId)) continue;
+    visited.add(currentId);
+    const node = byId.get(currentId);
+    if (node?.type === "executorNode") return currentId;
+    queue.push(...(upstreamMap.get(currentId) ?? []));
+  }
+  return undefined;
+}
+function findNearestDownstreamExecutorId(
+  nodes: Node[],
+  edges: Edge[],
+  nodeId: string,
+) {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const downstreamMap = new Map<string, string[]>();
+  for (const edge of edges) {
+    const list = downstreamMap.get(edge.source) ?? [];
+    list.push(edge.target);
+    downstreamMap.set(edge.source, list);
+  }
+  const visited = new Set<string>();
+  const queue = [...(downstreamMap.get(nodeId) ?? [])];
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    if (visited.has(currentId)) continue;
+    visited.add(currentId);
+    const node = byId.get(currentId);
+    if (node?.type === "executorNode") return currentId;
+    queue.push(...(downstreamMap.get(currentId) ?? []));
+  }
+  return undefined;
+}
+function resultKindToAssetType(value: unknown) {
+  if (value === "image") return "image";
+  if (value === "audio") return "audio";
+  return "video";
+}
+function resultKindToRole(value: unknown): "image_result" | "audio_result" | "video_result" {
+  if (value === "image") return "image_result";
+  if (value === "audio") return "audio_result";
+  return "video_result";
+}
+function isFlowNodeAwaitingGeneratedAsset(node: Node) {
+  if (node.type === "executorNode" && node.data?.busy) return true;
+  if (node.type !== "resultNode") return false;
+  const resultAssets = Array.isArray(node.data.resultAssets)
+    ? node.data.resultAssets
+    : [];
+  if (node.data.busy && resultAssets.length === 0) return true;
+  return node.data.taskStatus === "running" || node.data.taskStatus === "querying";
+}
+function settleExecutorsForReadyResults(nodes: Node[], edges: Edge[], updatedAt: string) {
+  const completedExecutorIds = new Set<string>();
+  for (const node of nodes) {
+    if (node.type !== "resultNode") continue;
+    const resultAssets = Array.isArray(node.data.resultAssets)
+      ? node.data.resultAssets
+      : [];
+    const hasReadyResult =
+      resultAssets.length > 0 ||
+      node.data.taskStatus === "result_ready" ||
+      node.data.taskStatus === "completed" ||
+      node.data.taskStatus === "completed_no_assets";
+    if (!hasReadyResult) continue;
+    const executorId = findNearestUpstreamExecutorId(nodes, edges, node.id);
+    if (executorId) completedExecutorIds.add(executorId);
+  }
+  if (completedExecutorIds.size === 0) return nodes;
+  let changed = false;
+  const settledNodes = nodes.map((node) => {
+    if (
+      !completedExecutorIds.has(node.id) ||
+      (!node.data?.busy && node.data?.taskStatus !== "running")
+    ) {
+      return node;
+    }
+    changed = true;
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        busy: false,
+        taskStatus: "completed",
+        updatedAt,
+      },
+    };
+  });
+  return changed ? settledNodes : nodes;
+}
 type CanvasMenuTarget =
   | { kind: "pane"; screenX: number; screenY: number }
   | { kind: "node"; nodeId: string; screenX: number; screenY: number }
@@ -302,24 +372,162 @@ type CanvasSubmenuState =
       direction: "left" | "right";
     }
   | null;
-type PayloadPanelTab = "payload" | "inspector";
-const CATEGORY_GROUPS = (() => {
-  const groups = {
-    prompt: { label: "文本提示词", items: [] as typeof NODE_PRESETS },
-    image: { label: "图片参考", items: [] as typeof NODE_PRESETS },
-    video: { label: "视频参考", items: [] as typeof NODE_PRESETS },
-    audio: { label: "音频参考", items: [] as typeof NODE_PRESETS },
-    settings: { label: "生成设置", items: [] as typeof NODE_PRESETS },
-    collector: { label: "逻辑聚合", items: [] as typeof NODE_PRESETS },
-    executor: { label: "执行节点", items: [] as typeof NODE_PRESETS },
-  };
-  NODE_PRESETS.forEach((preset) => {
-    if (preset.category in groups) {
-      groups[preset.category as keyof typeof groups].items.push(preset);
-    }
-  });
-  return groups;
-})();
+type PayloadPanelTab = "json" | "sources" | "issues" | "raw" | "inspector";
+const MEDIA_NODE_DIMENSIONS = { width: 360, height: 300, minWidth: 260, minHeight: 230, maxWidth: 520, maxHeight: 430 };
+const SETTINGS_NODE_DIMENSIONS = { width: 260, height: 120, minWidth: 220, minHeight: 100, maxWidth: 420, maxHeight: 220 };
+const LONG_TEXT_SETTINGS_NODE_DIMENSIONS = { width: 360, height: 190, minWidth: 280, minHeight: 160, maxWidth: 560, maxHeight: 360 };
+const RESULT_NODE_DIMENSIONS = { width: 320, height: 240, minWidth: 260, minHeight: 190, maxWidth: 430, maxHeight: 340 };
+const PAYLOAD_NODE_DIMENSIONS = { width: 340, height: 240, minWidth: 320, minHeight: 190, maxWidth: 420, maxHeight: 300 };
+const PROMPT_COMPOSER_NODE_DIMENSIONS = { width: 480, height: 460, minWidth: 360, minHeight: 260, maxWidth: 760, maxHeight: 900 };
+function normalizeNodeDimension(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.min(Math.max(value, min), max);
+}
+function normalizeFlowNodeDimensions(node: Node): Node {
+  if (node.type === "mediaNode") {
+    return {
+      ...node,
+      width: normalizeNodeDimension(
+        node.width,
+        MEDIA_NODE_DIMENSIONS.width,
+        MEDIA_NODE_DIMENSIONS.minWidth,
+        MEDIA_NODE_DIMENSIONS.maxWidth,
+      ),
+      height: normalizeNodeDimension(
+        node.height,
+        MEDIA_NODE_DIMENSIONS.height,
+        MEDIA_NODE_DIMENSIONS.minHeight,
+        MEDIA_NODE_DIMENSIONS.maxHeight,
+      ),
+    };
+  }
+  if (node.type === "resultNode") {
+    return {
+      ...node,
+      width: normalizeNodeDimension(
+        node.width,
+        RESULT_NODE_DIMENSIONS.width,
+        RESULT_NODE_DIMENSIONS.minWidth,
+        RESULT_NODE_DIMENSIONS.maxWidth,
+      ),
+      height: normalizeNodeDimension(
+        node.height,
+        RESULT_NODE_DIMENSIONS.height,
+        RESULT_NODE_DIMENSIONS.minHeight,
+        RESULT_NODE_DIMENSIONS.maxHeight,
+      ),
+    };
+  }
+  if (node.type === "settingsNode") {
+    const dimensions =
+      node.data?.type === "style" || node.data?.type === "negativeTags"
+        ? LONG_TEXT_SETTINGS_NODE_DIMENSIONS
+        : SETTINGS_NODE_DIMENSIONS;
+    return {
+      ...node,
+      width: normalizeNodeDimension(
+        node.width,
+        dimensions.width,
+        dimensions.minWidth,
+        dimensions.maxWidth,
+      ),
+      height: normalizeNodeDimension(
+        node.height,
+        dimensions.height,
+        dimensions.minHeight,
+        dimensions.maxHeight,
+      ),
+    };
+  }
+  if (
+    node.type === "collectorNode" &&
+    node.data?.presetId === "MultiModalPayloadNode"
+  ) {
+    return {
+      ...node,
+      width: normalizeNodeDimension(
+        node.width,
+        PAYLOAD_NODE_DIMENSIONS.width,
+        PAYLOAD_NODE_DIMENSIONS.minWidth,
+        PAYLOAD_NODE_DIMENSIONS.maxWidth,
+      ),
+      height: normalizeNodeDimension(
+        node.height,
+        PAYLOAD_NODE_DIMENSIONS.height,
+        PAYLOAD_NODE_DIMENSIONS.minHeight,
+        PAYLOAD_NODE_DIMENSIONS.maxHeight,
+      ),
+    };
+  }
+  if (
+    node.type === "collectorNode" &&
+    node.data?.presetId === "PromptComposerNode"
+  ) {
+    return {
+      ...node,
+      width: normalizeNodeDimension(
+        node.width,
+        PROMPT_COMPOSER_NODE_DIMENSIONS.width,
+        PROMPT_COMPOSER_NODE_DIMENSIONS.minWidth,
+        PROMPT_COMPOSER_NODE_DIMENSIONS.maxWidth,
+      ),
+      height: normalizeNodeDimension(
+        node.height,
+        PROMPT_COMPOSER_NODE_DIMENSIONS.height,
+        PROMPT_COMPOSER_NODE_DIMENSIONS.minHeight,
+        PROMPT_COMPOSER_NODE_DIMENSIONS.maxHeight,
+      ),
+    };
+  }
+  return node;
+}
+function normalizeFlowNodes(nodes: Node[] | undefined): Node[] {
+  return (nodes ?? []).map(normalizeFlowNodeDimensions);
+}
+function normalizeFlowEdges(edges: Edge[] | undefined): Edge[] {
+  return normalizeCanvasEdges(edges);
+}
+function createSemanticCanvasNodes(nodes: Node[]): Node[] {
+  return nodes.map((node) => ({
+    id: node.id,
+    type: node.type,
+    data: node.data,
+    width: node.width,
+    height: node.height,
+    position: { x: 0, y: 0 },
+  }));
+}
+const semanticDataIdentity = new WeakMap<object, number>();
+let semanticDataIdentityCounter = 0;
+function getSemanticDataIdentity(data: unknown) {
+  if (!data || typeof data !== "object") return String(data ?? "");
+  const objectData = data as object;
+  const existing = semanticDataIdentity.get(objectData);
+  if (existing !== undefined) return existing;
+  semanticDataIdentityCounter += 1;
+  semanticDataIdentity.set(objectData, semanticDataIdentityCounter);
+  return semanticDataIdentityCounter;
+}
+function createSemanticCanvasSignature(nodes: Node[], edges: Edge[]) {
+  const nodeSignature = nodes
+    .map((node) => `${node.id}:${node.type ?? ""}:${getSemanticDataIdentity(node.data)}`)
+    .join("|");
+  const edgeSignature = edges
+    .map(
+      (edge) =>
+        `${edge.id}:${edge.source}:${edge.target}:${edge.sourceHandle ?? ""}:${edge.targetHandle ?? ""}`,
+    )
+    .join("|");
+  return `${nodeSignature}::${edgeSignature}`;
+}
+function createCategoryGroups(canvasKind: "video-reference" | "universal") {
+  return getPresetGroupsForCanvas(canvasKind);
+}
 type VideoFlowCanvasProps = {
   project?: ProjectSummary;
   allAssets: AssetSummary[];
@@ -336,6 +544,7 @@ type VideoFlowCanvasProps = {
     args: Record<string, unknown>,
   ) => Promise<unknown>;
   onShowError?: () => void;
+  onRequestProjectRefresh?: () => void | Promise<void>;
   onCommandContextChange?: (context?: AppCommandContext) => void;
 };
 type PreviewMedia = {
@@ -343,6 +552,13 @@ type PreviewMedia = {
   fileName: string;
   relativePath?: string;
   url?: string;
+};
+type InjectedNodeCacheEntry = {
+  sourceNode: Node;
+  injectedNode: Node;
+  injectedData: Node["data"];
+  signature: string;
+  viewSignature: string;
 };
 declare global {
   interface Window {
@@ -369,6 +585,7 @@ function VideoFlowCanvasInner({
   onPreviewMedia,
   onCallTool,
   onShowError,
+  onRequestProjectRefresh,
   onCommandContextChange,
 }: VideoFlowCanvasProps) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(true);
@@ -378,17 +595,37 @@ function VideoFlowCanvasInner({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const [isPayloadPanelOpen, setIsPayloadPanelOpen] = useState(false);
-  const [payloadPanelTab, setPayloadPanelTab] = useState<PayloadPanelTab>("payload");
+  const [payloadPanelTab, setPayloadPanelTab] = useState<PayloadPanelTab>("json");
   const [isMiniMapOpen, setIsMiniMapOpen] = useState(true);
   const [snapToGrid, setSnapToGrid] = useState(false);
+  const [runningExecutorIds, setRunningExecutorIds] = useState<Set<string>>(new Set());
   const isAutoSavingRef = useRef(false);
+  const autoSaveTimerRef = useRef<number | null>(null);
+  const latestFlowRef = useRef<{
+    nodes: Node[];
+    edges: Edge[];
+    canvasKind: CanvasKind;
+    projectId?: string;
+  }>({ nodes: [], edges: [], canvasKind });
+  const undoStackRef = useRef<FlowHistorySnapshot[]>([]);
+  const redoStackRef = useRef<FlowHistorySnapshot[]>([]);
+  const lastHistorySignatureRef = useRef<string>("");
+  const isRestoringHistoryRef = useRef(false);
+  const runSelectedCanvasElementRef = useRef<() => void>(() => {});
+  const injectedNodeCacheRef = useRef<Map<string, InjectedNodeCacheEntry>>(new Map());
   const [validationError, setValidationError] = useState<string | null>(null);
   const [previewMedia, setPreviewMedia] = useState<PreviewMedia | null>(null);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [previousViewport, setPreviousViewport] = useState<{ x: number; y: number; zoom: number } | null>(null);
   const [clipboard, setClipboard] = useState<{
     nodes: Node[];
     edges: Edge[];
   } | null>(null);
+  const clipboardRef = useRef<{
+    nodes: Node[];
+    edges: Edge[];
+  } | null>(null);
+  const lastCanvasInteractionAtRef = useRef(0);
   const [menuTarget, setMenuTarget] = useState<CanvasMenuTarget>({
     kind: "pane",
     screenX: 0,
@@ -397,6 +634,31 @@ function VideoFlowCanvasInner({
   const [isCanvasMenuOpen, setIsCanvasMenuOpen] = useState(false);
   const [submenuState, setSubmenuState] = useState<CanvasSubmenuState>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const nodeDrawerWidth = useResizablePanelWidth({
+    defaultWidth: 360,
+    minWidth: 280,
+    maxWidth: 560,
+    side: "left",
+  });
+  const categoryGroups = useMemo(() => createCategoryGroups(canvasKind), [canvasKind]);
+  const hasPendingGeneratedAsset = useMemo(
+    () => runningExecutorIds.size > 0 || nodes.some(isFlowNodeAwaitingGeneratedAsset),
+    [nodes, runningExecutorIds],
+  );
+  useEffect(() => {
+    latestFlowRef.current = {
+      nodes,
+      edges,
+      canvasKind,
+      projectId: project?.id,
+    };
+  }, [canvasKind, edges, nodes, project?.id]);
+  useEffect(() => {
+    if (lastHistorySignatureRef.current) return;
+    lastHistorySignatureRef.current = getFlowHistorySignature(
+      createFlowHistorySnapshot(nodes, edges),
+    );
+  }, [edges, nodes]);
   const runnableTools = useMemo(() => {
     const entries: Array<[CanvasToolName, ToolSummary]> = [];
     const all = canvasTools ?? (generateTool ? [generateTool] : []);
@@ -418,6 +680,74 @@ function VideoFlowCanvasInner({
     setEdges((eds) => eds.map((edge) => ({ ...edge, selected: true })));
   }, [setEdges, setNodes]);
 
+  const restoreHistorySnapshot = useCallback(
+    (snapshot: FlowHistorySnapshot) => {
+      isRestoringHistoryRef.current = true;
+      const normalizedNodes = normalizeFlowNodes(snapshot.nodes);
+      const normalizedEdges = normalizeFlowEdges(snapshot.edges);
+      setNodes(normalizedNodes);
+      setEdges(normalizedEdges);
+      setSelectedEdge(null);
+      setIsCanvasMenuOpen(false);
+      setSubmenuState(null);
+      lastHistorySignatureRef.current = getFlowHistorySignature({
+        nodes: normalizedNodes,
+        edges: normalizedEdges,
+      });
+    },
+    [setEdges, setNodes],
+  );
+
+  const pushCanvasHistorySnapshot = useCallback(() => {
+    const snapshot = createFlowHistorySnapshot(
+      latestFlowRef.current.nodes,
+      latestFlowRef.current.edges,
+    );
+    const signature = getFlowHistorySignature(snapshot);
+    const latestUndoSnapshot = undoStackRef.current[undoStackRef.current.length - 1];
+    if (
+      latestUndoSnapshot &&
+      getFlowHistorySignature(latestUndoSnapshot) === signature
+    )
+      return;
+    undoStackRef.current = [...undoStackRef.current, snapshot].slice(-80);
+    redoStackRef.current = [];
+    lastHistorySignatureRef.current = signature;
+  }, []);
+
+  const undoCanvasChange = useCallback(() => {
+    const currentSnapshot = createFlowHistorySnapshot(
+      latestFlowRef.current.nodes,
+      latestFlowRef.current.edges,
+    );
+    const currentSignature = getFlowHistorySignature(currentSnapshot);
+    let undoStack = undoStackRef.current;
+    if (undoStack.length === 0) return;
+    if (
+      getFlowHistorySignature(undoStack[undoStack.length - 1]) ===
+      currentSignature
+    ) {
+      undoStack = undoStack.slice(0, -1);
+    }
+    const previous = undoStack[undoStack.length - 1];
+    if (!previous) return;
+    undoStackRef.current = undoStack.slice(0, -1);
+    redoStackRef.current = [currentSnapshot, ...redoStackRef.current].slice(0, 80);
+    restoreHistorySnapshot(previous);
+  }, [restoreHistorySnapshot]);
+
+  const redoCanvasChange = useCallback(() => {
+    const next = redoStackRef.current[0];
+    if (!next) return;
+    const currentSnapshot = createFlowHistorySnapshot(
+      latestFlowRef.current.nodes,
+      latestFlowRef.current.edges,
+    );
+    undoStackRef.current = [...undoStackRef.current, currentSnapshot].slice(-80);
+    redoStackRef.current = redoStackRef.current.slice(1);
+    restoreHistorySnapshot(next);
+  }, [restoreHistorySnapshot]);
+
   const deleteSelectedCanvasElements = useCallback(() => {
     const selectedNodes = reactFlow.getNodes().filter((node) => node.selected);
     const selectedEdges = reactFlow
@@ -426,6 +756,7 @@ function VideoFlowCanvasInner({
     if (selectedNodes.length === 0 && selectedEdges.length === 0) return;
     const selectedNodeIds = new Set(selectedNodes.map((node) => node.id));
     const selectedEdgeIds = new Set(selectedEdges.map((edge) => edge.id));
+    pushCanvasHistorySnapshot();
     setNodes((nds) => nds.filter((node) => !selectedNodeIds.has(node.id)));
     setEdges((eds) =>
       eds.filter(
@@ -438,7 +769,7 @@ function VideoFlowCanvasInner({
     setSelectedEdge(null);
     setIsCanvasMenuOpen(false);
     setSubmenuState(null);
-  }, [reactFlow, selectedEdge, setEdges, setNodes]);
+  }, [pushCanvasHistorySnapshot, reactFlow, selectedEdge, setEdges, setNodes]);
 
   const copySelectedCanvasElements = useCallback(() => {
     const selectedNodes = reactFlow.getNodes().filter((node) => node.selected);
@@ -450,8 +781,63 @@ function VideoFlowCanvasInner({
         (edge) =>
           selectedNodeIds.has(edge.source) && selectedNodeIds.has(edge.target),
       );
-    setClipboard({ nodes: selectedNodes, edges: selectedEdges });
+    const nextClipboard = { nodes: selectedNodes, edges: selectedEdges };
+    clipboardRef.current = nextClipboard;
+    setClipboard(nextClipboard);
   }, [reactFlow]);
+
+  const pasteClipboardCanvasElements = useCallback(() => {
+    const currentClipboard = clipboardRef.current;
+    if (!currentClipboard) return;
+    const newNodes: Node[] = [];
+    const newEdges: Edge[] = [];
+    const idMap = new Map<string, string>();
+    currentClipboard.nodes.forEach((node) => {
+      const newId =
+        node.type +
+        "-" +
+        Date.now() +
+        Math.random().toString(36).slice(2, 6);
+      idMap.set(node.id, newId);
+      newNodes.push(
+        normalizeFlowNodeDimensions({
+          ...node,
+          id: newId,
+          selected: true,
+          position: { x: node.position.x + 30, y: node.position.y + 30 },
+        }),
+      );
+    });
+    currentClipboard.edges.forEach((edge) => {
+      if (idMap.has(edge.source) && idMap.has(edge.target)) {
+        newEdges.push(
+          ...normalizeFlowEdges([
+            {
+              ...edge,
+              id: "e" + idMap.get(edge.source) + "-" + idMap.get(edge.target),
+              source: idMap.get(edge.source)!,
+              target: idMap.get(edge.target)!,
+              selected: true,
+            },
+          ]),
+        );
+      }
+    });
+    pushCanvasHistorySnapshot();
+    setNodes((currentNodes) => [
+      ...currentNodes.map((node) => ({ ...node, selected: false })),
+      ...newNodes,
+    ]);
+    setEdges((currentEdges) => [
+      ...currentEdges.map((edge) => ({ ...edge, selected: false })),
+      ...newEdges,
+    ]);
+  }, [pushCanvasHistorySnapshot, setEdges, setNodes]);
+
+  const cutSelectedCanvasElements = useCallback(() => {
+    copySelectedCanvasElements();
+    deleteSelectedCanvasElements();
+  }, [copySelectedCanvasElements, deleteSelectedCanvasElements]);
 
   useEffect(() => {
     const selectedNodeIds = nodes.filter((node) => node.selected).map((node) => node.id);
@@ -479,7 +865,32 @@ function VideoFlowCanvasInner({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!wrapperRef.current) return;
       if (isEditableShortcutTarget(e.target) || isEditableShortcutTarget(document.activeElement)) return;
+      const target = e.target as HTMLElement | null;
+      const eventStartedInsideCanvas = Boolean(
+        target && wrapperRef.current.contains(target),
+      );
+      const hasCanvasSelection =
+        reactFlow.getNodes().some((node) => node.selected) ||
+        reactFlow.getEdges().some((edge) => edge.selected) ||
+        Boolean(selectedEdge);
+      const key = e.key.toLowerCase();
+      const isUndoRedoShortcut =
+        (e.ctrlKey || e.metaKey) &&
+        (key === "z" || key === "y");
+      const isPasteShortcut = (e.ctrlKey || e.metaKey) && key === "v";
+      const recentlyUsedCanvas =
+        Date.now() - lastCanvasInteractionAtRef.current < 30000;
+      if (eventStartedInsideCanvas || hasCanvasSelection) {
+        lastCanvasInteractionAtRef.current = Date.now();
+      }
+      if (
+        !eventStartedInsideCanvas &&
+        !hasCanvasSelection &&
+        !(recentlyUsedCanvas && (isUndoRedoShortcut || isPasteShortcut))
+      )
+        return;
       if (e.key === "Escape") {
         if (isCanvasMenuOpen) {
           e.preventDefault();
@@ -489,49 +900,25 @@ function VideoFlowCanvasInner({
         }
         return;
       }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && key === "z") {
         e.preventDefault();
-        requestCommandRun("node.copy");
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
-        if (clipboard) {
-          const newNodes: Node[] = [];
-          const newEdges: Edge[] = [];
-          const idMap = new Map<string, string>();
-          clipboard.nodes.forEach((n) => {
-            const newId =
-              n.type +
-              "-" +
-              Date.now() +
-              Math.random().toString(36).slice(2, 6);
-            idMap.set(n.id, newId);
-            newNodes.push({
-              ...n,
-              id: newId,
-              selected: true,
-              position: { x: n.position.x + 30, y: n.position.y + 30 },
-            });
-          });
-          clipboard.edges.forEach((edge) => {
-            if (idMap.has(edge.source) && idMap.has(edge.target)) {
-              newEdges.push({
-                ...edge,
-                id: "e" + idMap.get(edge.source) + "-" + idMap.get(edge.target),
-                source: idMap.get(edge.source)!,
-                target: idMap.get(edge.target)!,
-                selected: true,
-              });
-            }
-          });
-          setNodes((nds) => [
-            ...nds.map((n) => ({ ...n, selected: false })),
-            ...newNodes,
-          ]);
-          setEdges((eds) => [
-            ...eds.map((e) => ({ ...e, selected: false })),
-            ...newEdges,
-          ]);
-        }
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+        undoCanvasChange();
+      } else if (
+        ((e.ctrlKey || e.metaKey) && e.shiftKey && key === "z") ||
+        ((e.ctrlKey || e.metaKey) && key === "y")
+      ) {
+        e.preventDefault();
+        redoCanvasChange();
+      } else if ((e.ctrlKey || e.metaKey) && key === "c") {
+        e.preventDefault();
+        copySelectedCanvasElements();
+      } else if ((e.ctrlKey || e.metaKey) && key === "x") {
+        e.preventDefault();
+        cutSelectedCanvasElements();
+      } else if ((e.ctrlKey || e.metaKey) && key === "v") {
+        e.preventDefault();
+        pasteClipboardCanvasElements();
+      } else if ((e.ctrlKey || e.metaKey) && key === "a") {
         e.preventDefault();
         requestCommandRun("canvas.selectAll");
       } else if (e.key === "Delete" || e.key === "Backspace") {
@@ -540,22 +927,26 @@ function VideoFlowCanvasInner({
         const selectedEdges = reactFlow
           .getEdges()
           .filter((edge) => edge.selected || edge.id === selectedEdge);
-        requestCommandRun(
-          selectedEdges.length > 0 && selectedNodes.length === 0
-            ? "edge.delete"
-            : "node.delete",
-        );
+        if (selectedNodes.length > 0 || selectedEdges.length > 0) {
+          deleteSelectedCanvasElements();
+        }
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        runSelectedCanvasElementRef.current();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
     reactFlow,
-    clipboard,
-    setNodes,
-    setEdges,
+    copySelectedCanvasElements,
+    cutSelectedCanvasElements,
+    deleteSelectedCanvasElements,
+    pasteClipboardCanvasElements,
     isCanvasMenuOpen,
     selectedEdge,
+    undoCanvasChange,
+    redoCanvasChange,
   ]);
   useEffect(() => {
     if (!isCanvasMenuOpen) setSubmenuState(null);
@@ -567,6 +958,7 @@ function VideoFlowCanvasInner({
       if (!target || !wrapperRef.current.contains(target)) return;
       if (shouldUseNativeContextMenu(target) || isEditableShortcutTarget(target)) return;
       if (!target.closest(".react-flow")) return;
+      lastCanvasInteractionAtRef.current = Date.now();
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
@@ -627,41 +1019,191 @@ function VideoFlowCanvasInner({
   }, [edges, nodes]);
   // Auto-load on mount
   const hasLoadedRef = useRef(false);
+  const saveCurrentFlow = useCallback(async () => {
+    const latest = latestFlowRef.current;
+    const projectId = latest.projectId;
+    if (!projectId || isAutoSavingRef.current) return;
+    const viewport = reactFlow.getViewport();
+    const data = createCanvasStoragePayload(
+      { nodes: latest.nodes, edges: latest.edges, viewport },
+      latest.canvasKind,
+      cleanFlowNodeForStorage,
+      cleanFlowEdgeForStorage,
+    );
+    if (data.nodes.length === 0) return;
+    isAutoSavingRef.current = true;
+    try {
+      await autoSaveFlow(projectId, data);
+    } catch (error) {
+      console.warn("Failed to auto save flow", error);
+    } finally {
+      isAutoSavingRef.current = false;
+    }
+  }, [reactFlow]);
+
+  const saveFlowSnapshot = useCallback(
+    async (snapshotNodes: Node[], snapshotEdges: Edge[]) => {
+      if (!project) return;
+      const viewport = reactFlow.getViewport();
+      const data = createCleanCanvasStoragePayload(
+        { nodes: snapshotNodes, edges: snapshotEdges, viewport },
+        canvasKind,
+      );
+      if (data.nodes.length === 0) return;
+      try {
+        await autoSaveFlow(project.id, data);
+      } catch (error) {
+        console.warn("Failed to save flow snapshot", error);
+      }
+    },
+    [canvasKind, project, reactFlow],
+  );
+
+  const publishRunSnapshot = useCallback(
+    (snapshotNodes: Node[], snapshotEdges: Edge[]) => {
+      const payload = createCleanCanvasStoragePayload(
+        { nodes: snapshotNodes, edges: snapshotEdges },
+        canvasKind,
+      );
+      window.dispatchEvent(
+        new CustomEvent<VideoFlowRunSnapshotDetail>(VIDEO_FLOW_RUN_SNAPSHOT_EVENT, {
+          detail: {
+            canvasKind,
+            nodes: payload.nodes,
+            edges: payload.edges,
+          },
+        }),
+      );
+    },
+    [canvasKind],
+  );
+
+  useEffect(() => {
+    const onRunSnapshot = (event: Event) => {
+      const detail = (event as CustomEvent<VideoFlowRunSnapshotDetail>).detail;
+      if (!detail || detail.canvasKind !== canvasKind) return;
+      setNodes(normalizeFlowNodes(detail.nodes));
+      setEdges(normalizeFlowEdges(detail.edges));
+    };
+    window.addEventListener(VIDEO_FLOW_RUN_SNAPSHOT_EVENT, onRunSnapshot);
+    return () => window.removeEventListener(VIDEO_FLOW_RUN_SNAPSHOT_EVENT, onRunSnapshot);
+  }, [canvasKind, setEdges, setNodes]);
+  useEffect(() => {
+    if (!project || !onRequestProjectRefresh) return;
+    if (!hasPendingGeneratedAsset) return;
+    let disposed = false;
+    const refresh = () => {
+      if (disposed) return;
+      void Promise.resolve(onRequestProjectRefresh()).catch(() => undefined);
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 15000);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+    };
+  }, [hasPendingGeneratedAsset, onRequestProjectRefresh, project]);
+  useEffect(() => {
+    if (!project || allAssets.length === 0) return;
+    let changed = false;
+    const updatedAt = new Date().toISOString();
+    const resultNodes = nodes.map((node) => {
+      if (node.type !== "resultNode") return node;
+      const currentAssets = Array.isArray(node.data.resultAssets)
+        ? node.data.resultAssets
+        : [];
+      if (!node.data.busy || currentAssets.length > 0) return node;
+      const assetType = resultKindToAssetType(node.data.resultKind);
+      const startedAt =
+        typeof node.data.updatedAt === "string"
+          ? Date.parse(node.data.updatedAt)
+          : 0;
+      const matchedAssets = allAssets
+        .filter((asset) => asset.assetType === assetType)
+        .filter((asset) => !startedAt || asset.mtimeMs >= startedAt - 5000)
+        .sort((a, b) => b.mtimeMs - a.mtimeMs);
+      const latestAsset = matchedAssets[0];
+      if (!latestAsset) return node;
+      changed = true;
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          busy: false,
+          error: undefined,
+          resultAssets: [
+            {
+              kind: assetType,
+              role: resultKindToRole(node.data.resultKind),
+              path: latestAsset.relativePath,
+            },
+          ],
+          taskStatus: "result_ready",
+          updatedAt,
+        },
+      };
+    });
+    const nextNodes = settleExecutorsForReadyResults(resultNodes, edges, updatedAt);
+    if (!changed && nextNodes === resultNodes) return;
+    setNodes(nextNodes);
+    void saveFlowSnapshot(nextNodes, edges);
+  }, [allAssets, edges, nodes, project, saveFlowSnapshot, setNodes]);
   useEffect(() => {
     if (!project || hasLoadedRef.current) return;
     hasLoadedRef.current = true;
     getFlow(project.id, "_autosave")
       .then((data) => {
-      if (data && data.nodes && data.edges) {
-          setNodes(data.nodes || []);
-          setEdges(data.edges || []);
-          if (data.viewport) reactFlow.setViewport(data.viewport);
+        const flow = migrateCanvasStoragePayload(data, canvasKind);
+        if (flow.nodes.length > 0 || flow.edges.length > 0) {
+          setNodes(normalizeFlowNodes(flow.nodes));
+          setEdges(normalizeFlowEdges(flow.edges));
+          if (flow.viewport) reactFlow.setViewport(flow.viewport);
         }
       })
       .catch(() => {
         /* ignore, probably doesn't exist yet */
       });
-  }, [project, setNodes, setEdges, reactFlow]);
-  // Auto-save every 30s
+  }, [canvasKind, project, setNodes, setEdges, reactFlow]);
+  useEffect(() => {
+    if (!project || !hasLoadedRef.current) return;
+    if (autoSaveTimerRef.current !== null) {
+      window.clearTimeout(autoSaveTimerRef.current);
+    }
+    autoSaveTimerRef.current = window.setTimeout(() => {
+      autoSaveTimerRef.current = null;
+      void saveCurrentFlow();
+    }, 1200);
+    return () => {
+      if (autoSaveTimerRef.current !== null) {
+        window.clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+    };
+  }, [edges, nodes, project, saveCurrentFlow]);
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current !== null) {
+        window.clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+      void saveCurrentFlow();
+    };
+  }, [saveCurrentFlow]);
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const timeout = window.setTimeout(() => {
+      void reactFlow.fitView({ padding: 0.12, duration: 180 });
+    }, 120);
+    return () => window.clearTimeout(timeout);
+  }, [isFullscreen, reactFlow]);
+  // Auto-save periodically as a fallback for long-running sessions.
   useEffect(() => {
     if (!project) return;
     const interval = setInterval(() => {
-      if (isAutoSavingRef.current) return;
-      const viewport = reactFlow.getViewport();
-      const data = createVideoCanvasStoragePayload(nodes, edges, viewport, canvasKind);
-      if (data.nodes.length > 0) {
-        isAutoSavingRef.current = true;
-        autoSaveFlow(project.id, data)
-          .catch((error) => {
-            console.warn("Failed to auto save flow", error);
-          })
-          .finally(() => {
-            isAutoSavingRef.current = false;
-          });
-      }
+      void saveCurrentFlow();
     }, 30000);
     return () => clearInterval(interval);
-  }, [canvasKind, edges, nodes, project, reactFlow]);
+  }, [project, saveCurrentFlow]);
   useEffect(() => {
     const labels = new Map([
       ["Zoom In", "放大"],
@@ -726,17 +1268,21 @@ function VideoFlowCanvasInner({
   );
   const handleDeleteNode = useCallback(
     (id: string) => {
+      lastCanvasInteractionAtRef.current = Date.now();
+      pushCanvasHistorySnapshot();
       setNodes((nds) => nds.filter((n) => n.id !== id));
       setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
     },
-    [setNodes, setEdges],
+    [pushCanvasHistorySnapshot, setNodes, setEdges],
   );
   const handleDeleteEdge = useCallback(
     (id: string) => {
+      lastCanvasInteractionAtRef.current = Date.now();
+      pushCanvasHistorySnapshot();
       setEdges((eds) => eds.filter((e) => e.id !== id));
       setSelectedEdge((current) => (current === id ? null : current));
     },
-    [setEdges],
+    [pushCanvasHistorySnapshot, setEdges],
   );
   const copyText = useCallback((value: string) => {
     if (navigator.clipboard?.writeText) {
@@ -754,12 +1300,13 @@ function VideoFlowCanvasInner({
     document.body.removeChild(textarea);
   }, []);
   const clearCanvas = useCallback(() => {
+    pushCanvasHistorySnapshot();
     setNodes([]);
     setEdges([]);
     setSelectedEdge(null);
     setIsCanvasMenuOpen(false);
     setClearConfirmOpen(false);
-  }, [setEdges, setNodes]);
+  }, [pushCanvasHistorySnapshot, setEdges, setNodes]);
   const handleClearCanvas = useCallback(() => {
     if (nodes.length > 0 || edges.length > 0) {
       setClearConfirmOpen(true);
@@ -769,18 +1316,26 @@ function VideoFlowCanvasInner({
     clearCanvas();
   }, [clearCanvas, edges.length, nodes.length]);
   const handleApplyTemplate = useCallback(() => {
+    pushCanvasHistorySnapshot();
     const template =
       canvasKind === "universal"
         ? createUniversalCanvasTemplate()
         : createVideoReferenceTemplate();
-    setNodes(template.nodes);
-    setEdges(template.edges);
+    setNodes(normalizeFlowNodes(template.nodes));
+    setEdges(normalizeFlowEdges(template.edges));
     setSelectedEdge(null);
-  }, [canvasKind, setEdges, setNodes]);
-  const references = useMemo(() => collectCanvasAssetReferences(nodes), [nodes]);
-  const validationResult = useMemo(() => {
-    return compileCanvasPayload(nodes, edges);
-  }, [nodes, edges]);
+  }, [canvasKind, pushCanvasHistorySnapshot, setEdges, setNodes]);
+  const semanticCanvasSignature = useMemo(
+    () => createSemanticCanvasSignature(nodes, edges),
+    [edges, nodes],
+  );
+  const semanticNodes = useMemo(() => createSemanticCanvasNodes(nodes), [semanticCanvasSignature]);
+  const sharedCanvasModel = useMemo(
+    () => createSharedCanvasModel(semanticNodes, edges),
+    [edges, semanticCanvasSignature, semanticNodes],
+  );
+  const references = sharedCanvasModel.references;
+  const validationResult = sharedCanvasModel.compileResult;
   const validationErrors = useMemo(
     () => issuesBySeverity(validationResult.issues, "error"),
     [validationResult.issues],
@@ -793,6 +1348,7 @@ function VideoFlowCanvasInner({
     (nodeId: string) => {
       const node = reactFlow.getNode(nodeId);
       if (!node) return;
+      setPreviousViewport(reactFlow.getViewport());
       setNodes((current) =>
         current.map((item) => ({ ...item, selected: item.id === nodeId })),
       );
@@ -804,9 +1360,225 @@ function VideoFlowCanvasInner({
     },
     [reactFlow, setNodes],
   );
+  const returnToPreviousViewport = useCallback(() => {
+    if (!previousViewport) return;
+    reactFlow.setViewport(previousViewport, { duration: 260 });
+    setPreviousViewport(null);
+  }, [previousViewport, reactFlow]);
+  const continueFromLastFrame = useCallback(
+    (resultNodeId: string) => {
+      const resultNode = reactFlow.getNode(resultNodeId);
+      const resultAssets = (resultNode?.data.resultAssets || []) as Array<{ kind: string; role: string; path: string }>;
+      const lastFrame = resultAssets.find((asset) => asset.role === "last_frame");
+      if (!lastFrame) {
+        setValidationError("当前结果节点没有可用尾帧。");
+        setTimeout(() => setValidationError(null), 3000);
+        return;
+      }
+      const timestamp = Date.now();
+      const imageId = `last-frame-${timestamp}`;
+      const promptId = `prompt-${timestamp}`;
+      const modeId = `mode-${timestamp}`;
+      const returnLastFrameId = `return-last-frame-${timestamp}`;
+      const payloadId = `payload-${timestamp}`;
+      const taskId = `task-${timestamp}`;
+      const resultId = `result-${timestamp}`;
+      const alias = nextAssetAlias("image", references);
+      const baseX = (resultNode?.position.x ?? 0) + 360;
+      const baseY = resultNode?.position.y ?? 0;
+      setNodes((current) => [
+        ...current.map((node) => ({ ...node, selected: false })),
+        {
+          id: imageId,
+          type: "mediaNode",
+          position: { x: baseX, y: baseY },
+          width: MEDIA_NODE_DIMENSIONS.width,
+          height: MEDIA_NODE_DIMENSIONS.height,
+          selected: true,
+          data: {
+            presetId: "FirstFrameImageNode",
+            role: "first_frame",
+            referenceUse: "first_frame",
+            referenceId: imageId,
+            alias,
+            relativePath: lastFrame.path,
+            fileName: lastFrame.path.split(/[\\/]/).pop() ?? "last_frame",
+            url: project ? assetPreviewUrl(project.id, lastFrame.path) : lastFrame.path,
+          },
+        },
+        {
+          id: promptId,
+          type: "textNode",
+          position: { x: baseX, y: baseY + 240 },
+          data: {
+            presetId: "MainPromptNode",
+            text: `@${alias} 作为首帧，延续上一段视频的动作和镜头。`,
+            mentionTokens: [
+              {
+                id: `${promptId}-${imageId}`,
+                alias,
+                nodeId: imageId,
+                kind: "image",
+                use: "first_frame",
+              },
+            ],
+          },
+        },
+        {
+          id: modeId,
+          type: "settingsNode",
+          position: { x: baseX, y: baseY + 420 },
+          data: { presetId: "VideoModeNode", value: "first_frame", type: "mode" },
+        },
+        {
+          id: returnLastFrameId,
+          type: "settingsNode",
+          position: { x: baseX, y: baseY + 580 },
+          data: { presetId: "ReturnLastFrameNode", value: "true", type: "return_last_frame" },
+        },
+        {
+          id: payloadId,
+          type: "collectorNode",
+          position: { x: baseX + 360, y: baseY + 80 },
+          width: PAYLOAD_NODE_DIMENSIONS.width,
+          height: PAYLOAD_NODE_DIMENSIONS.height,
+          data: { presetId: "MultiModalPayloadNode" },
+        },
+        {
+          id: taskId,
+          type: "executorNode",
+          position: { x: baseX + 740, y: baseY + 80 },
+          data: { presetId: "CreateVideoTaskNode" },
+        },
+        {
+          id: resultId,
+          type: "resultNode",
+          position: { x: baseX + 1080, y: baseY + 80 },
+          width: RESULT_NODE_DIMENSIONS.width,
+          height: RESULT_NODE_DIMENSIONS.height,
+          data: { presetId: "VideoResultNode" },
+        },
+      ]);
+      setEdges((current) => [
+        ...current,
+        { id: `e-${imageId}-${payloadId}`, source: imageId, target: payloadId, ...defaultEdgeOptions },
+        { id: `e-${promptId}-${payloadId}`, source: promptId, target: payloadId, ...defaultEdgeOptions },
+        { id: `e-${modeId}-${payloadId}`, source: modeId, target: payloadId, ...defaultEdgeOptions },
+        { id: `e-${returnLastFrameId}-${payloadId}`, source: returnLastFrameId, target: payloadId, ...defaultEdgeOptions },
+        { id: `e-${payloadId}-${taskId}`, source: payloadId, target: taskId, ...defaultEdgeOptions },
+        { id: `e-${taskId}-${resultId}`, source: taskId, target: resultId, ...defaultEdgeOptions },
+      ]);
+    },
+    [project, reactFlow, references, setEdges, setNodes],
+  );
+  const handleQueryVideoTask = useCallback(
+    (resultNodeId: string) => {
+      const resultNode = reactFlow.getNode(resultNodeId);
+      const taskId = resultNode?.data.taskId;
+      if (!project || typeof taskId !== "string" || !taskId.trim()) {
+        setValidationError("当前结果节点没有可查询的 task_id。");
+        setTimeout(() => setValidationError(null), 3000);
+        return;
+      }
+      const queryTool = canvasTools?.find((tool) => tool.name === "query_video_task");
+      if (!queryTool) {
+        setValidationError("当前项目没有可用工具：query_video_task");
+        onShowError?.();
+        setTimeout(() => setValidationError(null), 3000);
+        return;
+      }
+      const confirmed = window.confirm(
+        `即将调用 query_video_task 查询任务状态。\n\n${JSON.stringify({ task_id: taskId }, null, 2)}\n\nschema 要求查询间隔不短于 120 秒。`,
+      );
+      if (!confirmed) return;
+      setNodes((current) =>
+        current.map((node) =>
+          node.id === resultNodeId
+            ? { ...node, data: { ...node.data, taskStatus: "querying" } }
+            : node,
+        ),
+      );
+      void onCallTool("query_video_task", { task_id: taskId }).then((result) => {
+        const rawResult = result ?? null;
+        const resultAssets = extractCanvasResultAssets(rawResult);
+        const nextTaskId = extractCanvasTaskId(rawResult) ?? taskId;
+        setNodes((current) =>
+          current.map((node) =>
+            node.id === resultNodeId
+              ? {
+                  ...node,
+                  data: {
+                    ...node.data,
+                    rawResult,
+                    resultAssets,
+                    taskId: nextTaskId,
+                    taskStatus: resultAssets.length > 0 ? "result_ready" : "query_available",
+                    pollingIntervalSeconds: 120,
+                    updatedAt: new Date().toISOString(),
+                  },
+                }
+              : node,
+          ),
+        );
+      });
+    },
+    [canvasTools, onCallTool, onShowError, project, reactFlow, setNodes],
+  );
+  const createReferenceFromResult = useCallback(
+    (resultNodeId: string) => {
+      const resultNode = reactFlow.getNode(resultNodeId);
+      const resultAssets = (resultNode?.data.resultAssets || []) as Array<{ kind: string; role: string; path: string }>;
+      const asset =
+        resultAssets.find((item) => item.kind === "image" && item.role !== "last_frame") ??
+        resultAssets.find((item) => item.kind === "audio") ??
+        resultAssets.find((item) => item.kind === "video");
+      if (!resultNode || !asset) {
+        setValidationError("当前结果节点没有可创建为参考的素材。");
+        setTimeout(() => setValidationError(null), 3000);
+        return;
+      }
+      const kind = assetTypeToCanvasKind(asset.kind);
+      const alias = nextAssetAlias(kind, references);
+      const nodeId = `ref-${Date.now()}`;
+      const presetId =
+        asset.kind === "image"
+          ? "CharacterImageNode"
+          : asset.kind === "audio"
+            ? "RhythmAudioNode"
+            : "GenericVideoNode";
+      const role =
+        asset.kind === "image"
+          ? "character_image"
+          : asset.kind === "audio"
+            ? "rhythm_audio"
+            : "generic_video";
+      const baseX = resultNode.position.x + ((resultNode.width as number | undefined) ?? RESULT_NODE_DIMENSIONS.width) + 120;
+      const baseY = resultNode.position.y;
+      setNodes((current) => [
+        ...current.map((node) => ({ ...node, selected: false })),
+        normalizeFlowNodeDimensions({
+          id: nodeId,
+          type: "mediaNode",
+          position: { x: baseX, y: baseY },
+          selected: true,
+          data: {
+            presetId,
+            role,
+            referenceUse: role,
+            referenceId: nodeId,
+            alias,
+            relativePath: asset.path,
+            fileName: asset.path.split(/[\\/]/).pop() ?? asset.path,
+            url: project ? assetPreviewUrl(project.id, asset.path) : asset.path,
+          },
+        }),
+      ]);
+    },
+    [project, reactFlow, references, setNodes],
+  );
   const handleRun = useCallback((executorNodeId?: string) => {
     if (!project) return;
-    const compiled = compileCanvasPayload(nodes, edges, executorNodeId);
+    const compiled = createSharedCanvasModel(nodes, edges, executorNodeId).compileResult;
     const toolName = compiled.toolName;
     const tool = toolName ? runnableTools.get(toolName) : undefined;
     if (!toolName || !tool) {
@@ -829,105 +1601,278 @@ function VideoFlowCanvasInner({
       )}`,
     );
     if (!confirmed) return;
-    void executeCompiledCanvasTool({ callTool: onCallTool }, tool.name, compiled).then((result) => {
-      const rawResult = result ?? null;
-      const resultAssets = extractCanvasResultAssets(rawResult);
-      const resultPresetId = getCanvasResultPresetForTool(toolName);
-      const targetResultIds = executorNodeId
-        ? collectDownstreamResultNodeIds(nodes, edges, executorNodeId, resultPresetId)
-        : new Set<string>();
-      let createdResultNode: Node | null = null;
-      if (executorNodeId && targetResultIds.size === 0) {
-        const executorNode = nodes.find((node) => node.id === executorNodeId);
-        if (executorNode) {
-          const resultNode: Node = {
-            id: `result-${Date.now()}`,
-            type: "resultNode",
-            position: {
-              x: executorNode.position.x + 340,
-              y: executorNode.position.y,
-            },
-            data: { presetId: resultPresetId ?? "VideoResultNode", resultKind: resultAssets[0]?.kind },
-          };
-          createdResultNode = resultNode;
-          targetResultIds.add(resultNode.id);
-          setEdges((current) => [
-            ...current,
-            {
-              id: `e-${executorNodeId}-${resultNode.id}`,
-              source: executorNodeId,
-              target: resultNode.id,
-              ...defaultEdgeOptions,
-            },
-          ]);
-        }
+    if (executorNodeId) {
+      setRunningExecutorIds((current) => new Set(current).add(executorNodeId));
+    }
+    const resultPresetId = getCanvasResultPresetForTool(toolName);
+    const targetResultIds = executorNodeId
+      ? collectDownstreamResultNodeIds(nodes, edges, executorNodeId, resultPresetId)
+      : new Set<string>();
+    let createdResultNode: Node | null = null;
+    if (executorNodeId && targetResultIds.size === 0) {
+      const executorNode = nodes.find((node) => node.id === executorNodeId);
+      if (executorNode) {
+        createdResultNode = {
+          id: `result-${toolName}-${Date.now()}`,
+          type: "resultNode",
+          position: {
+            x: executorNode.position.x + 360,
+            y: executorNode.position.y,
+          },
+          width: RESULT_NODE_DIMENSIONS.width,
+          height: RESULT_NODE_DIMENSIONS.height,
+          data: { presetId: resultPresetId ?? "VideoResultNode" },
+        };
+        targetResultIds.add(createdResultNode.id);
       }
-      setNodes((current) =>
-        (createdResultNode ? [...current, createdResultNode] : current).map((node) =>
-          node.type === "resultNode" &&
-          (!resultPresetId || node.data.presetId === resultPresetId) &&
-          (!executorNodeId || targetResultIds.has(node.id))
+    }
+    const startedAt = new Date().toISOString();
+    const startingEdges = createdResultNode
+      ? [
+          ...edges,
+          {
+            id: `e-${executorNodeId}-${createdResultNode.id}`,
+            source: executorNodeId!,
+            target: createdResultNode.id,
+            ...defaultEdgeOptions,
+          },
+        ]
+      : edges;
+    const startingNodes = (createdResultNode ? [...nodes, createdResultNode] : nodes).map((node) => {
+      if (executorNodeId && node.id === executorNodeId) {
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            busy: true,
+            taskStatus: "running",
+            updatedAt: startedAt,
+          },
+        };
+      }
+      return node.type === "resultNode" &&
+        (!resultPresetId || node.data.presetId === resultPresetId) &&
+        (!executorNodeId || targetResultIds.has(node.id))
+        ? {
+            ...node,
+            data: {
+              ...node.data,
+              busy: true,
+              error: undefined,
+              rawResult: undefined,
+              resultAssets: [],
+              taskId: undefined,
+              taskStatus: "running",
+              pollingIntervalSeconds: undefined,
+              lastPayload: compiled.payload,
+              updatedAt: startedAt,
+            },
+          }
+        : node;
+    });
+    setEdges(startingEdges);
+    setNodes(startingNodes);
+    publishRunSnapshot(startingNodes, startingEdges);
+    void saveFlowSnapshot(startingNodes, startingEdges);
+    void executeCompiledCanvasTool({ callTool: onCallTool }, tool.name, compiled)
+      .then((result) => {
+        const rawResult = result ?? null;
+        const resultAssets = extractCanvasResultAssets(rawResult);
+        const taskId = extractCanvasTaskId(rawResult);
+        const completedAt = new Date().toISOString();
+        const completedNodes = startingNodes.map((node) => {
+          if (executorNodeId && node.id === executorNodeId) {
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                busy: false,
+                taskStatus: "completed",
+                updatedAt: completedAt,
+              },
+            };
+          }
+          return node.type === "resultNode" &&
+            (!resultPresetId || node.data.presetId === resultPresetId) &&
+            (!executorNodeId || targetResultIds.has(node.id))
             ? {
                 ...node,
                 data: {
                   ...node.data,
+                  busy: false,
+                  error: undefined,
                   rawResult,
                   resultAssets,
+                  taskId,
+                  taskStatus: taskId
+                    ? "query_available"
+                    : resultAssets.length > 0
+                      ? "result_ready"
+                      : "completed_no_assets",
+                  pollingIntervalSeconds: taskId ? 120 : undefined,
                   lastPayload: compiled.payload,
-                  updatedAt: new Date().toISOString(),
+                  updatedAt: completedAt,
                 },
               }
-            : node,
-        ),
-      );
-    });
-  }, [edges, nodes, onCallTool, onShowError, project, runnableTools, setEdges, setNodes]);
+            : node;
+        });
+        setNodes(completedNodes);
+        publishRunSnapshot(completedNodes, startingEdges);
+        void saveFlowSnapshot(completedNodes, startingEdges);
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setValidationError(message || "执行失败");
+        onShowError?.();
+        setTimeout(() => setValidationError(null), 3000);
+        const failedAt = new Date().toISOString();
+        const failedNodes = startingNodes.map((node) => {
+          if (executorNodeId && node.id === executorNodeId) {
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                busy: false,
+                taskStatus: "failed",
+                updatedAt: failedAt,
+              },
+            };
+          }
+          return node.type === "resultNode" &&
+            (!resultPresetId || node.data.presetId === resultPresetId) &&
+            (!executorNodeId || targetResultIds.has(node.id))
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  busy: false,
+                  error: message || "执行失败",
+                  taskStatus: "failed",
+                  updatedAt: failedAt,
+                },
+              }
+            : node;
+        });
+        setNodes(failedNodes);
+        publishRunSnapshot(failedNodes, startingEdges);
+        void saveFlowSnapshot(failedNodes, startingEdges);
+      })
+      .finally(() => {
+        if (!executorNodeId) return;
+        setRunningExecutorIds((current) => {
+          const next = new Set(current);
+          next.delete(executorNodeId);
+          return next;
+        });
+      });
+  }, [edges, nodes, onCallTool, onShowError, project, publishRunSnapshot, runnableTools, saveFlowSnapshot, setEdges, setNodes]);
   // Inject callbacks into nodes
   const nodesWithCallbacks = useMemo(() => {
     // Find payload nodes for live stats
     const prevMap = new Map<string, Node[]>();
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
     for (const e of edges) {
       if (!prevMap.has(e.target)) prevMap.set(e.target, []);
-      const sourceNode = nodes.find((n) => n.id === e.source);
+      const sourceNode = nodeById.get(e.source);
       if (sourceNode) prevMap.get(e.target)!.push(sourceNode);
     }
-    return nodes.map((n) => {
-      const handlePreviewMedia = (asset: PreviewMedia) => {
-        const completeAsset =
-          asset.relativePath !== undefined
-            ? allAssets.find((item) => item.relativePath === asset.relativePath)
-            : undefined;
-        if (completeAsset) {
-          onPreviewMedia?.(completeAsset);
-          if (completeAsset.assetType !== "audio") return;
+    const handlePreviewMedia = (asset: PreviewMedia) => {
+      const completeAsset =
+        asset.relativePath !== undefined
+          ? allAssets.find((item) => item.relativePath === asset.relativePath)
+          : undefined;
+      if (completeAsset) {
+        if (onPreviewMedia) {
+          onPreviewMedia(completeAsset);
+          return;
         }
-        setPreviewMedia(asset);
-      };
-      const base = { ...n, data: { ...n.data, onDelete: handleDeleteNode } };
+        setPreviewMedia({
+          assetType: completeAsset.assetType,
+          fileName: completeAsset.fileName,
+          relativePath: completeAsset.relativePath,
+          url: assetPreviewUrl(completeAsset.projectId, completeAsset.relativePath),
+        });
+        return;
+      }
+      setPreviewMedia(asset);
+    };
+    const edgeStructureSignature = edges
+      .map((edge) => `${edge.id}:${edge.source}:${edge.target}:${edge.sourceHandle ?? ""}:${edge.targetHandle ?? ""}`)
+      .join("|");
+    const nextCache = new Map<string, InjectedNodeCacheEntry>();
+    const mappedNodes = nodes.map((n) => {
+      const cacheSignatureParts = [
+        String(getSemanticDataIdentity(n.data)),
+        String(n.selected ?? false),
+        runningExecutorIds.has(n.id) ? "running" : "",
+        String(validationResult === sharedCanvasModel.compileResult),
+        String(sharedCanvasModel.resultAssetsByNodeId.get(n.id)?.length ?? 0),
+      ];
+      if (n.type === "collectorNode" || n.type === "textNode" || n.type === "mediaNode") {
+        cacheSignatureParts.push(String(references.length));
+        cacheSignatureParts.push(String(validationResult.promptReferences?.length ?? 0));
+      }
+      if (n.type === "collectorNode" || n.type === "executorNode") {
+        cacheSignatureParts.push(edgeStructureSignature);
+      }
+      if (n.type === "resultNode") {
+        cacheSignatureParts.push(JSON.stringify(sharedCanvasModel.resultAssetsByNodeId.get(n.id) ?? []));
+      }
+      const cacheSignature = cacheSignatureParts.join(":");
+      const viewSignature = [
+        n.position.x,
+        n.position.y,
+        n.width ?? "",
+        n.height ?? "",
+        n.selected ? "selected" : "",
+        n.dragging ? "dragging" : "",
+      ].join(":");
+      const cached = injectedNodeCacheRef.current.get(n.id);
+      if (cached?.signature === cacheSignature) {
+        nextCache.set(n.id, cached);
+        if (cached.viewSignature === viewSignature) return cached.injectedNode;
+        const injectedNode = { ...n, data: cached.injectedData };
+        const movedEntry = {
+          ...cached,
+          sourceNode: n,
+          injectedNode,
+          viewSignature,
+        };
+        nextCache.set(n.id, movedEntry);
+        return injectedNode;
+      }
+      const baseData = { ...n.data, onDelete: handleDeleteNode };
+      let injectedData: Node["data"] = baseData;
       if (
         n.type === "textNode" ||
         n.type === "mediaNode" ||
         n.type === "settingsNode" ||
         n.type === "resultNode"
       ) {
-        return {
-          ...base,
-          data: {
-            ...base.data,
+        injectedData = {
+            ...baseData,
             onChange: handleNodeDataChange,
             allAssets,
             references,
+            promptReferences: validationResult.promptReferences ?? [],
             project,
             busy:
               n.type === "resultNode"
-                ? activeGenerationTask !== undefined || isCloudVideoRunning
+                ? Boolean(n.data?.busy)
                 : Boolean(n.data?.["busy"]),
+            resultAssets:
+              n.type === "resultNode"
+                ? sharedCanvasModel.resultAssetsByNodeId.get(n.id) ?? n.data.resultAssets
+                : n.data.resultAssets,
             isCloudVideoRunning,
             onPreviewMedia: handlePreviewMedia,
             onFocusReference: focusNodeById,
+            onContinueFromLastFrame: continueFromLastFrame,
+            onQueryVideoTask: handleQueryVideoTask,
+            onCreateReferenceFromResult: createReferenceFromResult,
             onAssetDrop: (id: string, assetPath: string) => {
               const asset = allAssets.find((a) => a.relativePath === assetPath);
-              const targetNode = nodes.find((node) => node.id === id);
+              const targetNode = reactFlow.getNode(id) ?? nodeById.get(id);
               const preset = targetNode
                 ? getPresetById(targetNode.data.presetId as string)
                 : undefined;
@@ -964,10 +1909,39 @@ function VideoFlowCanvasInner({
                 });
               }
             },
-          },
         };
-      }
-      if (
+      } else if (
+        n.type === "collectorNode" &&
+        n.data.presetId === "PromptComposerNode"
+      ) {
+        const promptParts: Array<{ nodeId: string; text: string }> = [];
+        const visited = new Set<string>();
+        const traverse = (nodeId: string) => {
+          if (visited.has(nodeId)) return;
+          visited.add(nodeId);
+          const prevs = prevMap.get(nodeId) || [];
+          for (const prevNode of prevs) {
+            const preset = getPresetById(prevNode.data.presetId as string);
+            if (preset?.category === "prompt") {
+              const text = String(prevNode.data.text ?? "").trim();
+              if (text)
+                promptParts.push({
+                  nodeId: prevNode.id,
+                  text: formatPromptNodeText(prevNode, text),
+                });
+            }
+            traverse(prevNode.id);
+          }
+        };
+        traverse(n.id);
+        injectedData = {
+            ...baseData,
+            promptCount: promptParts.length,
+            composedPrompt: promptParts.map((part) => part.text).join("\n"),
+            composedPromptSources: promptParts,
+            onFocusReference: focusNodeById,
+        };
+      } else if (
         n.type === "collectorNode" &&
         n.data.presetId === "MultiModalPayloadNode"
       ) {
@@ -1012,32 +1986,42 @@ function VideoFlowCanvasInner({
         if (!validationResult.ok) {
           error = validationResult.issues.find((issue) => issue.severity === "error")?.message ?? null;
         }
-        return {
-          ...base,
-          data: {
-            ...base.data,
+        injectedData = {
+            ...baseData,
             promptCount,
             imagesCount,
             videosCount,
             audiosCount,
             settingsCount,
             error,
-          },
+            payload: validationResult.payload,
+            fieldSources: validationResult.fieldSources,
+            issues: validationResult.issues,
+            rawResult: nodes.find((node) => node.type === "resultNode" && node.data.rawResult !== undefined)?.data.rawResult,
+            onChange: handleNodeDataChange,
+            onFocusReference: focusNodeById,
         };
-      }
-      if (n.type === "executorNode") {
-        return {
-          ...base,
-          data: {
-            ...base.data,
+      } else if (n.type === "executorNode") {
+        injectedData = {
+            ...baseData,
             onRun: () => handleRun(n.id),
-            busy: activeGenerationTask !== undefined || isCloudVideoRunning,
+            busy: runningExecutorIds.has(n.id) || Boolean(n.data?.busy),
             isCloudVideoRunning,
-          },
         };
       }
-      return base;
+      const injectedNode = { ...n, data: injectedData };
+      const entry = {
+        sourceNode: n,
+        injectedNode,
+        injectedData,
+        signature: cacheSignature,
+        viewSignature,
+      };
+      nextCache.set(n.id, entry);
+      return injectedNode;
     });
+    injectedNodeCacheRef.current = nextCache;
+    return mappedNodes;
   }, [
     nodes,
     edges,
@@ -1045,7 +2029,7 @@ function VideoFlowCanvasInner({
     updateNodeData,
     handleRun,
     handleDeleteNode,
-    activeGenerationTask,
+    runningExecutorIds,
     isCloudVideoRunning,
     allAssets,
     project,
@@ -1053,9 +2037,11 @@ function VideoFlowCanvasInner({
     references,
     validationResult,
     focusNodeById,
+    continueFromLastFrame,
+    handleQueryVideoTask,
   ]);
   const edgesWithCallbacks = useMemo(() => {
-    return edges.map((e) => ({
+    return normalizeFlowEdges(edges).map((e) => ({
       ...e,
       selected: selectedEdge === e.id ? true : e.selected,
       data: { ...e.data, onDelete: handleDeleteEdge },
@@ -1094,8 +2080,8 @@ function VideoFlowCanvasInner({
                 Array.isArray(flowData.nodes) &&
                 Array.isArray(flowData.edges)
               ) {
-                setNodes(flowData.nodes);
-                setEdges(flowData.edges);
+                setNodes(normalizeFlowNodes(flowData.nodes));
+                setEdges(normalizeFlowEdges(flowData.edges));
                 setTimeout(() => reactFlow.fitView(), 50);
               }
             } catch (err) {
@@ -1137,22 +2123,25 @@ function VideoFlowCanvasInner({
       else if (asset.assetType === "audio") presetIdMap = "GenericAudioNode";
       else return;
       const preset = getPresetById(presetIdMap);
+      const nodeId = `ref-${Math.random().toString(36).substr(2, 9)}`;
       const newNode: Node = {
-        id: `ref-${Math.random().toString(36).substr(2, 9)}`,
+        id: nodeId,
         type: "mediaNode",
         position,
+        width: MEDIA_NODE_DIMENSIONS.width,
+        height: MEDIA_NODE_DIMENSIONS.height,
         data: {
           presetId: presetIdMap,
           ...(preset?.defaultData || {}),
           relativePath: asset.relativePath,
           fileName: asset.fileName,
           url: assetPreviewUrl(project.id, asset.relativePath),
-          referenceId: `ref-${Math.random().toString(36).slice(2, 9)}`,
+          referenceId: nodeId,
           alias: nextAssetAlias(assetTypeToCanvasKind(asset.assetType), references),
           referenceUse: preset?.defaultData.role ?? "generic",
         },
       };
-      setNodes((nds) => nds.concat(newNode));
+      setNodes((nds) => nds.concat(normalizeFlowNodeDimensions(newNode)));
     },
     [reactFlow, setNodes, project, allAssets, references],
   );
@@ -1185,6 +2174,26 @@ function VideoFlowCanvasInner({
         id: `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         type,
         position,
+        width:
+          type === "mediaNode"
+            ? MEDIA_NODE_DIMENSIONS.width
+            : type === "resultNode"
+              ? RESULT_NODE_DIMENSIONS.width
+            : preset.id === "MultiModalPayloadNode"
+              ? PAYLOAD_NODE_DIMENSIONS.width
+              : preset.id === "PromptComposerNode"
+                ? PROMPT_COMPOSER_NODE_DIMENSIONS.width
+              : undefined,
+        height:
+          type === "mediaNode"
+            ? MEDIA_NODE_DIMENSIONS.height
+            : type === "resultNode"
+              ? RESULT_NODE_DIMENSIONS.height
+            : preset.id === "MultiModalPayloadNode"
+              ? PAYLOAD_NODE_DIMENSIONS.height
+              : preset.id === "PromptComposerNode"
+                ? PROMPT_COMPOSER_NODE_DIMENSIONS.height
+              : undefined,
         data: { presetId: preset.id, ...preset.defaultData },
       };
       return baseNode;
@@ -1243,7 +2252,7 @@ function VideoFlowCanvasInner({
       };
       setNodes((nds) => [
         ...nds.map((node) => ({ ...node, selected: false })),
-        newNode,
+        normalizeFlowNodeDimensions(newNode),
       ]);
       setIsCanvasMenuOpen(false);
     },
@@ -1266,10 +2275,20 @@ function VideoFlowCanvasInner({
     [setNodes],
   );
   const handleShowPayloadPanel = useCallback(() => {
-    setPayloadPanelTab("payload");
+    setPayloadPanelTab("json");
     setIsPayloadPanelOpen(true);
     setIsCanvasMenuOpen(false);
   }, []);
+  const refreshCanvasStatus = useCallback(() => {
+    const updatedAt = new Date().toISOString();
+    const settledNodes = settleExecutorsForReadyResults(nodes, edges, updatedAt);
+    if (settledNodes !== nodes) {
+      setNodes(settledNodes);
+      void saveFlowSnapshot(settledNodes, edges);
+    }
+    void Promise.resolve(onRequestProjectRefresh?.()).catch(() => undefined);
+    setIsCanvasMenuOpen(false);
+  }, [edges, nodes, onRequestProjectRefresh, saveFlowSnapshot, setNodes]);
   const handleCopyNodeRawResult = useCallback(
     (nodeId: string) => {
       const node = reactFlow.getNode(nodeId);
@@ -1311,23 +2330,25 @@ function VideoFlowCanvasInner({
             }
           : fallbackPosition;
       const newNode = createNodeFromPreset(preset, position);
-      setNodes((nds) => nds.concat(newNode));
+      setNodes((nds) => nds.concat(normalizeFlowNodeDimensions(newNode)));
       setEdges((eds) => [
         ...eds.filter((currentEdge) => currentEdge.id !== edgeId),
-        {
-          ...defaultEdgeOptions,
-          id: `e-${edge.source}-${newNode.id}`,
-          source: edge.source,
-          sourceHandle: edge.sourceHandle,
-          target: newNode.id,
-        },
-        {
-          ...defaultEdgeOptions,
-          id: `e-${newNode.id}-${edge.target}`,
-          source: newNode.id,
-          target: edge.target,
-          targetHandle: edge.targetHandle,
-        },
+        ...normalizeFlowEdges([
+          {
+            ...defaultEdgeOptions,
+            id: `e-${edge.source}-${newNode.id}`,
+            source: edge.source,
+            sourceHandle: edge.sourceHandle,
+            target: newNode.id,
+          },
+          {
+            ...defaultEdgeOptions,
+            id: `e-${newNode.id}-${edge.target}`,
+            source: newNode.id,
+            target: edge.target,
+            targetHandle: edge.targetHandle,
+          },
+        ]),
       ]);
       setSelectedEdge(null);
       setIsCanvasMenuOpen(false);
@@ -1349,105 +2370,14 @@ function VideoFlowCanvasInner({
     },
     [handleRun, handleShowPayloadPanel, reactFlow],
   );
-  const continueFromLastFrame = useCallback(
-    (resultNodeId: string) => {
-      const resultNode = reactFlow.getNode(resultNodeId);
-      const resultAssets = (resultNode?.data.resultAssets || []) as Array<{ kind: string; role: string; path: string }>;
-      const lastFrame = resultAssets.find((asset) => asset.role === "last_frame");
-      if (!lastFrame) {
-        setValidationError("当前结果节点没有可用尾帧。");
-        setTimeout(() => setValidationError(null), 3000);
-        return;
-      }
-      const imageId = `last-frame-${Date.now()}`;
-      const promptId = `prompt-${Date.now()}`;
-      const modeId = `mode-${Date.now()}`;
-      const returnLastFrameId = `return-last-frame-${Date.now()}`;
-      const payloadId = `payload-${Date.now()}`;
-      const taskId = `task-${Date.now()}`;
-      const resultId = `result-${Date.now()}`;
-      const alias = nextAssetAlias("image", references);
-      const baseX = (resultNode?.position.x ?? 0) + 360;
-      const baseY = resultNode?.position.y ?? 0;
-      setNodes((current) => [
-        ...current.map((node) => ({ ...node, selected: false })),
-        {
-          id: imageId,
-          type: "mediaNode",
-          position: { x: baseX, y: baseY },
-          selected: true,
-          data: {
-            presetId: "FirstFrameImageNode",
-            role: "first_frame",
-            referenceUse: "first_frame",
-            referenceId: imageId,
-            alias,
-            relativePath: lastFrame.path,
-            fileName: lastFrame.path.split(/[\\/]/).pop() ?? "last_frame",
-            url: project ? assetPreviewUrl(project.id, lastFrame.path) : lastFrame.path,
-          },
-        },
-        {
-          id: promptId,
-          type: "textNode",
-          position: { x: baseX, y: baseY + 240 },
-          data: {
-            presetId: "MainPromptNode",
-            text: `@${alias} 作为首帧，延续上一段视频的动作和镜头。`,
-            mentionTokens: [
-              {
-                id: `${promptId}-${imageId}`,
-                alias,
-                nodeId: imageId,
-                kind: "image",
-                use: "first_frame",
-              },
-            ],
-          },
-        },
-        {
-          id: modeId,
-          type: "settingsNode",
-          position: { x: baseX, y: baseY + 420 },
-          data: { presetId: "VideoModeNode", value: "first_frame", type: "mode" },
-        },
-        {
-          id: returnLastFrameId,
-          type: "settingsNode",
-          position: { x: baseX, y: baseY + 580 },
-          data: { presetId: "ReturnLastFrameNode", value: "true", type: "return_last_frame" },
-        },
-        {
-          id: payloadId,
-          type: "collectorNode",
-          position: { x: baseX + 360, y: baseY + 80 },
-          data: { presetId: "MultiModalPayloadNode" },
-        },
-        {
-          id: taskId,
-          type: "executorNode",
-          position: { x: baseX + 700, y: baseY + 80 },
-          data: { presetId: "CreateVideoTaskNode" },
-        },
-        {
-          id: resultId,
-          type: "resultNode",
-          position: { x: baseX + 1040, y: baseY + 80 },
-          data: { presetId: "VideoResultNode" },
-        },
-      ]);
-      setEdges((current) => [
-        ...current,
-        { id: `e-${imageId}-${payloadId}`, source: imageId, target: payloadId, ...defaultEdgeOptions },
-        { id: `e-${promptId}-${payloadId}`, source: promptId, target: payloadId, ...defaultEdgeOptions },
-        { id: `e-${modeId}-${payloadId}`, source: modeId, target: payloadId, ...defaultEdgeOptions },
-        { id: `e-${returnLastFrameId}-${payloadId}`, source: returnLastFrameId, target: payloadId, ...defaultEdgeOptions },
-        { id: `e-${payloadId}-${taskId}`, source: payloadId, target: taskId, ...defaultEdgeOptions },
-        { id: `e-${taskId}-${resultId}`, source: taskId, target: resultId, ...defaultEdgeOptions },
-      ]);
-    },
-    [project, reactFlow, references, setEdges, setNodes],
-  );
+  const runSelectedCanvasElement = useCallback(() => {
+    const selectedNodes = reactFlow.getNodes().filter((node) => node.selected);
+    if (selectedNodes.length !== 1) return;
+    handleRunNode(selectedNodes[0].id);
+  }, [handleRunNode, reactFlow]);
+  useEffect(() => {
+    runSelectedCanvasElementRef.current = runSelectedCanvasElement;
+  }, [runSelectedCanvasElement]);
   useEffect(() => {
     const runCommand = (event: Event) => {
       const detail = (
@@ -1468,6 +2398,14 @@ function VideoFlowCanvasInner({
       }
       if (detail.action === "toggleGrid") {
         setSnapToGrid((value) => !value);
+        return;
+      }
+      if (detail.action === "undo") {
+        undoCanvasChange();
+        return;
+      }
+      if (detail.action === "redo") {
+        redoCanvasChange();
         return;
       }
       if (detail.action === "clear") {
@@ -1523,9 +2461,11 @@ function VideoFlowCanvasInner({
     deleteSelectedCanvasElements,
     handleRunNode,
     handleToggleNodeCollapsed,
+    redoCanvasChange,
     reactFlow,
     selectAllCanvasElements,
     setSnapToGrid,
+    undoCanvasChange,
   ]);
   const closeCanvasMenu = useCallback(() => {
     setIsCanvasMenuOpen(false);
@@ -1568,7 +2508,7 @@ function VideoFlowCanvasInner({
   );
   const showRootSubmenu = useCallback(
     (event: React.MouseEvent<HTMLElement>, mode: "add" | "insert") => {
-      const activeGroupCount = Object.values(CATEGORY_GROUPS).filter(
+      const activeGroupCount = Object.values(categoryGroups).filter(
         (g) => g.items.length > 0,
       ).length;
       const estimatedHeight = activeGroupCount * 32 + 12;
@@ -1578,7 +2518,7 @@ function VideoFlowCanvasInner({
         setSubmenuState({ kind: "root", mode, ...position });
       }, 150);
     },
-    [getSubmenuPosition],
+    [categoryGroups, getSubmenuPosition],
   );
   const showCategorySubmenu = useCallback(
     (
@@ -1591,7 +2531,7 @@ function VideoFlowCanvasInner({
       hoverTimeoutRef.current = setTimeout(() => {
         setSubmenuState((current) => {
           const prefDir = current?.direction ?? "right";
-          const group = CATEGORY_GROUPS[categoryKey as keyof typeof CATEGORY_GROUPS];
+          const group = categoryGroups.find((item) => item.id === categoryKey);
           const estimatedHeight = group ? group.items.length * 32 + 12 : 360;
           const position = getSubmenuPosition(currentTarget, 180, estimatedHeight, prefDir);
           return {
@@ -1619,7 +2559,7 @@ function VideoFlowCanvasInner({
         });
       }, 150);
     },
-    [getSubmenuPosition, submenuState?.direction],
+    [categoryGroups, getSubmenuPosition, submenuState?.direction],
   );
   const onPaneContextMenu = useCallback((event: any) => {
     event.preventDefault();
@@ -1633,12 +2573,14 @@ function VideoFlowCanvasInner({
     event.stopPropagation();
   }, []);
   const onNodeClick = useCallback(() => {
+    lastCanvasInteractionAtRef.current = Date.now();
     setSelectedEdge(null);
     setEdges((eds) => eds.map((edge) => ({ ...edge, selected: false })));
     setIsCanvasMenuOpen(false);
     if (isPayloadPanelOpen) setPayloadPanelTab("inspector");
   }, [isPayloadPanelOpen, setEdges]);
   const onPaneClick = useCallback(() => {
+    lastCanvasInteractionAtRef.current = Date.now();
     setSelectedEdge(null);
     setEdges((eds) => eds.map((edge) => ({ ...edge, selected: false })));
     setIsCanvasMenuOpen(false);
@@ -1674,14 +2616,65 @@ function VideoFlowCanvasInner({
   );
   const activeSubmenuGroup =
     submenuState?.kind === "category"
-      ? CATEGORY_GROUPS[submenuState.categoryKey as keyof typeof CATEGORY_GROUPS]
+      ? categoryGroups.find((group) => group.id === submenuState.categoryKey)
       : null;
   const selectedNode = nodes.find((node) => node.selected);
+  const payloadContextExecutorId = selectedNode
+    ? selectedNode.type === "executorNode"
+      ? selectedNode.id
+      : selectedNode.type === "resultNode"
+        ? findNearestUpstreamExecutorId(nodes, edges, selectedNode.id)
+        : findNearestDownstreamExecutorId(nodes, edges, selectedNode.id) ??
+          findNearestUpstreamExecutorId(nodes, edges, selectedNode.id)
+    : undefined;
+  const payloadContextResult = useMemo(
+    () =>
+      payloadContextExecutorId
+        ? createSharedCanvasModel(nodes, edges, payloadContextExecutorId).compileResult
+        : undefined,
+    [edges, nodes, payloadContextExecutorId],
+  );
+  const payloadContextErrors = useMemo(
+    () => issuesBySeverity(payloadContextResult?.issues ?? [], "error"),
+    [payloadContextResult?.issues],
+  );
+  const payloadContextWarnings = useMemo(
+    () => issuesBySeverity(payloadContextResult?.issues ?? [], "warning"),
+    [payloadContextResult?.issues],
+  );
+  const selectedResultNode =
+    selectedNode?.type === "resultNode" ? selectedNode : undefined;
+  const contextResultNode = useMemo(() => {
+    if (selectedResultNode) return selectedResultNode;
+    if (!payloadContextExecutorId) return undefined;
+    const resultPresetId = payloadContextResult?.toolName
+      ? getCanvasResultPresetForTool(payloadContextResult.toolName)
+      : undefined;
+    const resultIds = collectDownstreamResultNodeIds(
+      nodes,
+      edges,
+      payloadContextExecutorId,
+      resultPresetId,
+    );
+    return nodes.find(
+      (node) =>
+        node.type === "resultNode" &&
+        resultIds.has(node.id) &&
+        node.data.rawResult !== undefined,
+    );
+  }, [edges, nodes, payloadContextExecutorId, payloadContextResult?.toolName, selectedResultNode]);
+  const payloadPanelTitle =
+    payloadContextExecutorId && selectedNode
+      ? getPresetById(
+          nodes.find((node) => node.id === payloadContextExecutorId)?.data
+            .presetId as string,
+        )?.label ?? "当前执行节点"
+      : "当前画布";
   const selectedNodeReference = selectedNode
     ? references.find((reference) => reference.nodeId === selectedNode.id)
     : undefined;
   const selectedNodeFieldSources = selectedNode
-    ? validationResult.fieldSources.filter((source) => source.nodeId === selectedNode.id)
+    ? (payloadContextResult?.fieldSources ?? []).filter((source) => source.nodeId === selectedNode.id)
     : [];
   return (
     <div
@@ -1692,14 +2685,23 @@ function VideoFlowCanvasInner({
         isOpen={isDrawerOpen}
         project={project}
         canvasKind={canvasKind}
+        width={nodeDrawerWidth.width}
         onLoaded={(data) => {
-          setNodes(data.nodes || []);
-          setEdges(data.edges || []);
+          setNodes(normalizeFlowNodes(data.nodes));
+          setEdges(normalizeFlowEdges(data.edges));
           if (data.viewport) reactFlow.setViewport(data.viewport);
         }}
       />
+      {isDrawerOpen && (
+        <ResizablePanelHandle
+          className="z-[60] -mx-1"
+          title="拖动调整节点与布局宽度，双击恢复默认"
+          onDoubleClick={nodeDrawerWidth.resetWidth}
+          {...nodeDrawerWidth.resizeHandleProps}
+        />
+      )}
       <div
-        className="flex-1 relative min-w-0 transition-all duration-300"
+        className="relative h-full min-h-0 flex-1 min-w-0 overflow-hidden transition-all duration-300"
         onDragOverCapture={onDragOver}
         onDropCapture={onCanvasDropCapture}
       >
@@ -1728,7 +2730,7 @@ function VideoFlowCanvasInner({
           fitView
           snapToGrid={snapToGrid}
           snapGrid={[20, 20]}
-          className="video-flow-canvas bg-transparent"
+          className="video-flow-canvas h-full w-full bg-transparent"
           proOptions={{ hideAttribution: true }}
         >
           <Background
@@ -1745,6 +2747,16 @@ function VideoFlowCanvasInner({
           >
             {/* Left Controls */}
             <div className="flex flex-wrap items-center gap-2 bg-surface-panel/90 backdrop-blur-md p-2 rounded-xl shadow-lg border border-border pointer-events-auto">
+              {previousViewport && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs bg-surface-app"
+                  onClick={returnToPreviousViewport}
+                >
+                  回到上次位置
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -1782,6 +2794,15 @@ function VideoFlowCanvasInner({
                 variant="outline"
                 size="sm"
                 className="h-8 text-xs bg-surface-app"
+                onClick={refreshCanvasStatus}
+              >
+                <RefreshCw className="w-4 h-4 mr-1.5 text-brand" />
+                刷新状态
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs bg-surface-app"
                 onClick={handleClearCanvas}
               >
                 清空画布
@@ -1799,7 +2820,7 @@ function VideoFlowCanvasInner({
                       setIsPayloadPanelOpen(false);
                       return;
                     }
-                    setPayloadPanelTab("payload");
+                    setPayloadPanelTab("json");
                     setIsPayloadPanelOpen(true);
                   }}
                 >
@@ -1830,44 +2851,62 @@ function VideoFlowCanvasInner({
                 <div className="bg-surface-panel/95 backdrop-blur-md p-3 rounded-xl shadow-lg border border-border w-80 max-h-[70vh] flex flex-col gap-3 overflow-hidden pointer-events-auto">
                   <div className="flex items-center gap-2 border-b border-border pb-2 shrink-0">
                     <Activity className="w-4 h-4 text-brand" />
-                    <span className="text-xs font-bold">
-                      Payload 预览与检查
+                    <span className="min-w-0 truncate text-xs font-bold">
+                      Payload 预览与检查 · {payloadPanelTitle}
                     </span>
                   </div>
-                  <div className="grid grid-cols-2 gap-1 rounded-lg border border-border-soft bg-surface-app p-1">
-                    <button
-                      type="button"
-                      className={cn(
-                        "rounded-md px-2 py-1.5 text-[11px] font-bold transition-colors",
-                        payloadPanelTab === "payload"
-                          ? "bg-surface-raised text-brand shadow-sm"
-                          : "text-text-subtle hover:text-text",
-                      )}
-                      onClick={() => setPayloadPanelTab("payload")}
-                    >
-                      Payload
-                    </button>
-                    <button
-                      type="button"
-                      className={cn(
-                        "rounded-md px-2 py-1.5 text-[11px] font-bold transition-colors",
-                        payloadPanelTab === "inspector"
-                          ? "bg-surface-raised text-brand shadow-sm"
-                          : "text-text-subtle hover:text-text",
-                      )}
-                      onClick={() => setPayloadPanelTab("inspector")}
-                    >
-                      节点
-                    </button>
+                  <div className="grid grid-cols-5 gap-1 rounded-lg border border-border-soft bg-surface-app p-1">
+                    {[
+                      ["json", "JSON"],
+                      ["sources", "Sources"],
+                      ["issues", "Issues"],
+                      ["raw", "Raw"],
+                      ["inspector", "节点"],
+                    ].map(([tab, label]) => (
+                      <button
+                        key={tab}
+                        type="button"
+                        className={cn(
+                          "rounded-md px-1 py-1.5 text-[10px] font-bold transition-colors",
+                          payloadPanelTab === tab
+                            ? "bg-surface-raised text-brand shadow-sm"
+                            : "text-text-subtle hover:text-text",
+                        )}
+                        onClick={() => setPayloadPanelTab(tab as PayloadPanelTab)}
+                      >
+                        {label}
+                      </button>
+                    ))}
                   </div>
-                  {payloadPanelTab === "payload" && (
+                  {payloadPanelTab === "json" && (
                   <div className="flex-1 overflow-y-auto scrollbar-thin flex flex-col gap-3 pr-1">
-                    {validationErrors.length > 0 && (
+                    <CodeEditorPanel
+                      title="最终 Payload"
+                      language="json"
+                      value={
+                        payloadContextResult?.payload
+                          ? JSON.stringify(payloadContextResult.payload, null, 2)
+                          : ""
+                      }
+                      emptyText={payloadContextExecutorId ? "无法生成 Payload (请先修复错误)" : "选择一条执行链节点后查看 Payload"}
+                      maxHeight="420px"
+                      className="mt-1"
+                    />
+                  </div>
+                  )}
+                  {payloadPanelTab === "issues" && (
+                  <div className="flex-1 overflow-y-auto scrollbar-thin flex flex-col gap-3 pr-1">
+                    {payloadContextErrors.length === 0 && payloadContextWarnings.length === 0 && (
+                      <div className="rounded-lg border border-border-soft bg-surface-app p-4 text-center text-xs text-text-subtle">
+                        当前没有错误或警告。
+                      </div>
+                    )}
+                    {payloadContextErrors.length > 0 && (
                       <div className="flex flex-col gap-1">
                         <span className="text-[10px] font-bold text-[#b03939]">
                           错误 (阻断执行)
                         </span>
-                        {validationErrors.map((issue, i) => (
+                        {payloadContextErrors.map((issue, i) => (
                           <button
                             key={i}
                             type="button"
@@ -1880,12 +2919,12 @@ function VideoFlowCanvasInner({
                         ))}
                       </div>
                     )}
-                    {validationWarnings.length > 0 && (
+                    {payloadContextWarnings.length > 0 && (
                       <div className="flex flex-col gap-1">
                         <span className="text-[10px] font-bold text-yellow-500">
                           警告 (建议修复)
                         </span>
-                        {validationWarnings.map((issue, i) => (
+                        {payloadContextWarnings.map((issue, i) => (
                           <button
                             key={i}
                             type="button"
@@ -1899,8 +2938,8 @@ function VideoFlowCanvasInner({
                       </div>
                     )}
                     {/* Quick Fixes */}
-                    {(validationErrors.length > 0 ||
-                      validationWarnings.length > 0) && (
+                    {(payloadContextErrors.length > 0 ||
+                      payloadContextWarnings.length > 0) && (
                       <div className="flex flex-wrap gap-1.5 mt-1 pt-2 border-t border-border-soft">
                         <span className="text-[10px] font-bold text-text-subtle w-full mb-0.5">
                           快捷修复:
@@ -1962,46 +3001,46 @@ function VideoFlowCanvasInner({
                         </button>
                       </div>
                     )}
-                    <CodeEditorPanel
-                      title="最终 Payload"
-                      language="json"
-                      value={
-                        validationResult.payload
-                          ? JSON.stringify(validationResult.payload, null, 2)
-                          : ""
-                      }
-                      emptyText="无法生成 Payload (请先修复错误)"
-                      maxHeight="240px"
-                      className="mt-1"
-                    />
-                    {validationResult.fieldSources.length > 0 && (
-                      <div className="flex flex-col gap-1 border-t border-border-soft pt-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[10px] font-bold text-text-subtle">
-                            字段来源
-                          </span>
-                          <span className="text-[10px] text-text-muted">
-                            {validationResult.fieldSources.length} 项
-                          </span>
-                        </div>
-                        <div className="flex max-h-36 flex-col gap-1 overflow-y-auto pr-1 scrollbar-thin">
-                          {validationResult.fieldSources.map((source, index) => (
-                            <button
-                              key={`${source.path}-${source.nodeId}-${index}`}
-                              type="button"
-                              className="flex shrink-0 items-center justify-between gap-2 rounded border border-border-soft bg-surface-app px-2 py-1 text-left text-[10px] hover:border-brand/40"
-                              onClick={() => {
-                                focusNodeById(source.nodeId);
-                              }}
-                            >
-                              <span className="truncate font-mono text-text-subtle">{source.path}</span>
-                              <span className="truncate text-text">{source.label}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                   </div>
+                  )}
+                  {payloadPanelTab === "sources" && (
+                    <div className="flex-1 overflow-y-auto scrollbar-thin flex flex-col gap-2 pr-1">
+                      {(payloadContextResult?.fieldSources ?? []).length === 0 ? (
+                        <div className="rounded-lg border border-border-soft bg-surface-app p-4 text-center text-xs text-text-subtle">
+                          {payloadContextExecutorId ? "当前没有字段来源。" : "选择一条执行链节点后查看字段来源。"}
+                        </div>
+                      ) : (
+                        (payloadContextResult?.fieldSources ?? []).map((source, index) => (
+                          <button
+                            key={`${source.path}-${source.nodeId}-${index}`}
+                            type="button"
+                            className="flex shrink-0 flex-col gap-1 rounded-lg border border-border-soft bg-surface-app px-2 py-1.5 text-left text-[10px] hover:border-brand/40"
+                            onClick={() => focusNodeById(source.nodeId)}
+                          >
+                            <span className="truncate font-mono font-bold text-text-subtle">{source.path}</span>
+                            <span className="line-clamp-2 break-words text-text">
+                              {String(source.value ?? source.label)}
+                            </span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                  {payloadPanelTab === "raw" && (
+                    <div className="flex-1 overflow-y-auto scrollbar-thin flex flex-col gap-3 pr-1">
+                      <CodeEditorPanel
+                        title="Raw Result"
+                        language="json"
+                        value={JSON.stringify(
+                          contextResultNode?.data.rawResult ?? {
+                            note: "运行节点后显示 raw execution result。",
+                          },
+                          null,
+                          2,
+                        )}
+                        maxHeight="420px"
+                      />
+                    </div>
                   )}
                   {payloadPanelTab === "inspector" && (
                     <div className="flex-1 overflow-y-auto scrollbar-thin flex flex-col gap-3 pr-1">
@@ -2067,7 +3106,14 @@ function VideoFlowCanvasInner({
                           <CodeEditorPanel
                             title="节点数据"
                             language="json"
-                            value={JSON.stringify(cleanFlowData(selectedNode.data, transientNodeDataKeys), null, 2)}
+                            value={JSON.stringify(
+                              cleanCanvasDataForStorage(
+                                selectedNode.data,
+                                CANVAS_TRANSIENT_NODE_DATA_KEYS,
+                              ),
+                              null,
+                              2,
+                            )}
                             maxHeight="180px"
                           />
                         </>
@@ -2176,14 +3222,16 @@ function VideoFlowCanvasInner({
                     {previewMedia.relativePath}
                   </div>
                 </div>
-                <audio
-                  src={previewMediaSrc}
-                  controls
-                  autoPlay
-                  controlsList="nodownload"
-                  className="w-full"
-                />
+                <CanvasAudioPlayer src={previewMediaSrc} autoPlay />
               </div>
+            ) : previewMedia.assetType === "image" ? (
+              <img
+                src={previewMediaSrc}
+                alt={previewMedia.fileName}
+                draggable={false}
+                className="max-h-[95vh] max-w-[95vw] rounded-xl bg-black/10 object-contain shadow-2xl"
+                onClick={(event) => event.stopPropagation()}
+              />
             ) : (
               <video
                 src={previewMediaSrc}
@@ -2264,6 +3312,14 @@ function VideoFlowCanvasInner({
                 >
                   <Scan className="h-4 w-4 opacity-70" />
                   <span className="font-medium">适应画布</span>
+                </button>
+                <button
+                  type="button"
+                  className={menuItemClasses}
+                  onClick={refreshCanvasStatus}
+                >
+                  <RefreshCw className="h-4 w-4 opacity-70" />
+                  <span className="font-medium">刷新状态</span>
                 </button>
                 <button
                   type="button"
@@ -2541,24 +3597,24 @@ function VideoFlowCanvasInner({
             onClick={(event) => event.stopPropagation()}
             onContextMenu={(event) => event.preventDefault()}
           >
-            {Object.entries(CATEGORY_GROUPS).map(([key, group]) => {
+            {categoryGroups.map((group: NodePresetGroup) => {
               if (group.items.length === 0) return null;
               return (
                 <button
                   type="button"
-                  key={key}
+                  key={group.id}
                   className={cn(
                     menuItemClasses,
-                    submenuState?.kind === "category" && submenuState.categoryKey === key && "bg-brand/15 text-brand-strong font-bold"
+                    submenuState?.kind === "category" && submenuState.categoryKey === group.id && "bg-brand/15 text-brand-strong font-bold"
                   )}
                   onMouseEnter={(event) =>
-                    showCategorySubmenu(event, submenuState.mode, key)
+                    showCategorySubmenu(event, submenuState.mode, group.id)
                   }
                 >
                   <span className="min-w-0 flex-1 truncate font-medium">
                     {group.label}
                   </span>
-                  {submenuState?.kind === "category" && submenuState.categoryKey === key && submenuState.direction === "left" ? (
+                  {submenuState?.kind === "category" && submenuState.categoryKey === group.id && submenuState.direction === "left" ? (
                     <ChevronLeft className="h-4 w-4 opacity-50" />
                   ) : (
                     <ChevronRight className="h-4 w-4 opacity-50" />

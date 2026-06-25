@@ -51,6 +51,7 @@ const MENU_TEMPLATES: Partial<
   global: [
     "app.openCommandPalette",
     "app.quickSwitchProject",
+    "app.saveCurrentDraft",
     "project.scanProjects",
     "app.refreshCurrent",
     { type: "separator", id: "global:view" },
@@ -219,6 +220,7 @@ const MENU_TEMPLATES: Partial<
   ],
   videoFlowCanvas: [
     "videoFlow.openCanvas",
+    "app.saveCurrentDraft",
     "canvas.fitView",
     "canvas.selectAll",
     "canvas.toggleGrid",

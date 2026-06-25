@@ -1,5 +1,5 @@
 import { Terminal, FolderSync, Search, Settings, Moon, Sun, PanelLeft, PanelRight, RefreshCw, Copy, Trash2, Eye, Save, Play, Code, ClipboardList, Scan, Edit2, Move, ExternalLink, Image, FolderOpen, Download, Crosshair, Check } from "lucide-react";
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import {
   callTool,
   copyAssetFolder,
@@ -81,13 +81,18 @@ const DEFAULT_PROJECT_MODULE: WorkbenchModule = "assets";
 const NODE_PRESET_DRAG_MIME = "application/reactflow";
 const NODE_PRESET_TEXT_PREFIX = "taptap-node-preset:";
 const BOOTSTRAP_RETRY_DELAYS_MS = [800, 1200, 1800, 2600, 3600];
-const DESKTOP_ASPECT_WIDTH = 16;
-const DESKTOP_ASPECT_HEIGHT = 9;
-const DESKTOP_MIN_WIDTH = 1024;
-const DESKTOP_MIN_HEIGHT = 576;
 const ASSET_REFERENCE_CACHE_TTL_MS = 30_000;
 
 type ResizeEdge = "n" | "e" | "s" | "w" | "ne" | "nw" | "se" | "sw";
+type TauriResizeDirection =
+  | "East"
+  | "North"
+  | "NorthEast"
+  | "NorthWest"
+  | "South"
+  | "SouthEast"
+  | "SouthWest"
+  | "West";
 type ReferenceMutationDecision = "update" | "skip" | "cancel";
 
 function readPlainDragText(dataTransfer?: DataTransfer | null) {
@@ -209,10 +214,10 @@ export function AppShell() {
     [projects, selectedProjectId],
   );
 
+  const GENERATION_TOOLS = ["generate_image", "text_to_music", "create_video_task"];
+
   // 任务完成事件通知
   useEffect(() => {
-    const GENERATION_TOOLS = ["generate_image", "text_to_music", "create_video_task"];
-    
     for (const task of tasks) {
       const previousStatus = previousTaskStatusRef.current.get(task.taskId);
       const currentStatus = task.status;
@@ -230,9 +235,9 @@ export function AppShell() {
           })
         );
         
-        // 生成任务完成时刷新资产树
+        // 生成任务完成时刷新资产列表和资产树，画布结果节点依赖 assets 回填。
         if (currentStatus === "succeeded" && GENERATION_TOOLS.includes(task.toolName) && selectedProject) {
-          void refreshAssetTree(selectedProject.id);
+          void refreshProjectAssets(selectedProject.id);
         }
       }
       
@@ -341,12 +346,26 @@ export function AppShell() {
     return nextAssetTree;
   }
 
+  async function refreshProjectAssets(projectId: string) {
+    const [assetList, nextAssetTree] = await Promise.all([
+      listAssets(projectId).catch(() => []),
+      getAssetTree(projectId).catch(() => undefined),
+    ]);
+    setAssets(assetList);
+    setAssetTree(nextAssetTree);
+  }
+
+  const refreshCurrentProject = useCallback(() => {
+    if (!selectedProjectId) return undefined;
+    return refreshProject(selectedProjectId);
+  }, [selectedProjectId]);
+
   async function applyAssetMutationResult(result: AssetMutationResponse) {
     setAssets(result.assets);
     if (selectedProject) await refreshAssetTree(selectedProject.id);
   }
 
-  // Auto-refresh tasks every 10 seconds if any task is running
+  // Auto-refresh local task/assets state while generation jobs are running.
   useEffect(() => {
     if (!selectedProjectId) return;
     const hasRunning = tasks.some(
@@ -355,9 +374,29 @@ export function AppShell() {
     if (!hasRunning) return;
     const interval = setInterval(() => {
       listTasks(selectedProjectId)
-        .then(setTasks)
+        .then((taskList) => {
+          setTasks(taskList);
+          const previousTaskById = new Map(
+            tasks.map((task) => [task.taskId, task]),
+          );
+          const hasGenerationWork = [...tasks, ...taskList].some(
+            (task) =>
+              GENERATION_TOOLS.includes(task.toolName) &&
+              (task.status === "running" || task.status === "queued"),
+          );
+          const hasCompletedGeneration = taskList.some((task) => {
+            const previous = previousTaskById.get(task.taskId);
+            return (
+              GENERATION_TOOLS.includes(task.toolName) &&
+              task.status === "succeeded" &&
+              (previous?.status === "running" || previous?.status === "queued")
+            );
+          });
+          if (hasGenerationWork || hasCompletedGeneration)
+            void refreshProjectAssets(selectedProjectId);
+        })
         .catch(() => undefined);
-    }, 10000);
+    }, 15000);
     return () => clearInterval(interval);
   }, [selectedProjectId, tasks]);
 
@@ -1277,9 +1316,9 @@ export function AppShell() {
   }
 
   function selectModule(module: WorkbenchModule) {
-    if (module === "workflow") {
-      setActiveModule(selectedProject ? "studio-canvas" : "home");
-      setNotice("已切换到全能节点画布");
+    if (module === "workflow" || module === "studio-canvas") {
+      setActiveModule(selectedProject ? "studio-video" : "home");
+      setNotice("全能画布暂时隐藏，已切换到视频工作室");
       return;
     }
     if (module === "runs") {
@@ -1513,12 +1552,18 @@ export function AppShell() {
         description:
           activeModule === "workflow"
             ? "保存当前节点流"
+            : activeModule === "studio-video" || activeModule === "studio-canvas"
+              ? "保存当前视频画布"
             : "当前面板没有可保存草稿",
         shortcut: { key: "s", ctrlKey: true },
         scope: "global",
         run: () => {
           if (activeModule === "workflow") {
             window.dispatchEvent(new CustomEvent("taptap:workflow-save"));
+            return;
+          }
+          if (activeModule === "studio-video" || activeModule === "studio-canvas") {
+            window.dispatchEvent(new CustomEvent("taptap:video-flow-save"));
             return;
           }
           setNotice("当前面板没有可保存草稿");
@@ -3214,7 +3259,7 @@ export function AppShell() {
     };
   }, []);
 
-  async function beginDesktopAspectResize(
+  async function beginDesktopWindowResize(
     event: React.PointerEvent<HTMLDivElement>,
     edge: ResizeEdge,
   ) {
@@ -3222,75 +3267,11 @@ export function AppShell() {
     event.preventDefault();
     event.stopPropagation();
     try {
-      const [{ getCurrentWindow }, { PhysicalPosition, PhysicalSize }] = await Promise.all([
-        import("@tauri-apps/api/window"),
-        import("@tauri-apps/api/dpi"),
-      ]);
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
       const appWindow = getCurrentWindow();
       if ((await appWindow.isMaximized()) || (await appWindow.isFullscreen()))
         return;
-      const startSize = await appWindow.outerSize();
-      const startPosition = await appWindow.outerPosition();
-      const startX = event.clientX;
-      const startY = event.clientY;
-      let animationFrame = 0;
-      const resizeTo = (width: number, height: number, x: number, y: number) => {
-        window.cancelAnimationFrame(animationFrame);
-        animationFrame = window.requestAnimationFrame(() => {
-          void appWindow.setPosition(
-            new PhysicalPosition(Math.round(x), Math.round(y)),
-          );
-          void appWindow.setSize(
-            new PhysicalSize(Math.round(width), Math.round(height)),
-          );
-        });
-      };
-      const onMove = (moveEvent: PointerEvent) => {
-        const deltaX = moveEvent.clientX - startX;
-        const deltaY = moveEvent.clientY - startY;
-        const affectsLeft = edge.includes("w");
-        const affectsRight = edge.includes("e");
-        const affectsTop = edge.includes("n");
-        const affectsBottom = edge.includes("s");
-        const horizontalDelta = affectsLeft ? -deltaX : affectsRight ? deltaX : 0;
-        const verticalDelta = affectsTop ? -deltaY : affectsBottom ? deltaY : 0;
-        const widthFromHorizontal = Math.max(
-          DESKTOP_MIN_WIDTH,
-          startSize.width + horizontalDelta,
-        );
-        const heightFromVertical = Math.max(
-          DESKTOP_MIN_HEIGHT,
-          startSize.height + verticalDelta,
-        );
-        let nextWidth = widthFromHorizontal;
-        let nextHeight =
-          (nextWidth * DESKTOP_ASPECT_HEIGHT) / DESKTOP_ASPECT_WIDTH;
-        if (!affectsLeft && !affectsRight) {
-          nextHeight = heightFromVertical;
-          nextWidth =
-            (nextHeight * DESKTOP_ASPECT_WIDTH) / DESKTOP_ASPECT_HEIGHT;
-        } else if ((affectsTop || affectsBottom) && Math.abs(verticalDelta) > Math.abs(horizontalDelta)) {
-          nextHeight = heightFromVertical;
-          nextWidth =
-            (nextHeight * DESKTOP_ASPECT_WIDTH) / DESKTOP_ASPECT_HEIGHT;
-        }
-        nextWidth = Math.max(DESKTOP_MIN_WIDTH, nextWidth);
-        nextHeight = Math.max(DESKTOP_MIN_HEIGHT, nextHeight);
-        const nextX = affectsLeft
-          ? startPosition.x + startSize.width - nextWidth
-          : startPosition.x;
-        const nextY = affectsTop
-          ? startPosition.y + startSize.height - nextHeight
-          : startPosition.y;
-        resizeTo(nextWidth, nextHeight, nextX, nextY);
-      };
-      const onUp = () => {
-        window.cancelAnimationFrame(animationFrame);
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
-      };
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
+      await appWindow.startResizeDragging(toTauriResizeDirection(edge));
     } catch {
       // Browser preview has no desktop shell to resize.
     }
@@ -3357,13 +3338,13 @@ export function AppShell() {
          onComplete={() => setCinemaThemeState(prev => ({ ...prev, active: false }))}
       />
       <div
-        className="w-full h-full flex flex-col bg-surface-canvas overflow-hidden text-text"
+        className="w-full h-full flex flex-col app-background overflow-hidden text-text rounded-[10px] border border-border-soft shadow-panel"
         onClick={() => {
           setFallbackMenu(undefined);
           setEditableMenu(undefined);
         }}
       >
-        <DesktopAspectResizeHandles onResizeStart={beginDesktopAspectResize} />
+        <DesktopWindowResizeHandles onResizeStart={beginDesktopWindowResize} />
 
         <TopBar
           project={selectedProject}
@@ -3465,6 +3446,7 @@ export function AppShell() {
               onConfirmReferenceMutation={handleConfirmAssetReferenceMutation}
               onAssetMutationResult={handleAssetMutationResult}
               onScanAssetReferences={handleScanAssetReferencesNotice}
+              onRefreshProject={refreshCurrentProject}
               onNotice={setNotice}
               onCallStatusLite={handleStatusLite}
               onCallTool={handleCallTool}
@@ -3696,7 +3678,7 @@ function isAssetUnderDirectory(relativePath: string, directoryPath: string) {
   );
 }
 
-function DesktopAspectResizeHandles({
+function DesktopWindowResizeHandles({
   onResizeStart,
 }: {
   onResizeStart: (
@@ -3748,6 +3730,20 @@ function DesktopAspectResizeHandles({
       />
     </>
   );
+}
+
+function toTauriResizeDirection(edge: ResizeEdge): TauriResizeDirection {
+  const directions: Record<ResizeEdge, TauriResizeDirection> = {
+    e: "East",
+    n: "North",
+    ne: "NorthEast",
+    nw: "NorthWest",
+    s: "South",
+    se: "SouthEast",
+    sw: "SouthWest",
+    w: "West",
+  };
+  return directions[edge];
 }
 
 function buildDiagnosticSummary({

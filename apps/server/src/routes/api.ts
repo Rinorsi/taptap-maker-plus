@@ -134,6 +134,53 @@ const flowAutoSaveSchema = z.object({
   data: z.any()
 });
 
+const flowRenameSchema = z.object({
+  name: z.string().min(1)
+});
+
+function createFlowId(name: string) {
+  const normalized = name.trim();
+  const ascii = normalized
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return ascii || `flow-${Date.now()}`;
+}
+
+function readFlowDisplayName(filePath: string, fallbackName: string) {
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    const data = JSON.parse(raw);
+    const name = data?.meta?.displayName;
+    return typeof name === "string" && name.trim() ? name : fallbackName;
+  } catch {
+    return fallbackName;
+  }
+}
+
+function withFlowDisplayName(data: unknown, displayName: string) {
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const record = data as Record<string, unknown>;
+    const meta = record.meta && typeof record.meta === "object" && !Array.isArray(record.meta)
+      ? record.meta as Record<string, unknown>
+      : {};
+    return {
+      ...record,
+      meta: {
+        ...meta,
+        displayName,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+  }
+  return {
+    meta: { displayName, updatedAt: new Date().toISOString() },
+    data,
+  };
+}
+
 const frontendDiagnosticSchema = z.object({
   entries: z.array(z.object({
     id: z.string().min(1),
@@ -1021,8 +1068,10 @@ export async function registerApiRoutes(app: FastifyInstance) {
     if (!fs.existsSync(flowsDir)) return { flows: [] };
     const files = fs.readdirSync(flowsDir).filter(f => f.endsWith('.json'));
     const flows = files.map(f => {
-      const stat = fs.statSync(path.join(flowsDir, f));
-      return { name: f.replace('.json', ''), mtimeMs: stat.mtimeMs };
+      const flowPath = path.join(flowsDir, f);
+      const stat = fs.statSync(flowPath);
+      const id = f.replace('.json', '');
+      return { id, name: readFlowDisplayName(flowPath, id), mtimeMs: stat.mtimeMs };
     }).sort((a, b) => b.mtimeMs - a.mtimeMs);
     return { flows };
   });
@@ -1041,15 +1090,17 @@ export async function registerApiRoutes(app: FastifyInstance) {
     const parsed = flowSaveSchema.safeParse(request.body ?? {});
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
     
-    const safeName = parsed.data.name.replace(/[^a-zA-Z0-9_-]/g, '');
+    const displayName = parsed.data.name.trim();
+    const safeName = createFlowId(displayName);
     if (!safeName) return reply.code(400).send({ error: "Invalid name" });
     
     const flowsDir = path.join(project.rootPath, "assets", "flows");
     fs.mkdirSync(flowsDir, { recursive: true });
     
     const flowPath = path.join(flowsDir, `${safeName}.json`);
-    fs.writeFileSync(flowPath, JSON.stringify(parsed.data.data, null, 2), "utf8");
-    return { ok: true, name: safeName };
+    fs.writeFileSync(flowPath, JSON.stringify(withFlowDisplayName(parsed.data.data, displayName), null, 2), "utf8");
+    const stat = fs.statSync(flowPath);
+    return { ok: true, id: safeName, name: displayName, mtimeMs: stat.mtimeMs };
   });
 
   app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/flows/auto-save", async (request, reply) => {
@@ -1063,6 +1114,19 @@ export async function registerApiRoutes(app: FastifyInstance) {
     const flowPath = path.join(flowsDir, `_autosave.json`);
     fs.writeFileSync(flowPath, JSON.stringify(parsed.data.data, null, 2), "utf8");
     return { ok: true, name: "_autosave" };
+  });
+
+  app.patch<{ Params: { projectId: string; name: string }; Body: unknown }>("/api/projects/:projectId/flows/:name", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    const parsed = flowRenameSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const safeName = request.params.name.replace(/[^a-zA-Z0-9_-]/g, '');
+    const flowPath = path.join(project.rootPath, "assets", "flows", `${safeName}.json`);
+    if (!fs.existsSync(flowPath)) return reply.code(404).send({ error: "Flow not found" });
+    const data = JSON.parse(fs.readFileSync(flowPath, "utf8"));
+    const displayName = parsed.data.name.trim();
+    fs.writeFileSync(flowPath, JSON.stringify(withFlowDisplayName(data, displayName), null, 2), "utf8");
+    return { ok: true, id: safeName, name: displayName };
   });
 
   app.delete<{ Params: { projectId: string; name: string } }>("/api/projects/:projectId/flows/:name", async (request, reply) => {

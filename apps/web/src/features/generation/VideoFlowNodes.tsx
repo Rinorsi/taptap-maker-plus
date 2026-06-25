@@ -6,15 +6,19 @@ import {
   Play,
   Activity,
   ImagePlus,
+  ImageIcon,
   Film,
+  CornerDownRight,
 } from "lucide-react";
 import { getPresetById, NODE_PRESETS } from "./nodeRegistry";
 import { cn } from "../../lib/utils";
 import { assetPreviewUrl } from "../../api";
 import { Button } from "../../components/ui/Button";
+import { CanvasAudioPlayer } from "../../components/studio/CanvasAudioPlayer";
 import { StudioSelectField } from "../../components/studio/StudioKit";
 import { readAssetDragPath } from "./dragData";
 import { describeAssetUse, type CanvasAssetReference, type CanvasMentionToken } from "../canvas-core";
+import { MentionPromptEditor } from "./MentionPromptEditor";
 
 type ResultAsset = {
   kind: string;
@@ -31,9 +35,22 @@ function previewSrc(projectId: string | undefined, path: string) {
   return projectId ? assetPreviewUrl(projectId, path) : path;
 }
 
+function videoPreviewSrc(projectId: string | undefined, path: string) {
+  const src = previewSrc(projectId, path);
+  return src.includes("#") ? src : `${src}#t=0.1`;
+}
+
 function allowNodeSurfaceDrop(event: React.DragEvent<HTMLDivElement>) {
   event.preventDefault();
   event.dataTransfer.dropEffect = "copy";
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function isLongTextSettingType(type: unknown) {
+  return type === "style" || type === "negativeTags";
 }
 
 const DeleteButton = ({
@@ -61,28 +78,22 @@ export function GenericTextNode({ data, id, selected }: any) {
   const Icon = preset?.icon;
   const collapsed = Boolean(data.collapsed);
   const references = (data.references || []) as CanvasAssetReference[];
-  const syncMentionTokens = (text: string) => {
-    const tokens = references
-      .filter((reference) => text.includes(`@${reference.alias}`))
-      .map((reference) => ({
-        id: `${id}-${reference.nodeId}`,
-        alias: reference.alias,
-        nodeId: reference.nodeId,
-        kind: reference.kind,
-        use: reference.use,
-      }));
-    data.onChange(id, "mentionTokens", tokens);
-  };
+  const brokenPromptReferences = (data.promptReferences || []).filter(
+    (reference: any) => reference.promptNodeId === id && reference.broken,
+  );
+  const brokenNodeIds = new Set<string>(
+    brokenPromptReferences.map((reference: any) => String(reference.nodeId)),
+  );
 
   return (
     <div
-      className="group w-full h-full min-w-[220px] min-h-[140px] relative flex"
+      className="group w-full h-full min-w-[260px] min-h-[220px] relative flex"
       onDragOverCapture={allowNodeSurfaceDrop}
     >
       <NodeResizer
         isVisible={selected}
-        minWidth={220}
-        minHeight={140}
+        minWidth={260}
+        minHeight={220}
         color="var(--color-brand)"
         handleStyle={{ width: 8, height: 8, borderRadius: 4 }}
       />
@@ -95,17 +106,20 @@ export function GenericTextNode({ data, id, selected }: any) {
         </div>
         {!collapsed && (
           <div className="p-4 flex flex-col gap-3 flex-1 min-h-0">
-            <textarea
-              className="w-full h-full min-h-[60px] text-[13px] bg-surface-app/50 rounded-xl border border-border-soft p-2 text-text resize-none focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand transition-all shadow-inner"
-              placeholder="输入导演提示词，可写：@图1 作为角色参考，@视频1 参考运镜，@音频1 参考节奏..."
-              value={data.text || ""}
-              onChange={(e) => {
-                data.onChange(id, "text", e.target.value);
-                syncMentionTokens(e.target.value);
+            <MentionPromptEditor
+              promptNodeId={id}
+              text={String(data.text || "")}
+              mentionTokens={(data.mentionTokens || []) as CanvasMentionToken[]}
+              references={references}
+              brokenNodeIds={brokenNodeIds}
+              onFocusReference={data.onFocusReference}
+              onChange={(nextText, nextTokens) => {
+                data.onChange(id, "text", nextText);
+                data.onChange(id, "mentionTokens", nextTokens);
               }}
             />
             {references.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex max-h-16 shrink-0 flex-wrap gap-1.5 overflow-y-auto pr-1 scrollbar-thin">
                 {references.map((reference) => (
                   <button
                     key={reference.nodeId}
@@ -115,7 +129,6 @@ export function GenericTextNode({ data, id, selected }: any) {
                     onClick={(event) => {
                       event.stopPropagation();
                       const insertion = `@${reference.alias} 作为${describeAssetUse(reference.use)}`;
-                      const current = String(data.text || "");
                       const tokens = (data.mentionTokens || []) as CanvasMentionToken[];
                       const nextTokens = tokens.some((token) => token.nodeId === reference.nodeId)
                         ? tokens
@@ -129,6 +142,7 @@ export function GenericTextNode({ data, id, selected }: any) {
                               use: reference.use,
                             },
                           ];
+                      const current = String(data.text || "");
                       data.onChange(id, "text", current ? `${current}，${insertion}` : insertion);
                       data.onChange(id, "mentionTokens", nextTokens);
                       data.onFocusReference?.(reference.nodeId);
@@ -136,6 +150,25 @@ export function GenericTextNode({ data, id, selected }: any) {
                     title={reference.relativePath || reference.fileName || reference.alias}
                   >
                     @{reference.alias}
+                  </button>
+                ))}
+              </div>
+            )}
+            {brokenPromptReferences.length > 0 && (
+              <div className="flex max-h-16 shrink-0 flex-col gap-1 overflow-y-auto rounded-lg border border-yellow-500/25 bg-yellow-500/10 p-2 pr-1 scrollbar-thin">
+                {brokenPromptReferences.map((reference: any) => (
+                  <button
+                    key={reference.tokenId}
+                    type="button"
+                    className="flex items-center gap-1.5 text-left text-[10px] font-bold text-yellow-600"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      data.onFocusReference?.(reference.nodeId);
+                    }}
+                  >
+                    <AlertCircle className="h-3 w-3 shrink-0" />
+                    <span className="truncate">@{reference.alias} 的素材节点已丢失</span>
                   </button>
                 ))}
               </div>
@@ -159,6 +192,9 @@ export function GenericMediaNode({ data, id, selected }: any) {
   const collapsed = Boolean(data.collapsed);
   const isVideo = preset?.category === "video";
   const isAudio = preset?.category === "audio";
+  const inboundPromptReferences = (data.promptReferences || []).filter(
+    (reference: any) => reference.nodeId === id && !reference.broken,
+  );
   const borderColor = isAudio
     ? "border-blue-500"
     : isVideo
@@ -172,13 +208,13 @@ export function GenericMediaNode({ data, id, selected }: any) {
 
   return (
     <div
-      className="group w-full h-full min-w-[200px] min-h-[160px] relative flex transition-transform duration-300 hover:-translate-y-1"
+      className="group w-full h-full min-w-[260px] min-h-[230px] relative flex transition-transform duration-300 hover:-translate-y-1"
       onDragOverCapture={allowNodeSurfaceDrop}
     >
       <NodeResizer
         isVisible={selected}
-        minWidth={200}
-        minHeight={160}
+        minWidth={260}
+        minHeight={230}
         color={isAudio ? "#3b82f6" : isVideo ? "#a855f7" : "var(--color-brand)"}
         handleStyle={{ width: 8, height: 8, borderRadius: 4 }}
       />
@@ -206,7 +242,7 @@ export function GenericMediaNode({ data, id, selected }: any) {
             <div className="relative flex-1 flex flex-col min-h-0">
               <div
                 data-flow-media-dropzone
-                className={`relative min-h-0 h-full max-h-[220px] flex-1 w-full flex items-center justify-center bg-surface-app/50 overflow-hidden ${isAudio ? "bg-gradient-to-br from-blue-500/10 to-transparent flex-col gap-2" : ""}`}
+                className={`relative aspect-video w-full shrink-0 flex items-center justify-center bg-surface-app/50 overflow-hidden ${isAudio ? "bg-gradient-to-br from-blue-500/10 to-transparent flex-col gap-2" : ""}`}
                 onDragOver={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -298,12 +334,32 @@ export function GenericMediaNode({ data, id, selected }: any) {
                     </button>
                   </div>
                 ) : (
-                  <img
-                    src={data.url}
-                    alt="Image Ref"
-                    draggable={false}
-                    className="absolute inset-0 h-full w-full object-contain opacity-90 group-hover:opacity-100 transition-opacity"
-                  />
+                  <div className="relative h-full w-full">
+                    <img
+                      src={data.url}
+                      alt="Image Ref"
+                      draggable={false}
+                      className="absolute inset-0 h-full w-full object-contain opacity-90 group-hover:opacity-100 transition-opacity"
+                    />
+                    <button
+                      type="button"
+                      className="absolute inset-0 flex items-center justify-center bg-black/10 opacity-0 transition-opacity group-hover:opacity-100"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        data.onPreviewMedia?.({
+                          assetType: "image",
+                          fileName: data.fileName || "图片参考",
+                          relativePath: data.relativePath,
+                          url: data.url,
+                        });
+                      }}
+                      title="预览图片"
+                    >
+                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/55 text-white shadow-xl backdrop-blur-sm transition-transform hover:scale-105 active:scale-95">
+                        <ImageIcon className="h-4 w-4" />
+                      </span>
+                    </button>
+                  </div>
                 )}
               </div>
               {!isAudio && data.url && (
@@ -317,6 +373,23 @@ export function GenericMediaNode({ data, id, selected }: any) {
               )}
             </div>
             <div className="p-3 border-t border-border-soft bg-surface-panel flex flex-col gap-2 shrink-0">
+              <div className="flex items-center gap-2">
+                <input
+                  className="nodrag min-w-0 flex-1 rounded-lg border border-border-soft bg-surface-app px-2 py-1.5 text-xs font-bold text-text outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+                  value={data.fileName || ""}
+                  placeholder="素材名称"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onChange={(event) => data.onChange(id, "fileName", event.target.value)}
+                  title={data.relativePath || data.fileName}
+                />
+                <input
+                  className="nodrag w-20 rounded-lg border border-border-soft bg-surface-app px-2 py-1.5 text-xs font-black text-brand outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+                  value={data.alias || ""}
+                  placeholder="图1"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onChange={(event) => data.onChange(id, "alias", event.target.value)}
+                />
+              </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-black text-brand">
                   @{data.alias || "未命名"}
@@ -334,6 +407,25 @@ export function GenericMediaNode({ data, id, selected }: any) {
                   (p) => p.category === preset?.category,
                 ).map((p) => ({ value: p.id, label: p.label }))}
               />
+              {inboundPromptReferences.length > 0 && (
+                <div className="flex max-h-16 flex-col gap-1 overflow-y-auto rounded-lg border border-border-soft bg-surface-app p-1.5 pr-1 scrollbar-thin">
+                  {inboundPromptReferences.map((reference: any) => (
+                    <button
+                      key={`${reference.promptNodeId}-${reference.tokenId}`}
+                      type="button"
+                      className="flex items-center gap-1.5 rounded px-1 py-0.5 text-left text-[10px] text-text-subtle hover:bg-surface-raised hover:text-brand"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        data.onFocusReference?.(reference.promptNodeId);
+                      }}
+                    >
+                      <CornerDownRight className="h-3 w-3 shrink-0" />
+                      <span className="truncate">被提示词 @{reference.alias} 引用</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </>
         )}
@@ -599,6 +691,15 @@ export function GenericSettingsNode({ data, id, selected }: any) {
           ]}
         />
       );
+    if (isLongTextSettingType(data.type))
+      return (
+        <textarea
+          className="h-full min-h-[96px] w-full resize-none rounded-xl border border-border-soft bg-surface-app px-3 py-2 text-[13px] leading-5 text-text shadow-inner transition-all focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+          placeholder={data.type === "style" ? "填写音乐风格、乐器、节奏、氛围..." : "填写要排除的风格、唱法、情绪..."}
+          value={data.value || ""}
+          onChange={(e) => data.onChange(id, "value", e.target.value)}
+        />
+      );
 
     return (
       <input
@@ -618,8 +719,10 @@ export function GenericSettingsNode({ data, id, selected }: any) {
     >
       <NodeResizer
         isVisible={selected}
-        minWidth={200}
-        minHeight={100}
+        minWidth={isLongTextSettingType(data.type) ? 280 : 200}
+        minHeight={isLongTextSettingType(data.type) ? 160 : 100}
+        maxWidth={isLongTextSettingType(data.type) ? 560 : 420}
+        maxHeight={isLongTextSettingType(data.type) ? 360 : 220}
         color="var(--color-brand)"
         handleStyle={{ width: 8, height: 8, borderRadius: 4 }}
       />
@@ -631,7 +734,7 @@ export function GenericSettingsNode({ data, id, selected }: any) {
           </span>
         </div>
         {!collapsed && (
-          <div className="p-4 flex flex-col justify-center flex-1">
+          <div className={cn("p-4 flex flex-col flex-1 min-h-0", isLongTextSettingType(data.type) ? "justify-stretch" : "justify-center")}>
             {renderInput()}
           </div>
         )}
@@ -650,18 +753,76 @@ export function GenericCollectorNode({ data, id, selected }: any) {
   const preset = getPresetById(data.presetId);
   const Icon = preset?.icon;
   const collapsed = Boolean(data.collapsed);
+  const sourceResizeRef = React.useRef<{ pointerY: number; height: number } | null>(null);
+  const sourceResizeCleanupRef = React.useRef<(() => void) | null>(null);
 
   const isPayload = data.presetId === "MultiModalPayloadNode";
+  const isPromptComposer = data.presetId === "PromptComposerNode";
+  const activeTab = (data.payloadTab || "json") as "json" | "sources" | "issues" | "raw";
+  const payload = data.payload;
+  const fieldSources = (data.fieldSources || []) as Array<{ path: string; nodeId: string; label: string; value?: unknown }>;
+  const issues = (data.issues || []) as Array<{ severity: string; message: string; nodeId?: string; field?: string }>;
+  const rawResult = data.rawResult;
+  const composedPrompt = String(data.composedPrompt ?? "");
+  const composedPromptSources = (data.composedPromptSources || []) as Array<{ nodeId: string; text: string }>;
+  const sourcePaneHeight = clampNumber(Number(data.sourcePaneHeight ?? 180), 96, 420);
+  const startSourcePaneResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    sourceResizeRef.current = {
+      pointerY: event.clientY,
+      height: sourcePaneHeight,
+    };
+    sourceResizeCleanupRef.current?.();
+    const handleMove = (moveEvent: PointerEvent) => {
+      const start = sourceResizeRef.current;
+      if (!start) return;
+      moveEvent.preventDefault();
+      const nextHeight = clampNumber(start.height - (moveEvent.clientY - start.pointerY), 96, 420);
+      data.onChange?.(id, "sourcePaneHeight", nextHeight);
+    };
+    const handleEnd = () => {
+      sourceResizeRef.current = null;
+      sourceResizeCleanupRef.current?.();
+      sourceResizeCleanupRef.current = null;
+    };
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleEnd, { once: true });
+    window.addEventListener("pointercancel", handleEnd, { once: true });
+    sourceResizeCleanupRef.current = () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleEnd);
+      window.removeEventListener("pointercancel", handleEnd);
+    };
+  };
+  const resizeSourcePane = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const start = sourceResizeRef.current;
+    if (!start) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const nextHeight = clampNumber(start.height - (event.clientY - start.pointerY), 96, 420);
+    data.onChange?.(id, "sourcePaneHeight", nextHeight);
+  };
+  const stopSourcePaneResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!sourceResizeRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    sourceResizeRef.current = null;
+    sourceResizeCleanupRef.current?.();
+    sourceResizeCleanupRef.current = null;
+  };
 
   return (
     <div
-      className="group w-full h-full min-w-[280px] min-h-[160px] relative flex transition-transform duration-300 hover:-translate-y-1"
+      className="group w-full h-full min-w-[320px] min-h-[190px] relative flex transition-transform duration-300 hover:-translate-y-1"
       onDragOverCapture={allowNodeSurfaceDrop}
     >
       <NodeResizer
         isVisible={selected}
-        minWidth={280}
-        minHeight={160}
+        minWidth={isPromptComposer ? 360 : 320}
+        minHeight={isPromptComposer ? 260 : 190}
+        maxWidth={isPromptComposer ? 760 : 720}
+        maxHeight={isPromptComposer ? 900 : 680}
         color="var(--color-brand)"
         handleStyle={{ width: 8, height: 8, borderRadius: 4 }}
       />
@@ -683,86 +844,180 @@ export function GenericCollectorNode({ data, id, selected }: any) {
           </span>
         </div>
         {!collapsed && (
-          <div className="p-4 flex flex-col gap-3 bg-surface-app/30 flex-1">
+          <div className="p-3 flex flex-col gap-2 bg-surface-app/30 flex-1 min-h-0">
             {isPayload && (
-              <div className="grid grid-cols-5 gap-2 h-full">
-                <div className="bg-surface-panel rounded-xl p-2 text-center flex flex-col justify-center gap-1 border border-border-soft shadow-sm flex-1">
-                  <span className="text-[10px] text-text-subtle font-bold">
-                    提示
-                  </span>
-                  <span
-                    className={cn(
-                      "text-sm font-black",
-                      data.promptCount ? "text-brand" : "text-text-muted",
-                    )}
-                  >
+              <div className="flex min-h-0 flex-1 flex-col gap-2">
+                <div className="grid grid-cols-5 gap-1.5 shrink-0">
+                  {[
+                    ["提示", data.promptCount || 0, data.promptCount ? "text-brand" : "text-text-muted"],
+                    ["图片", `${data.imagesCount || 0}/9`, data.imagesCount > 9 ? "text-red-500" : data.imagesCount ? "text-brand" : "text-text-muted"],
+                    ["视频", `${data.videosCount || 0}/3`, data.videosCount > 3 ? "text-red-500" : data.videosCount ? "text-purple-500" : "text-text-muted"],
+                    ["音频", `${data.audiosCount || 0}/3`, data.audiosCount > 3 ? "text-red-500" : data.audiosCount ? "text-blue-500" : "text-text-muted"],
+                    ["参数", data.settingsCount || 0, data.settingsCount ? "text-brand" : "text-text-muted"],
+                  ].map(([label, value, color]) => (
+                    <div key={String(label)} className="rounded-lg border border-border-soft bg-surface-panel px-1.5 py-1 text-center shadow-sm">
+                      <span className="block text-[9px] font-bold text-text-subtle">{label}</span>
+                      <span className={cn("block truncate text-xs font-black", String(color))}>{value}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-4 gap-1 rounded-lg border border-border-soft bg-surface-app p-1 shrink-0">
+                  {[
+                    ["json", "JSON"],
+                    ["sources", "Sources"],
+                    ["issues", "Issues"],
+                    ["raw", "Raw"],
+                  ].map(([tab, label]) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      className={cn(
+                        "rounded px-1 py-1 text-[9px] font-black transition-colors",
+                        activeTab === tab ? "bg-surface-raised text-brand" : "text-text-subtle hover:text-text",
+                      )}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        data.onChange?.(id, "payloadTab", tab);
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border-soft bg-surface-panel p-2 text-[10px] scrollbar-thin">
+                  {activeTab === "json" && (
+                    <pre className="m-0 whitespace-pre-wrap break-words font-mono text-text-subtle">
+                      {payload ? JSON.stringify(payload, null, 2) : "Payload 暂不可用，请先修复 Issues。"}
+                    </pre>
+                  )}
+                  {activeTab === "sources" && (
+                    <div className="flex flex-col gap-1">
+                      {fieldSources.length === 0 ? (
+                        <span className="text-text-muted">暂无字段来源。</span>
+                      ) : (
+                        fieldSources.map((source, index) => (
+                          <button
+                            key={`${source.path}-${source.nodeId}-${index}`}
+                            type="button"
+                            className="flex items-center justify-between gap-2 rounded border border-border-soft bg-surface-app px-2 py-1 text-left hover:border-brand/40"
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              data.onFocusReference?.(source.nodeId);
+                            }}
+                          >
+                            <span className="min-w-0 truncate font-mono text-text-subtle">{source.path}</span>
+                            <span className="max-w-[45%] truncate text-text">{String(source.value ?? source.label)}</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                  {activeTab === "issues" && (
+                    <div className="flex flex-col gap-1">
+                      {issues.length === 0 ? (
+                        <span className="text-text-muted">当前没有错误或警告。</span>
+                      ) : (
+                        issues.map((issue, index) => (
+                          <button
+                            key={`${issue.message}-${index}`}
+                            type="button"
+                            className={cn(
+                              "flex items-start gap-1.5 rounded border px-2 py-1 text-left",
+                              issue.severity === "error"
+                                ? "border-red-500/20 bg-red-500/10 text-red-500"
+                                : "border-yellow-500/20 bg-yellow-500/10 text-yellow-600",
+                            )}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (issue.nodeId) data.onFocusReference?.(issue.nodeId);
+                            }}
+                          >
+                            <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                            <span className="min-w-0 leading-tight">{issue.message}</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                  {activeTab === "raw" && (
+                    <pre className="m-0 whitespace-pre-wrap break-words font-mono text-text-subtle">
+                      {rawResult !== undefined ? JSON.stringify(rawResult, null, 2) : "运行后显示 raw execution result。"}
+                    </pre>
+                  )}
+                </div>
+              </div>
+            )}
+            {!isPayload && (
+              <div
+                className="grid min-h-0 flex-1 gap-2"
+                style={{
+                  gridTemplateRows:
+                    composedPromptSources.length > 0
+                      ? `auto minmax(80px, 1fr) 16px ${sourcePaneHeight}px`
+                      : "auto minmax(80px, 1fr)",
+                }}
+              >
+                <div className="flex items-center justify-between rounded-lg border border-border-soft bg-surface-panel px-2 py-1.5 text-[10px]">
+                  <span className="font-bold text-text-subtle">上游提示词</span>
+                  <span className="rounded-full bg-brand/10 px-2 py-0.5 font-black text-brand">
                     {data.promptCount || 0}
                   </span>
                 </div>
-                <div className="bg-surface-panel rounded-xl p-2 text-center flex flex-col justify-center gap-1 border border-border-soft shadow-sm flex-1">
-                  <span className="text-[10px] text-text-subtle font-bold">
-                    图片
-                  </span>
-                  <span
-                    className={cn(
-                      "text-sm font-black",
-                      data.imagesCount > 9
-                        ? "text-red-500"
-                        : data.imagesCount === 0
-                          ? "text-text-muted"
-                          : "text-brand",
-                    )}
-                  >
-                    {data.imagesCount || 0}/9
-                  </span>
+                <div className="min-h-0 overflow-y-auto rounded-lg border border-border-soft bg-surface-panel p-2 text-[10px] scrollbar-thin">
+                  {composedPrompt ? (
+                    <pre className="m-0 whitespace-pre-wrap break-words font-mono leading-relaxed text-text-subtle">
+                      {composedPrompt}
+                    </pre>
+                  ) : (
+                    <div className="flex h-full min-h-[80px] items-center justify-center text-center text-xs text-text-muted">
+                      连接提示词节点后显示合并内容。
+                    </div>
+                  )}
                 </div>
-                <div className="bg-surface-panel rounded-xl p-2 text-center flex flex-col justify-center gap-1 border border-border-soft shadow-sm flex-1">
-                  <span className="text-[10px] text-text-subtle font-bold">
-                    视频
-                  </span>
-                  <span
-                    className={cn(
-                      "text-sm font-black",
-                      data.videosCount > 3
-                        ? "text-red-500"
-                        : data.videosCount === 0
-                          ? "text-text-muted"
-                          : "text-purple-500",
-                    )}
-                  >
-                    {data.videosCount || 0}/3
-                  </span>
-                </div>
-                <div className="bg-surface-panel rounded-xl p-2 text-center flex flex-col justify-center gap-1 border border-border-soft shadow-sm flex-1">
-                  <span className="text-[10px] text-text-subtle font-bold">
-                    音频
-                  </span>
-                  <span
-                    className={cn(
-                      "text-sm font-black",
-                      data.audiosCount > 3
-                        ? "text-red-500"
-                        : data.audiosCount === 0
-                          ? "text-text-muted"
-                          : "text-blue-500",
-                    )}
-                  >
-                    {data.audiosCount || 0}/3
-                  </span>
-                </div>
-                <div className="bg-surface-panel rounded-xl p-2 text-center flex flex-col justify-center gap-1 border border-border-soft shadow-sm flex-1">
-                  <span className="text-[10px] text-text-subtle font-bold">
-                    参数
-                  </span>
-                  <span
-                    className={cn(
-                      "text-sm font-black",
-                      data.settingsCount ? "text-brand" : "text-text-muted",
-                    )}
-                  >
-                    {data.settingsCount || 0}
-                  </span>
-                </div>
+                {composedPromptSources.length > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      className="nodrag nopan group/source-resize flex h-4 shrink-0 cursor-row-resize items-center justify-center rounded-md"
+                      title="拖动调整来源列表高度，双击恢复默认"
+                      onPointerDown={startSourcePaneResize}
+                      onPointerMove={resizeSourcePane}
+                      onPointerUp={stopSourcePaneResize}
+                      onPointerCancel={stopSourcePaneResize}
+                      onDoubleClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        data.onChange?.(id, "sourcePaneHeight", 180);
+                      }}
+                    >
+                      <span className="h-px w-full rounded-full bg-border-soft transition-colors group-hover/source-resize:bg-brand/60" />
+                      <span className="absolute h-1.5 w-16 rounded-full bg-surface-raised opacity-0 ring-1 ring-border-soft transition-opacity group-hover/source-resize:opacity-100" />
+                    </button>
+                    <div
+                      className="flex min-h-0 shrink-0 flex-col gap-1 overflow-y-auto rounded-lg border border-border-soft bg-surface-app p-1.5 scrollbar-thin"
+                      style={{ height: sourcePaneHeight }}
+                    >
+                      {composedPromptSources.map((source, index) => (
+                        <button
+                          key={`${source.nodeId}-${index}`}
+                          type="button"
+                          className="flex items-center justify-between gap-2 rounded px-1.5 py-1 text-left text-[10px] text-text-subtle hover:bg-surface-raised hover:text-brand"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            data.onFocusReference?.(source.nodeId);
+                          }}
+                        >
+                          <span className="truncate font-mono">{source.nodeId}</span>
+                          <span className="max-w-[55%] truncate">{source.text}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             )}
             {data.error && (
@@ -859,32 +1114,26 @@ export function GenericExecutorNode({ data, id, selected }: any) {
 export function GenericResultNode({ data, id, selected }: any) {
   const preset = getPresetById(data.presetId);
   const collapsed = Boolean(data.collapsed);
-  const isBusy = Boolean(data.busy || data.isCloudVideoRunning);
   const resultAssets = (data.resultAssets || []) as ResultAsset[];
   const resultVideo = resultAssets.find((asset) => asset.kind === "video" || asset.role === "video_result");
+  const lastFrame = resultAssets.find((asset) => asset.role === "last_frame");
   const resultImage = resultAssets.find((asset) => asset.kind === "image" && asset.role !== "last_frame");
   const resultAudio = resultAssets.find((asset) => asset.kind === "audio");
+  const taskId = typeof data.taskId === "string" ? data.taskId : undefined;
+  const resultKindLabel =
+    data.resultKind === "image"
+      ? "图片"
+      : data.resultKind === "audio"
+        ? "音频"
+        : "视频";
 
-  const latestVideo = data.allAssets?.find(
-    (a: any) =>
-      a.relativePath.toLowerCase().endsWith(".mp4") ||
-      a.relativePath.toLowerCase().endsWith(".webm") ||
-      a.relativePath.toLowerCase().endsWith(".mov"),
-  );
   const displayVideo = resultVideo
     ? {
         assetType: "video",
         fileName: fileNameFromPath(resultVideo.path),
         relativePath: resultVideo.path,
-        src: previewSrc(data.project?.id, resultVideo.path),
+        src: videoPreviewSrc(data.project?.id, resultVideo.path),
       }
-      : latestVideo
-      ? {
-          assetType: latestVideo.assetType,
-          fileName: latestVideo.fileName,
-          relativePath: latestVideo.relativePath,
-          src: assetPreviewUrl(data.project?.id || "", latestVideo.relativePath),
-        }
       : undefined;
   const displayImage = resultImage
     ? {
@@ -902,16 +1151,29 @@ export function GenericResultNode({ data, id, selected }: any) {
         src: previewSrc(data.project?.id, resultAudio.path),
       }
     : undefined;
+  const displayLastFrame = lastFrame
+    ? {
+        assetType: "image",
+        fileName: fileNameFromPath(lastFrame.path),
+        relativePath: lastFrame.path,
+        src: previewSrc(data.project?.id, lastFrame.path),
+      }
+    : undefined;
+  const canCreateReference =
+    Boolean(data.onCreateReferenceFromResult) &&
+    (Boolean(displayImage) || Boolean(displayAudio) || Boolean(displayVideo));
+  const hasDisplayResult = Boolean(displayImage || displayAudio || displayVideo);
+  const isBusy = Boolean(data.busy) && !hasDisplayResult;
 
   return (
     <div
-      className="group w-full h-full min-w-[300px] min-h-[220px] relative flex transition-transform duration-300 hover:-translate-y-1"
+      className="group w-full h-full min-w-[260px] min-h-[190px] relative flex transition-transform duration-300 hover:-translate-y-1"
       onDragOverCapture={allowNodeSurfaceDrop}
     >
       <NodeResizer
         isVisible={selected}
-        minWidth={300}
-        minHeight={220}
+        minWidth={260}
+        minHeight={190}
         color="var(--color-brand)"
         handleStyle={{ width: 8, height: 8, borderRadius: 4 }}
       />
@@ -932,13 +1194,13 @@ export function GenericResultNode({ data, id, selected }: any) {
         </div>
 
         {!collapsed && (
-          <div className="p-3 flex-1 flex flex-col min-h-0">
+          <div className="p-3 flex-1 flex flex-col min-h-0 gap-2">
             {isBusy ? (
               <div className="h-full flex flex-col items-center justify-center gap-3 text-text flex-1">
                 <Activity className="w-8 h-8 text-brand animate-spin" />
                 <div className="text-center">
                   <span className="block text-sm font-bold text-text">
-                    视频生成中
+                    {resultKindLabel}生成中
                   </span>
                   <span className="mt-1 block text-[11px] text-text-subtle">
                     任务完成后会刷新生成结果
@@ -946,7 +1208,7 @@ export function GenericResultNode({ data, id, selected }: any) {
                 </div>
               </div>
             ) : displayImage ? (
-              <div className="flex flex-col gap-2 h-full">
+              <div className="flex min-h-0 flex-1 flex-col gap-2">
                 <div className="relative flex-1 rounded-xl overflow-hidden bg-black/5 border border-border-soft group-hover:border-brand/30 transition-colors min-h-0">
                   <img
                     src={displayImage.src}
@@ -954,25 +1216,38 @@ export function GenericResultNode({ data, id, selected }: any) {
                     draggable={false}
                     className="h-full w-full object-contain"
                   />
+                  <button
+                    type="button"
+                    className="absolute inset-0 cursor-zoom-in bg-black/0 transition-colors hover:bg-black/10 focus:outline-none focus:ring-2 focus:ring-brand/70"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      data.onPreviewMedia?.(displayImage);
+                    }}
+                    title="预览图片"
+                  />
                 </div>
                 <div className="text-[10px] text-text-subtle truncate px-1 shrink-0">
                   {displayImage.fileName}
                 </div>
               </div>
             ) : displayAudio ? (
-              <div className="flex h-full flex-col justify-center gap-3 rounded-xl border border-border-soft bg-surface-app p-3">
+              <div className="flex min-h-0 flex-1 flex-col justify-center gap-3 rounded-xl bg-surface-app/35 px-3 py-3">
                 <div className="min-w-0">
                   <div className="truncate text-xs font-bold text-text">
                     {displayAudio.fileName}
                   </div>
-                  <div className="mt-1 truncate text-[10px] text-text-subtle">
+                  <div className="mt-1 truncate text-[10px] text-text-muted">
                     {displayAudio.relativePath}
                   </div>
                 </div>
-                <audio src={displayAudio.src} controls className="w-full" />
+                <CanvasAudioPlayer
+                  src={displayAudio.src}
+                  className="border-border-soft/50 bg-surface-panel/20"
+                />
               </div>
             ) : displayVideo ? (
-              <div className="flex flex-col gap-2 h-full">
+              <div className="flex min-h-0 flex-1 flex-col gap-2">
                 <div className="relative flex-1 rounded-xl overflow-hidden bg-black border border-border-soft group-hover:border-brand/30 transition-colors min-h-0">
                   <video
                     src={displayVideo.src}
@@ -1001,10 +1276,87 @@ export function GenericResultNode({ data, id, selected }: any) {
                 </div>
               </div>
             ) : (
-              <div className="h-full flex flex-col items-center justify-center gap-2 text-text-muted bg-surface-app/30 rounded-xl border border-dashed border-border flex-1">
+              <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 text-text-muted bg-surface-app/30 rounded-xl border border-dashed border-border">
                 <Film className="w-8 h-8 opacity-20" />
                 <span className="text-xs">暂无生成结果</span>
               </div>
+            )}
+            {displayLastFrame && (
+              <div className="flex shrink-0 items-center gap-2 rounded-lg border border-border-soft bg-surface-app p-2">
+                <div className="h-12 w-16 shrink-0 overflow-hidden rounded-md bg-black/10">
+                  <img
+                    src={displayLastFrame.src}
+                    alt={displayLastFrame.fileName}
+                    draggable={false}
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] font-bold text-text">尾帧预览</div>
+                  <div className="mt-0.5 truncate text-[9px] text-text-subtle">
+                    {displayLastFrame.relativePath}
+                  </div>
+                </div>
+              </div>
+            )}
+            {(taskId || lastFrame) && (
+              <div className="flex shrink-0 flex-col gap-1.5 rounded-lg border border-border-soft bg-surface-app p-2">
+                {taskId && (
+                  <div className="flex items-center justify-between gap-2 text-[10px]">
+                    <span className="text-text-subtle">task_id</span>
+                    <span className="min-w-0 truncate font-mono text-text" title={taskId}>{taskId}</span>
+                  </div>
+                )}
+                <div className="flex gap-1.5">
+                  {taskId && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 flex-1 px-2 text-[10px]"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        data.onQueryVideoTask?.(id);
+                      }}
+                    >
+                      查询任务
+                    </Button>
+                  )}
+                  {lastFrame && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 flex-1 px-2 text-[10px]"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        data.onContinueFromLastFrame?.(id);
+                      }}
+                    >
+                      尾帧继续
+                    </Button>
+                  )}
+                </div>
+                {taskId && (
+                  <span className="text-[9px] leading-tight text-text-muted">
+                    query_video_task 需间隔至少 120 秒。
+                  </span>
+                )}
+              </div>
+            )}
+            {canCreateReference && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 shrink-0 px-2 text-[10px]"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  data.onCreateReferenceFromResult?.(id);
+                }}
+              >
+                创建参考节点
+              </Button>
             )}
           </div>
         )}

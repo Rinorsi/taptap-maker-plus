@@ -438,6 +438,132 @@ const EXTRA_CANVAS_PRESETS: NodePreset[] = CANVAS_TOOL_DEFINITIONS.flatMap((defi
 
 NODE_PRESETS.push(...EXTRA_CANVAS_PRESETS);
 
+export type NodePresetGroup = {
+  id: string;
+  label: string;
+  items: NodePreset[];
+};
+
+const VIDEO_CANVAS_GROUPS: Array<{ id: string; label: string; presetIds: string[] }> = [
+  {
+    id: "image-generation",
+    label: "图片生成",
+    presetIds: [
+      "MainPromptNode",
+      "ImageNameNode",
+      "ImageAspectRatioNode",
+      "ImageTargetSizeNode",
+      "ImageTransparentNode",
+      "ImageResolutionNode",
+      "ImageThinkingLevelNode",
+      "ImageModelNode",
+      "ImageSeedNode",
+      "GenerateImageNode",
+      "ImageResultNode",
+    ],
+  },
+  {
+    id: "image-reference",
+    label: "图片参考",
+    presetIds: [
+      "FirstFrameImageNode",
+      "LastFrameImageNode",
+      "CharacterImageNode",
+      "SceneImageNode",
+      "StyleImageNode",
+      "StoryboardImageNode",
+      "GenericImageNode",
+    ],
+  },
+  {
+    id: "audio-generation",
+    label: "音频生成",
+    presetIds: [
+      "MainPromptNode",
+      "MusicCustomModeNode",
+      "MusicInstrumentalNode",
+      "MusicModelNode",
+      "MusicStyleNode",
+      "MusicTitleNode",
+      "MusicNegativeTagsNode",
+      "MusicVocalGenderNode",
+      "TextToMusicNode",
+      "AudioResultNode",
+    ],
+  },
+  {
+    id: "audio-reference",
+    label: "音频参考",
+    presetIds: ["MusicAudioNode", "RhythmAudioNode", "GenericAudioNode"],
+  },
+  {
+    id: "video-prompt",
+    label: "视频提示词",
+    presetIds: [
+      "MainPromptNode",
+      "CameraPromptNode",
+      "MotionPromptNode",
+      "StylePromptNode",
+      "AtmospherePromptNode",
+      "ConstraintPromptNode",
+      "PromptComposerNode",
+    ],
+  },
+  {
+    id: "video-reference",
+    label: "视频参考",
+    presetIds: ["ActionVideoNode", "CameraVideoNode", "GenericVideoNode"],
+  },
+  {
+    id: "video-settings",
+    label: "视频参数",
+    presetIds: [
+      "VideoModeNode",
+      "VideoModelNode",
+      "VideoRatioNode",
+      "VideoResolutionNode",
+      "VideoDurationNode",
+      "VideoSeedNode",
+      "GenerateAudioNode",
+      "ReturnLastFrameNode",
+      "EnableWebSearchNode",
+      "ExecutionExpiresAfterNode",
+    ],
+  },
+  {
+    id: "video-run",
+    label: "视频执行与结果",
+    presetIds: ["MultiModalPayloadNode", "CreateVideoTaskNode", "VideoResultNode"],
+  },
+];
+
+const UNIVERSAL_GROUPS: Array<{ id: string; label: string; category: NodeCategory }> = [
+  { id: "prompt", label: "提示词", category: "prompt" },
+  { id: "image", label: "图片", category: "image" },
+  { id: "audio", label: "音频", category: "audio" },
+  { id: "video", label: "视频", category: "video" },
+  { id: "settings", label: "参数设置", category: "settings" },
+  { id: "collector", label: "聚合器", category: "collector" },
+  { id: "executor", label: "执行器", category: "executor" },
+];
+
+export function getPresetGroupsForCanvas(canvasKind: "video-reference" | "universal"): NodePresetGroup[] {
+  if (canvasKind === "video-reference") {
+    return VIDEO_CANVAS_GROUPS.map((group) => ({
+      id: group.id,
+      label: group.label,
+      items: group.presetIds
+        .map((presetId) => getPresetById(presetId))
+        .filter((preset): preset is NodePreset => Boolean(preset)),
+    })).filter((group) => group.items.length > 0);
+  }
+  return UNIVERSAL_GROUPS.map((group) => ({
+    id: group.id,
+    label: group.label,
+    items: NODE_PRESETS.filter((preset) => preset.category === group.category),
+  })).filter((group) => group.items.length > 0);
+}
+
 export function getPresetById(id: string): NodePreset | undefined {
   return NODE_PRESETS.find(p => p.id === id);
 }

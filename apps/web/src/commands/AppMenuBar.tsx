@@ -17,7 +17,7 @@ type AppMenuBarProps = {
 const sections: MenuSection[] = [
   {
     label: "文件",
-    commandIds: ["app.quickSwitchProject", "project.scanProjects", "app.openSettings"]
+    commandIds: ["app.saveCurrentDraft", "app.quickSwitchProject", "project.scanProjects", "app.openSettings"]
   },
   {
     label: "视图",

@@ -2,6 +2,9 @@ node_modules/
 dist/
 apps/*/dist/
 apps/*/.vite/
+docs/
+local-docs/
+dev-notes/
 data/*.sqlite
 data/*.db
 data/*.sqlite-wal

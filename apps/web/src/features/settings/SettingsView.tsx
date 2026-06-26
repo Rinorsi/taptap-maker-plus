@@ -792,12 +792,24 @@ function ThemeSelectorPreview({ prefs, onChange }: { prefs: SettingsPreferences,
   );
 }
 
-function ThemeCard({ type, label, active, onClick }: { type: string, label: string, active: boolean, onClick: () => void }) {
+function ThemeCard({ type, label, active, onClick }: { type: "system" | "light" | "dark", label: string, active: boolean, onClick: () => void }) {
   const isSystemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
   const isDark = type === "dark" || (type === "system" && isSystemDark);
+  const [animatedDark, setAnimatedDark] = useState(isDark);
+
+  useEffect(() => {
+    if (!active) {
+      setAnimatedDark(isDark);
+      return;
+    }
+    setAnimatedDark(!isDark);
+    const frame = window.requestAnimationFrame(() => setAnimatedDark(isDark));
+    return () => window.cancelAnimationFrame(frame);
+  }, [active, isDark]);
+
   return (
-    <div className="flex flex-col gap-2 items-center cursor-pointer" onClick={onClick}>
-      <div className={cn("w-28 h-20 rounded-md border-2 p-1 overflow-hidden transition-all duration-200",
+    <button type="button" className="flex flex-col gap-2 items-center cursor-pointer" onClick={onClick}>
+      <div className={cn("relative w-28 h-20 rounded-md border-2 p-1 overflow-hidden transition-all duration-200",
         active ? "border-brand ring-2 ring-brand/20" : "border-border-soft hover:border-text-muted",
         isDark ? "bg-[#1e1e1e]" : "bg-gray-100"
       )}>
@@ -811,9 +823,70 @@ function ThemeCard({ type, label, active, onClick }: { type: string, label: stri
               <div className={cn("flex-1 h-full rounded-sm border", isDark ? "bg-[#1e1e1e] border-[#333]" : "bg-gray-50 border-gray-200")}></div>
            </div>
         </div>
+        <ThemeMorphIcon dark={animatedDark} active={active} />
       </div>
       <span className={cn("text-[12px] font-medium transition-colors", active ? "text-brand" : "text-text-subtle")}>{label}</span>
-    </div>
+    </button>
+  );
+}
+
+function ThemeMorphIcon({ dark, active }: { dark: boolean; active: boolean }) {
+  const rawId = React.useId();
+  const maskId = `theme-morph-${rawId.replace(/:/g, "")}`;
+  const brand = active ? "#00d9c5" : dark ? "#71717a" : "#94a3b8";
+  const ease = "cubic-bezier(0.4, 0, 0.2, 1)";
+
+  return (
+    <svg
+      className="absolute right-2 top-2 h-6 w-6 pointer-events-none"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={brand}
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{
+        transform: dark ? "rotate(-90deg)" : "rotate(0deg)",
+        transition: `transform 420ms ${ease}, stroke 220ms ease`,
+        filter: active ? "drop-shadow(0 0 8px rgba(0, 217, 197, 0.45))" : "none"
+      }}
+    >
+      <mask id={maskId}>
+        <rect x="0" y="0" width="24" height="24" fill="white" />
+        <circle
+          cx={dark ? "16" : "28"}
+          cy={dark ? "8" : "-4"}
+          r="9"
+          fill="black"
+          style={{ transition: `cx 420ms ${ease}, cy 420ms ${ease}` }}
+        />
+      </mask>
+      <circle
+        cx="12"
+        cy="12"
+        r={dark ? "9" : "5"}
+        fill={dark ? brand : "none"}
+        mask={`url(#${maskId})`}
+        style={{ transition: `r 420ms ${ease}, fill 220ms ease` }}
+      />
+      <g
+        style={{
+          opacity: dark ? 0 : 1,
+          transform: dark ? "scale(0.35) rotate(45deg)" : "scale(1) rotate(0deg)",
+          transformOrigin: "center",
+          transition: `opacity 180ms ease, transform 420ms ${ease}`
+        }}
+      >
+        <line x1="12" y1="2" x2="12" y2="4" />
+        <line x1="12" y1="20" x2="12" y2="22" />
+        <line x1="4.93" y1="4.93" x2="6.34" y2="6.34" />
+        <line x1="17.66" y1="17.66" x2="19.07" y2="19.07" />
+        <line x1="2" y1="12" x2="4" y2="12" />
+        <line x1="20" y1="12" x2="22" y2="12" />
+        <line x1="4.93" y1="19.07" x2="6.34" y2="17.66" />
+        <line x1="17.66" y1="6.34" x2="19.07" y2="4.93" />
+      </g>
+    </svg>
   );
 }
 

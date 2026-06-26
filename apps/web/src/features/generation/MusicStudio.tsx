@@ -11,6 +11,7 @@ import { defaultAssetImportFolders, defaultMusicAssetName, managedAssetRoots } f
 import { cn } from "../../lib/utils";
 import { TaskProgressBar } from "../../components/studio/TaskProgressBar";
 import { calculateAverageDuration } from "../../lib/taskStats";
+import { readStoredPreference, type MusicDefaultModel, type MusicVocalGender } from "../settings/preferences";
 
 type Props = {
   project?: ProjectSummary;
@@ -89,9 +90,9 @@ export function MusicStudio({
   const [title, setTitle] = useState("");
   const [style, setStyle] = useState("");
   const [negativeTags, setNegativeTags] = useState("");
-  const [model, setModel] = useState<string>("V4_5");
-  const [instrumental, setInstrumental] = useState<boolean>(false);
-  const [vocalGender, setVocalGender] = useState<"m" | "f">("f");
+  const [model, setModel] = useState<string>(() => readStoredPreference("musicModel") as MusicDefaultModel);
+  const [instrumental, setInstrumental] = useState<boolean>(() => readStoredPreference("musicInstrumental"));
+  const [vocalGender, setVocalGender] = useState<"m" | "f">(() => readStoredPreference("musicVocalGender") as MusicVocalGender);
 
   const [audioLibraryAssets, setAudioLibraryAssets] = useState<AssetSummary[]>([]);
   const [elapsedTime, setElapsedTime] = useState(0);

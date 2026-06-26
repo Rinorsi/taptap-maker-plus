@@ -74,6 +74,12 @@ import { getPresetById, getPresetGroupsForCanvas, type NodePreset, type NodePres
 import { readAssetDragPath } from "./dragData";
 import { parseStoryboardFile } from "./storyboardImport";
 import {
+  readStoredPreference,
+  type CanvasAutoSavePreference,
+  type CanvasGridPreference,
+  type CanvasMiniMapPreference,
+} from "../settings/preferences";
+import {
   createSharedCanvasModel,
   createVideoReferenceTemplate,
   createUniversalCanvasTemplate,
@@ -649,7 +655,7 @@ function VideoFlowCanvasInner({
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const [isPayloadPanelOpen, setIsPayloadPanelOpen] = useState(false);
   const [payloadPanelTab, setPayloadPanelTab] = useState<PayloadPanelTab>("json");
-  const [isMiniMapOpen, setIsMiniMapOpen] = useState(true);
+  const [isMiniMapOpen, setIsMiniMapOpen] = useState(() => (readStoredPreference("canvasMiniMap") as CanvasMiniMapPreference) === "visible");
   const [snapToGrid, setSnapToGrid] = useState(false);
   const [runningExecutorIds, setRunningExecutorIds] = useState<Set<string>>(new Set());
   const isAutoSavingRef = useRef(false);
@@ -1073,6 +1079,7 @@ function VideoFlowCanvasInner({
   // Auto-load on mount
   const hasLoadedRef = useRef(false);
   const saveCurrentFlow = useCallback(async () => {
+    if ((readStoredPreference("canvasAutoSave") as CanvasAutoSavePreference) !== "on") return;
     const latest = latestFlowRef.current;
     const projectId = latest.projectId;
     if (!projectId || isAutoSavingRef.current) return;
@@ -1096,6 +1103,7 @@ function VideoFlowCanvasInner({
 
   const saveFlowSnapshot = useCallback(
     async (snapshotNodes: Node[], snapshotEdges: Edge[]) => {
+      if ((readStoredPreference("canvasAutoSave") as CanvasAutoSavePreference) !== "on") return;
       if (!project) return;
       const viewport = reactFlow.getViewport();
       const data = createCleanCanvasStoragePayload(
@@ -2919,13 +2927,15 @@ function VideoFlowCanvasInner({
           className="video-flow-canvas h-full w-full bg-transparent"
           proOptions={{ hideAttribution: true }}
         >
-          <Background
-            color="#9ca3af"
-            variant={"dots" as any}
-            gap={24}
-            size={1.5}
-            className="opacity-40"
-          />
+          {(readStoredPreference("canvasGrid") as CanvasGridPreference) === "visible" ? (
+            <Background
+              color="#9ca3af"
+              variant={"dots" as any}
+              gap={24}
+              size={1.5}
+              className="opacity-40"
+            />
+          ) : null}
           <Controls />
           <Panel
             position="top-left"

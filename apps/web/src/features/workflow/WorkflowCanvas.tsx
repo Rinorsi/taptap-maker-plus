@@ -63,6 +63,11 @@ import {
 import type { AppCommandContext } from "../../commands";
 import { cn } from "../../lib/utils";
 import { ContextMenuStyles } from "../../components/ui/ContextMenuStyles";
+import {
+  readStoredPreference,
+  type CanvasGridPreference,
+  type CanvasMiniMapPreference,
+} from "../settings/preferences";
 
 // Legacy page: hidden from main navigation in routes.ts.
 // Keep this implementation only for old saved workflow data and possible internal diagnostics.
@@ -109,6 +114,8 @@ const workflowFormUiSchema: UiSchema = {
 };
 
 export function WorkflowCanvas({ project, tools, tasks, onSelectTool, onCommandContextChange }: Props) {
+  const showCanvasGrid = (readStoredPreference("canvasGrid") as CanvasGridPreference) === "visible";
+  const showCanvasMiniMap = (readStoredPreference("canvasMiniMap") as CanvasMiniMapPreference) === "visible";
   const [workflows, setWorkflows] = useState<WorkflowGraphRecord[]>([]);
   const [runs, setRuns] = useState<WorkflowRunRecord[]>([]);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState("");
@@ -957,12 +964,14 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool, onCommandC
             elementsSelectable
             className="workflow-flow"
           >
-            <Background gap={18} size={1} color="rgba(6, 10, 38, 0.12)" />
-            <MiniMap
-              pannable
-              zoomable
-              nodeColor={(node) => String(node.data?.tone ?? "#00D9C5")}
-            />
+            {showCanvasGrid ? <Background gap={18} size={1} color="rgba(6, 10, 38, 0.12)" /> : null}
+            {showCanvasMiniMap ? (
+              <MiniMap
+                pannable
+                zoomable
+                nodeColor={(node) => String(node.data?.tone ?? "#00D9C5")}
+              />
+            ) : null}
             <Controls />
           </ReactFlow>
           {workflowMenu ? (

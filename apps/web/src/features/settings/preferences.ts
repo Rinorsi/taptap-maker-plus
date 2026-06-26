@@ -1,4 +1,5 @@
 import type { WorkbenchModule } from "../../app/routes";
+import { getSettingsPreferences, saveSettingsPreferences } from "../../api";
 
 export type ThemePreference = "system" | "light" | "dark";
 export type StartupPreference = "last-project" | "home" | "home-picker";
@@ -141,6 +142,11 @@ export const settingsPreferenceKeys = {
 
 export const SETTINGS_PREFERENCES_CHANGED_EVENT = "taptap:settings-preferences-changed";
 
+const SETTINGS_REMOTE_SYNCED_EVENT = "taptap:settings-preferences-remote-synced";
+let saveTimer: number | undefined;
+let remoteLoadStarted = false;
+let applyingRemotePreferences = false;
+
 export const defaultSettingsPreferences: SettingsPreferences = {
   themePreference: "system",
   startupPreference: "last-project",
@@ -206,7 +212,7 @@ export function readStoredPreference<K extends keyof SettingsPreferences>(key: K
 }
 
 export function writeStoredPreference<K extends keyof SettingsPreferences>(key: K, value: SettingsPreferences[K]) {
-  localStorage.setItem(settingsPreferenceKeys[key], JSON.stringify(value));
+  writeLocalPreference(settingsPreferenceKeys[key], value);
 }
 
 export function readLocalPreference<T>(key: string, initialValue: T): T {
@@ -224,8 +230,65 @@ export function readLocalPreference<T>(key: string, initialValue: T): T {
 export function writeLocalPreference<T>(key: string, value: T) {
   localStorage.setItem(key, JSON.stringify(value));
   window.dispatchEvent(new CustomEvent(SETTINGS_PREFERENCES_CHANGED_EVENT, { detail: { key, value } }));
+  if (!applyingRemotePreferences && isSettingsPreferenceStorageKey(key)) {
+    scheduleRemotePreferencesSave();
+  }
 }
 
 export function defaultWorkspaceToModule(value: DefaultWorkspace): WorkbenchModule {
   return value;
+}
+
+export function subscribeSettingsRemoteSync(listener: () => void) {
+  window.addEventListener(SETTINGS_REMOTE_SYNCED_EVENT, listener);
+  return () => window.removeEventListener(SETTINGS_REMOTE_SYNCED_EVENT, listener);
+}
+
+export function readAllStoredSettingsPreferences(): Record<string, unknown> {
+  const preferences: Record<string, unknown> = {};
+  for (const key of Object.values(settingsPreferenceKeys)) {
+    const stored = localStorage.getItem(key);
+    if (stored === null) continue;
+    try {
+      preferences[key] = JSON.parse(stored);
+    } catch {
+      preferences[key] = stored;
+    }
+  }
+  return preferences;
+}
+
+export function loadRemoteSettingsPreferences() {
+  if (remoteLoadStarted || typeof window === "undefined") return;
+  remoteLoadStarted = true;
+  void getSettingsPreferences()
+    .then((response) => {
+      applyingRemotePreferences = true;
+      try {
+        for (const [key, value] of Object.entries(response.preferences)) {
+          if (!isSettingsPreferenceStorageKey(key)) continue;
+          localStorage.setItem(key, JSON.stringify(value));
+          window.dispatchEvent(new CustomEvent(SETTINGS_PREFERENCES_CHANGED_EVENT, { detail: { key, value } }));
+        }
+      } finally {
+        applyingRemotePreferences = false;
+      }
+      window.dispatchEvent(new CustomEvent(SETTINGS_REMOTE_SYNCED_EVENT));
+    })
+    .catch(() => {
+      remoteLoadStarted = false;
+    });
+}
+
+function scheduleRemotePreferencesSave() {
+  if (typeof window === "undefined") return;
+  if (saveTimer !== undefined) window.clearTimeout(saveTimer);
+  saveTimer = window.setTimeout(() => {
+    saveTimer = undefined;
+    void saveSettingsPreferences(readAllStoredSettingsPreferences()).catch(() => undefined);
+  }, 250);
+}
+
+function isSettingsPreferenceStorageKey(key: string) {
+  return Object.values(settingsPreferenceKeys).includes(key as (typeof settingsPreferenceKeys)[keyof typeof settingsPreferenceKeys]);
 }

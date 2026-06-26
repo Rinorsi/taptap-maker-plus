@@ -12,6 +12,7 @@ import {
   finishWorkflowRun,
   getAssetByRelativePath,
   getProject,
+  getAppSettingsPreferences,
   getSelectedProjectId,
   getTask,
   getTool,
@@ -27,6 +28,7 @@ import {
   listWorkflowRuns,
   removeProjectRecord,
   saveWorkflowGraph,
+  saveAppSettingsPreferences,
   setSelectedProject,
   listCreditRecords
 } from "../lib/db.js";
@@ -51,7 +53,7 @@ import { buildAgentContext } from "../agent/contextBuilder.js";
 import { getProjectBuildLogs } from "../services/projectLogs.js";
 import { scanModelPackages, organizeModelPackage, bindModelPackage, discardModelPackage, restoreModelPackage, updateResourceTable, runModelPackageBatchAction } from "../services/modelPackage.js";
 import { convertMdlToGltf, inspectMdlFile } from "../services/urhoMdl.js";
-import type { MakerWorkflowGraph, ProjectSummary, ToolSummary, WorkflowNodeRunResult, WorkflowRunStatus } from "../types.js";
+import type { AppSettingsPreferencesResponse, MakerWorkflowGraph, ProjectSummary, ToolSummary, WorkflowNodeRunResult, WorkflowRunStatus } from "../types.js";
 
 const callToolSchema = z.object({
   arguments: z.record(z.string(), z.unknown()).optional(),
@@ -59,6 +61,11 @@ const callToolSchema = z.object({
   suggestedName: z.string().optional(),
   assetType: z.string().optional()
 }).passthrough();
+
+const settingsPreferenceKeySchema = z.string().regex(/^taptap\.settings\./);
+const appSettingsPreferencesSchema = z.object({
+  preferences: z.record(settingsPreferenceKeySchema, z.unknown())
+});
 
 const assetPathsSchema = z.object({
   relativePaths: z.array(z.string()).min(1)
@@ -599,6 +606,16 @@ function sendAssetFile(reply: FastifyReply, filePath: string, range?: string) {
 
 export async function registerApiRoutes(app: FastifyInstance) {
   app.get("/api/health", async () => ({ ok: true, name: "taptap-maker-plus" }));
+
+  app.get("/api/settings/preferences", async (): Promise<AppSettingsPreferencesResponse> => {
+    return getAppSettingsPreferences();
+  });
+
+  app.put<{ Body: unknown }>("/api/settings/preferences", async (request, reply): Promise<AppSettingsPreferencesResponse | FastifyReply> => {
+    const parsed = appSettingsPreferencesSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    return saveAppSettingsPreferences(parsed.data.preferences);
+  });
 
   app.get("/api/developer/frontend-diagnostics", async () => {
     const { logPath, entries } = readRecentFrontendDiagnostics();

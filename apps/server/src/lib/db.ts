@@ -293,6 +293,33 @@ export function getSelectedProjectId(): string | undefined {
   return row?.value;
 }
 
+export function getAppSettingsPreferences(): { preferences: Record<string, unknown>; updatedAt?: string } {
+  const rows = sqlite.prepare("SELECT key, value, updated_at FROM app_settings WHERE key LIKE 'taptap.settings.%'").all() as Array<{ key: string; value: string; updated_at: string }>;
+  const preferences: Record<string, unknown> = {};
+  let updatedAt: string | undefined;
+  for (const row of rows) {
+    preferences[row.key] = parseJson<unknown>(row.value, row.value);
+    if (!updatedAt || row.updated_at > updatedAt) updatedAt = row.updated_at;
+  }
+  return { preferences, updatedAt };
+}
+
+export function saveAppSettingsPreferences(preferences: Record<string, unknown>): { preferences: Record<string, unknown>; updatedAt: string } {
+  const now = new Date().toISOString();
+  const insert = sqlite.prepare(`
+    INSERT INTO app_settings (key, value, updated_at)
+    VALUES (@key, @value, @updatedAt)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+  `);
+  const tx = sqlite.transaction(() => {
+    for (const [key, value] of Object.entries(preferences)) {
+      insert.run({ key, value: JSON.stringify(value), updatedAt: now });
+    }
+  });
+  tx();
+  return { preferences: getAppSettingsPreferences().preferences, updatedAt: now };
+}
+
 export function listProjects(): ProjectSummary[] {
   const selectedProjectId = getSelectedProjectId();
   return sqlite.prepare("SELECT * FROM projects ORDER BY name COLLATE NOCASE").all().map((row: any) => toProject(row, selectedProjectId));

@@ -3,6 +3,15 @@ import { Braces, Copy } from "lucide-react";
 import { Button } from "../ui/Button";
 import { copyText } from "../../lib/clipboard";
 import { cn } from "../../lib/utils";
+import {
+  readStoredPreference,
+  settingsPreferenceKeys,
+  SETTINGS_PREFERENCES_CHANGED_EVENT,
+  type CodeEditorFontSizePreference,
+  type CodeEditorLineNumbersPreference,
+  type CodeEditorThemePreference,
+  type CodeEditorWrapPreference,
+} from "../../features/settings/preferences";
 
 const MonacoEditor = lazy(() => import("@monaco-editor/react"));
 
@@ -17,6 +26,36 @@ type RawViewerProps = {
   height?: string;
 };
 
+function readCodeViewerPreferences() {
+  return {
+    theme: readStoredPreference("codeEditorTheme") as CodeEditorThemePreference,
+    fontSize: readStoredPreference("codeEditorFontSize") as CodeEditorFontSizePreference,
+    wrap: readStoredPreference("codeEditorWrap") as CodeEditorWrapPreference,
+    lineNumbers: readStoredPreference("codeEditorLineNumbers") as CodeEditorLineNumbersPreference,
+  };
+}
+
+function useCodeViewerPreferences() {
+  const [preferences, setPreferences] = useState(readCodeViewerPreferences);
+
+  useEffect(() => {
+    const keys = new Set<string>([
+      settingsPreferenceKeys.codeEditorTheme,
+      settingsPreferenceKeys.codeEditorFontSize,
+      settingsPreferenceKeys.codeEditorWrap,
+      settingsPreferenceKeys.codeEditorLineNumbers,
+    ]);
+    const handleChange = (event: Event) => {
+      const key = (event as CustomEvent<{ key?: string }>).detail?.key;
+      if (key && keys.has(key)) setPreferences(readCodeViewerPreferences());
+    };
+    window.addEventListener(SETTINGS_PREFERENCES_CHANGED_EVENT, handleChange);
+    return () => window.removeEventListener(SETTINGS_PREFERENCES_CHANGED_EVENT, handleChange);
+  }, []);
+
+  return preferences;
+}
+
 export function RawViewer({
   title,
   value,
@@ -28,17 +67,25 @@ export function RawViewer({
   height = "320px"
 }: RawViewerProps) {
   const documentTheme = useDocumentTheme();
-  const [wrapLines, setWrapLines] = useState(true);
+  const preferences = useCodeViewerPreferences();
+  const [wrapOverride, setWrapOverride] = useState<boolean | undefined>();
+  const wrapLines = wrapOverride ?? preferences.wrap === "wrap";
   const rawValue = value ?? "";
   const viewerValue = useMemo(() => formatRawValue(rawValue, language, emptyText), [emptyText, language, rawValue]);
   const monacoLanguage = language === "json" ? "json" : "text";
-  const theme = documentTheme === "light" ? "vs" : "vs-dark";
+  const theme = preferences.theme === "light"
+    ? "vs"
+    : preferences.theme === "dark" || preferences.theme === "high-contrast"
+      ? "vs-dark"
+      : documentTheme === "light" ? "vs" : "vs-dark";
+  const fontSize = preferences.fontSize === "small" ? 10 : preferences.fontSize === "large" ? 13 : 11;
+  const lineHeight = preferences.fontSize === "small" ? 16 : preferences.fontSize === "large" ? 21 : 18;
 
   return (
     <section className={cn("flex min-h-0 flex-col overflow-hidden rounded-panel border border-border bg-surface-panel shadow-sm", className)}>
       <div
         className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border-soft bg-surface-muted/30 px-3"
-        onDoubleClick={() => setWrapLines((current) => !current)}
+        onDoubleClick={() => setWrapOverride((current) => current === undefined ? !wrapLines : !current)}
         title={wrapLines ? "双击切换为横向滚动" : "双击切换为自动换行"}
       >
         <div className="flex min-w-0 items-center gap-2">
@@ -74,12 +121,12 @@ export function RawViewer({
               minimap: { enabled: false },
               scrollBeyondLastLine: false,
               wordWrap: wrapLines ? "on" : "off",
-              lineNumbers: "on",
+              lineNumbers: preferences.lineNumbers === "show" ? "on" : "off",
               folding: true,
               automaticLayout: true,
               renderLineHighlight: "none",
-              fontSize: 11,
-              lineHeight: 18,
+              fontSize,
+              lineHeight,
               tabSize: 2,
               scrollbar: {
                 verticalScrollbarSize: 8,

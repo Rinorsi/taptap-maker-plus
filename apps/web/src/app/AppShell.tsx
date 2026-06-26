@@ -83,9 +83,11 @@ import { ASSET_DRAG_MIME, clearAssetDragData } from "../components/interaction/a
 import {
   SETTINGS_PREFERENCES_CHANGED_EVENT,
   defaultWorkspaceToModule,
+  loadRemoteSettingsPreferences,
   readStoredPreference,
   settingsPreferenceKeys,
   type AutoRuntimePreference,
+  type AssetReferencePreference,
   type ConfirmationPreference,
   type DefaultWorkspace,
   type DensityPreference,
@@ -244,6 +246,10 @@ export function AppShell() {
 
   const previousFailedTasksRef = useRef<Set<string>>(new Set());
   const previousTaskStatusRef = useRef<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    loadRemoteSettingsPreferences();
+  }, []);
 
   useEffect(() => {
     const currentFailedIds = new Set(failedTasks.map((t) => t.taskId));
@@ -851,6 +857,9 @@ export function AppShell() {
     actionLabel: string;
     allowUpdateReferences: boolean;
   }): Promise<ReferenceMutationDecision> {
+    if ((readStoredPreference("assetReferenceCheck") as AssetReferencePreference) === "skip") {
+      return "skip";
+    }
     const results = await scanAssetReferencesWithCache(
       projectId,
       relativePaths,

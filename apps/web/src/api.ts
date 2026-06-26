@@ -449,6 +449,11 @@ export type StatusLiteResponse = {
   assetsIndexed: number;
 };
 
+export type AppSettingsPreferencesResponse = {
+  preferences: Record<string, unknown>;
+  updatedAt?: string;
+};
+
 const json = async <T>(response: Response): Promise<T> => {
   if (!response.ok) throw new Error(await response.text());
   return response.json() as Promise<T>;
@@ -889,6 +894,20 @@ export async function getAgentContext(projectId?: string, page?: AgentPageState)
 
 export async function getDesktopReadiness(): Promise<DesktopReadiness> {
   return json<DesktopReadiness>(await fetch("/api/desktop/readiness"));
+}
+
+export async function getSettingsPreferences(): Promise<AppSettingsPreferencesResponse> {
+  return json<AppSettingsPreferencesResponse>(await fetch("/api/settings/preferences"));
+}
+
+export async function saveSettingsPreferences(preferences: Record<string, unknown>): Promise<AppSettingsPreferencesResponse> {
+  return json<AppSettingsPreferencesResponse>(
+    await fetch("/api/settings/preferences", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ preferences }),
+    }),
+  );
 }
 
 export async function listFrontendDiagnostics() {

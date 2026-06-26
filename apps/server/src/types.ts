@@ -358,3 +358,10 @@ export type AgentContextSnapshot = {
     buildLogs: number;
   };
 };
+
+export type AppSettingsPreferences = Record<string, unknown>;
+
+export type AppSettingsPreferencesResponse = {
+  preferences: AppSettingsPreferences;
+  updatedAt?: string;
+};

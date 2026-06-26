@@ -54,6 +54,7 @@ import {
   readStoredPreference,
   settingsPreferenceKeys,
   SETTINGS_PREFERENCES_CHANGED_EVENT,
+  subscribeSettingsRemoteSync,
   writeLocalPreference,
   type SettingsPreferences
 } from "./preferences";
@@ -79,12 +80,15 @@ function shouldApplyServerLogRetention(value: SettingsPreferences["logRetention"
 }
 
 function useSettingsPreferences() {
-  const [prefs, setPrefs] = useState<SettingsPreferences>(() => {
+  const readPrefs = () => {
     const p: any = {};
     for (const key of Object.keys(defaultSettingsPreferences)) {
       p[key] = readStoredPreference(key as keyof SettingsPreferences);
     }
     return p as SettingsPreferences;
+  };
+  const [prefs, setPrefs] = useState<SettingsPreferences>(() => {
+    return readPrefs();
   });
 
   useEffect(() => {
@@ -95,8 +99,12 @@ function useSettingsPreferences() {
         setPrefs(prev => ({ ...prev, [k]: customEvent.detail.value as any }));
       }
     };
+    const unsubscribeRemote = subscribeSettingsRemoteSync(() => setPrefs(readPrefs()));
     window.addEventListener(SETTINGS_PREFERENCES_CHANGED_EVENT, handle);
-    return () => window.removeEventListener(SETTINGS_PREFERENCES_CHANGED_EVENT, handle);
+    return () => {
+      unsubscribeRemote();
+      window.removeEventListener(SETTINGS_PREFERENCES_CHANGED_EVENT, handle);
+    };
   }, []);
 
   const update = <K extends keyof SettingsPreferences>(key: K, value: SettingsPreferences[K]) => {

@@ -19,6 +19,11 @@ import { collectBatchModelGovernanceActions, managedAssetRoots, modelGovernanceC
 import { cn } from "../../lib/utils";
 import { TaskProgressBar } from "../../components/studio/TaskProgressBar";
 import { calculateAverageDuration } from "../../lib/taskStats";
+import {
+  readStoredPreference,
+  type Model3DDefaultMode,
+  type Model3DTextureQuality,
+} from "../settings/preferences";
 
 function clampFaceLimit(value: string) {
   const parsed = Number.parseInt(value, 10);
@@ -130,7 +135,7 @@ function extractConfirmedImagePaths(toolResponse: unknown): ConfirmedImagePaths 
 }
 
 export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool, onSelectTool, onSelectAsset, onScanAssets, onDeleteAssets, onMoveAssets, onRenameAsset, onImportAssets }: Props) {
-  const [mode, setMode] = useState<Mode>("text_to_model");
+  const [mode, setMode] = useState<Mode>(() => readStoredPreference("model3dDefaultMode") as Model3DDefaultMode);
   const [stage, setStage] = useState<Stage>("input");
   const [rightOpen, setRightOpen] = useState(false);
 
@@ -140,12 +145,12 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
   const [confirmedImages, setConfirmedImages] = useState<ConfirmedImagePaths | null>(null);
   const [phaseMessage, setPhaseMessage] = useState("");
 
-  const [subjectType, setSubjectType] = useState("biped");
-  const [rig, setRig] = useState(true);
-  const [faceLimit, setFaceLimit] = useState("20000");
-  const [textureQuality, setTextureQuality] = useState("standard");
+  const [subjectType, setSubjectType] = useState<string>(() => readStoredPreference("model3dSubjectType"));
+  const [rig, setRig] = useState(() => readStoredPreference("model3dRig"));
+  const [faceLimit, setFaceLimit] = useState(() => readStoredPreference("model3dFaceLimit"));
+  const [textureQuality, setTextureQuality] = useState<string>(() => readStoredPreference("model3dTextureQuality") as Model3DTextureQuality);
   const [seed, setSeed] = useState("");
-  const [transparent, setTransparent] = useState(false);
+  const [transparent, setTransparent] = useState(() => readStoredPreference("model3dTransparent"));
 
   const [packages, setPackages] = useState<ModelPackageSummary[]>([]);
   const [search, setSearch] = useState("");

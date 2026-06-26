@@ -11,6 +11,13 @@ import { defaultAssetImportFolders, defaultImageAssetName, managedAssetRoots } f
 import { cn } from "../../lib/utils";
 import { TaskProgressBar } from "../../components/studio/TaskProgressBar";
 import { calculateAverageDuration } from "../../lib/taskStats";
+import {
+  readStoredPreference,
+  type ImageDefaultMode,
+  type ImageDefaultModel,
+  type ImageDefaultResolution,
+  type ImageThinkingLevel,
+} from "../settings/preferences";
 
 type Props = {
   project?: ProjectSummary;
@@ -103,19 +110,19 @@ export function ImageStudio({
   onScanReferences,
   onImportAssets
 }: Props) {
-  const [mode, setMode] = useState<ImageMode>("generate");
+  const [mode, setMode] = useState<ImageMode>(() => readStoredPreference("imageDefaultMode") as ImageDefaultMode);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [batchPrompts, setBatchPrompts] = useState("");
   const [editSourceImage, setEditSourceImage] = useState("");
   const [name, setName] = useState("");
-  const [targetSize, setTargetSize] = useState("1024x1024");
-  const [aspectRatio, setAspectRatio] = useState("1:1");
+  const [targetSize, setTargetSize] = useState(() => readStoredPreference("imageTargetSize"));
+  const [aspectRatio, setAspectRatio] = useState(() => readStoredPreference("imageAspectRatio"));
   const [transparent, setTransparent] = useState(false);
   const [seed, setSeed] = useState("");
-  const [thinkingLevel, setThinkingLevel] = useState<ThinkingValue>("minimal");
-  const [resolution, setResolution] = useState<ResolutionValue>("1K");
-  const [model, setModel] = useState<ImageModelValue>("auto");
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingValue>(() => readStoredPreference("imageThinkingLevel") as ImageThinkingLevel);
+  const [resolution, setResolution] = useState<ResolutionValue>(() => readStoredPreference("imageResolution") as ImageDefaultResolution);
+  const [model, setModel] = useState<ImageModelValue>(() => readStoredPreference("imageModel") as ImageDefaultModel);
   const [referenceImage, setReferenceImage] = useState("");
   const [viewTab, setViewTab] = useState<"preview" | "manage">("preview");
   const [lightboxAsset, setLightboxAsset] = useState<AssetSummary | null>(null);

@@ -45,6 +45,10 @@ import type { AppCommandContext } from "../../commands";
 import { TaskProgressBar } from "../../components/studio/TaskProgressBar";
 import { CanvasAudioPlayer } from "../../components/studio/CanvasAudioPlayer";
 import { calculateAverageDuration } from "../../lib/taskStats";
+import {
+  readStoredPreference,
+  type VideoDefaultMode,
+} from "../settings/preferences";
 
 type Props = {
   project?: ProjectSummary;
@@ -269,18 +273,18 @@ export function VideoStudio({
   onRequestProjectRefresh,
   onCommandContextChange,
 }: Props) {
-  const [videoMode, setVideoMode] = useState("text_to_video");
+  const [videoMode, setVideoMode] = useState<string>(() => readStoredPreference("videoDefaultMode") as VideoDefaultMode);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [name, setName] = useState("");
-  const [resolution, setResolution] = useState("720p");
-  const [ratio, setRatio] = useState("16:9");
-  const [duration, setDuration] = useState("5");
-  const [model, setModel] = useState("default");
+  const [resolution, setResolution] = useState<string>(() => readStoredPreference("videoResolution"));
+  const [ratio, setRatio] = useState(() => readStoredPreference("videoRatio"));
+  const [duration, setDuration] = useState(() => readStoredPreference("videoDuration"));
+  const [model, setModel] = useState<string>(() => readStoredPreference("videoModel"));
   const [seed, setSeed] = useState("");
-  const [generateAudio, setGenerateAudio] = useState(false);
-  const [returnLastFrame, setReturnLastFrame] = useState(true);
-  const [enableWebSearch, setEnableWebSearch] = useState(false);
+  const [generateAudio, setGenerateAudio] = useState(() => readStoredPreference("videoGenerateAudio"));
+  const [returnLastFrame, setReturnLastFrame] = useState(() => readStoredPreference("videoReturnLastFrame"));
+  const [enableWebSearch, setEnableWebSearch] = useState(() => readStoredPreference("videoEnableWebSearch"));
 
   const [firstFrame, setFirstFrame] = useState("");
   const [lastFrame, setLastFrame] = useState("");

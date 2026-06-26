@@ -74,6 +74,10 @@ type Props = {
   commands: Command[];
 };
 
+function shouldApplyServerLogRetention(value: SettingsPreferences["logRetention"]): value is Exclude<SettingsPreferences["logRetention"], "manual"> {
+  return value !== "manual";
+}
+
 function useSettingsPreferences() {
   const [prefs, setPrefs] = useState<SettingsPreferences>(() => {
     const p: any = {};
@@ -154,6 +158,24 @@ export function SettingsView({
       setServerLogPath("");
     }
   };
+
+  useEffect(() => {
+    const retention = prefs.logRetention;
+    if (!shouldApplyServerLogRetention(retention)) return;
+
+    let cancelled = false;
+    const applyRetention = async () => {
+      await clearFrontendDiagnostics(retention).catch(() => undefined);
+      if (!cancelled) {
+        await refreshServerLogs();
+      }
+    };
+
+    void applyRetention();
+    return () => {
+      cancelled = true;
+    };
+  }, [prefs.logRetention]);
 
   useEffect(() => {
     let cancelled = false;

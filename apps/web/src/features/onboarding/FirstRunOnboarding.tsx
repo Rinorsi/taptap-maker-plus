@@ -1,21 +1,26 @@
 import { useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { CheckCircle2, ChevronDown, FolderSearch, LogIn, PackageCheck, Plus, RefreshCw, X } from "lucide-react";
+import { CheckCircle2, ChevronDown, FolderSearch, LogIn, PackageCheck, Plus, RefreshCw, X, AlertTriangle, Cloud, Info } from "lucide-react";
 import { motion } from "framer-motion";
 import {
   bindExistingOnboardingProject,
   confirmMakerProjectsRootSettings,
+  getMakerTokenOnboarding,
   getMakerProjectsRootSettings,
   getMcpPackageStatus,
-  initOnboardingProject,
+  initCloudOnboardingProject,
   installMcpPackage,
+  listMakerCloudProjects,
   loginMakerOnboarding,
   saveMakerProjectsRootSettings,
   setMakerTokenOnboarding,
+  type MakerCloudProject,
   type MakerProjectsRootSettings,
+  type McpPackageUpdateStatus,
   type ProjectSummary,
 } from "../../api";
 import { Button } from "../../components/ui/Button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/Select";
 import { cn } from "../../lib/utils";
 
 type Props = {
@@ -37,12 +42,17 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
   const [rootSettings, setRootSettings] = useState<MakerProjectsRootSettings>();
   const [rootDraft, setRootDraft] = useState("");
   const [projectDirDraft, setProjectDirDraft] = useState("");
+  const [packageStatus, setPackageStatus] = useState<McpPackageUpdateStatus>();
+  const [selectedPackageVersion, setSelectedPackageVersion] = useState("");
   const [packageState, setPackageState] = useState<StepState>("idle");
+  const [refreshing, setRefreshing] = useState(false);
   const [rootState, setRootState] = useState<StepState>("idle");
   const [loginState, setLoginState] = useState<StepState>("idle");
   const [projectState, setProjectState] = useState<StepState>("idle");
   const [manualToken, setManualToken] = useState("");
   const [manualTokenOpen, setManualTokenOpen] = useState(false);
+  const [cloudProjects, setCloudProjects] = useState<MakerCloudProject[]>([]);
+  const [selectedCloudProjectId, setSelectedCloudProjectId] = useState("");
   const [notice, setNotice] = useState("");
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [initPrompt, setInitPrompt] = useState<InitPrompt>();
@@ -69,9 +79,51 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
     };
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen || packageStatus || packageState === "working") return;
+    void refreshPackageStatus();
+  }, [isOpen, packageStatus, packageState]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    getMakerTokenOnboarding()
+      .then((response) => {
+        if (!cancelled && response.token) setManualToken(response.token);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const working = busy || rootState === "working" || packageState === "working" || loginState === "working" || projectState === "working";
+  const hasBoundProject = projects.length > 0 || projectState === "done";
+  const canEnterWorkbench = rootState === "done" && packageState === "done" && loginState === "done" && hasBoundProject;
+  const packageVersions = packageStatus?.availableVersions ?? [];
+  const packageVersionOptions = [...packageVersions].reverse();
+  const installButtonLabel = packageStatus?.localInstalled ? "重装" : "安装";
+
+  function requestClose() {
+    onClose();
+  }
+
+  function handleClosePointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    requestClose();
+  }
+
+  function requestEnterWorkbench() {
+    if (!canEnterWorkbench) {
+      setNotice("请先完成首次启动配置，至少需要绑定或拉取一个 Maker 游戏项目后才能进入工作台。");
+      if (!hasBoundProject) setProjectState((current) => current === "done" ? current : "error");
+      return;
+    }
+    onClose();
+  }
 
   async function chooseDirectory(title: string, defaultPath?: string) {
     try {
@@ -108,7 +160,11 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
       setRootSettings(confirmed.settings);
       setRootDraft(confirmed.settings.rootPath);
       setProjectDirDraft(confirmed.settings.rootPath);
-      if (saved.projects) onProjectsChanged(saved.projects, saved.selectedProjectId);
+      if (saved.projects) {
+        setProjects(saved.projects);
+        onProjectsChanged(saved.projects, saved.selectedProjectId);
+        if (saved.selectedProjectId) setProjectState("done");
+      }
       setRootState("done");
       setNotice(`已确认项目总目录：${confirmed.settings.rootPath}`);
     } catch (error) {
@@ -117,20 +173,51 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
     }
   }
 
-  async function handleCheckPackage() {
+  async function refreshPackageStatus() {
     setPackageState("working");
-    setNotice("正在检查 @taptap/maker...");
+    setNotice("正在检查 @taptap/maker 云端版本...");
     try {
       const response = await getMcpPackageStatus(true);
       const status = response.status;
-      if (status.registryError) throw new Error(status.registryError);
-      if (status.latestVersion && status.currentVersion !== status.latestVersion) {
-        const result = await installMcpPackage(`${status.packageName}@${status.latestVersion}`);
-        setNotice(`已安装 MCP：${result.status.packageSpec}`);
-      } else {
-        setNotice(status.currentVersion ? `MCP 已可用：${status.packageSpec}` : `MCP 包已检查：${status.packageSpec}`);
+      setPackageStatus(status);
+      setSelectedPackageVersion(status.latestVersion ?? status.availableVersions.at(-1) ?? status.currentVersion ?? "");
+      if (status.registryError) {
+        if (status.localInstalled) {
+          setPackageState("done");
+          setNotice(`本地 MCP 已安装，版本 ${status.currentVersion ?? "未知"}；云端版本暂时无法获取：${status.registryError}`);
+          return;
+        }
+        throw new Error(`本地 MCP 未安装，云端版本无法获取：${status.registryError}`);
       }
+      setPackageState(status.localInstalled ? "done" : "idle");
+      setNotice(status.localInstalled
+        ? `本地 MCP 已安装，版本 ${status.currentVersion ?? "未知"}。`
+        : "本地 MCP 未安装，请选择云端版本后安装。");
+    } catch (error) {
+      setPackageState("error");
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function handleInstallSelectedPackageVersion() {
+    const version = selectedPackageVersion.trim();
+    const packageName = packageStatus?.packageName;
+    if (!packageName || !version) {
+      setNotice("请先检查云端版本，并选择要安装的 MCP 版本。");
+      return;
+    }
+    if (packageStatus?.localInstalled) {
+      const confirmed = window.confirm(`本地已有 MCP ${packageStatus.currentVersion ?? "未知版本"}，是否重新安装 ${version}？`);
+      if (!confirmed) return;
+    }
+    setPackageState("working");
+    setNotice(`正在安装 MCP：${packageName}@${version}`);
+    try {
+      const result = await installMcpPackage(`${packageName}@${version}`);
+      setPackageStatus(result.status);
+      setSelectedPackageVersion(result.status.currentVersion ?? version);
       setPackageState("done");
+      setNotice(`已安装 MCP：${result.status.packageSpec}`);
     } catch (error) {
       setPackageState("error");
       setNotice(error instanceof Error ? error.message : String(error));
@@ -144,6 +231,7 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
       const response = await loginMakerOnboarding();
       setLoginState("done");
       setNotice(formatCliNotice("登录流程已完成", response.cli.stdout, response.cli.stderr));
+      await refreshCloudProjects();
     } catch (error) {
       setLoginState("error");
       setNotice(error instanceof Error ? error.message : String(error));
@@ -157,12 +245,52 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
     setNotice("正在保存 Maker Token...");
     try {
       const response = await setMakerTokenOnboarding(token);
-      setManualToken("");
       setLoginState("done");
       setNotice(formatCliNotice("Token 已保存", response.cli.stdout, response.cli.stderr));
+      await refreshCloudProjects();
     } catch (error) {
       setLoginState("error");
       setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function refreshCloudProjects() {
+    setNotice("正在读取 Maker 云端项目列表...");
+    try {
+      const response = await listMakerCloudProjects();
+      setCloudProjects(response.projects);
+      setSelectedCloudProjectId((current) => current || response.projects[0]?.id || "");
+      setNotice(response.projects.length ? `已读取 ${response.projects.length} 个云端项目` : "当前账号没有可拉取的 Maker 云端项目。");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (hasBoundProject) {
+        setNotice(`云端项目暂时无法获取，本地已绑定项目可继续使用：${message}`);
+        return;
+      }
+      setProjectState("error");
+      setNotice(`本地还没有绑定项目，且云端项目无法获取：${message}`);
+    }
+  }
+
+  async function refreshOnboardingState() {
+    if (refreshing || working) return;
+    setRefreshing(true);
+    setNotice("正在刷新首次启动配置状态...");
+    try {
+      const rootResponse = await getMakerProjectsRootSettings();
+      setRootSettings(rootResponse.settings);
+      setRootDraft(rootResponse.settings.rootPath);
+      setProjectDirDraft((current) => current || rootResponse.settings.rootPath);
+      setRootState(rootResponse.settings.confirmed ? "done" : "idle");
+      if (rootResponse.projects) {
+        setProjects(rootResponse.projects);
+        onProjectsChanged(rootResponse.projects, rootResponse.selectedProjectId);
+        if (rootResponse.selectedProjectId) setProjectState("done");
+      }
+      await refreshPackageStatus();
+      await refreshCloudProjects();
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -190,22 +318,47 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
         targetDir,
         message: error instanceof Error ? error.message : String(error),
       });
-      setNotice("这个目录还不是完整 Maker 项目。确认后可以在该目录初始化新项目。");
+      setNotice("这个目录还不是完整 Maker 项目。请选择云端项目拉取到该目录，或刷新云端项目列表。");
+      if (!cloudProjects.length) {
+        await refreshCloudProjects().catch((cloudError) => {
+          setNotice(cloudError instanceof Error ? cloudError.message : String(cloudError));
+        });
+      }
     }
   }
 
   async function handleInitializeProject() {
-    if (!initPrompt?.targetDir) return;
+    if (!initPrompt?.targetDir || !selectedCloudProjectId) return;
     setProjectState("working");
-    setNotice("正在初始化新 Maker 项目...");
+    setNotice("正在从 Maker 云端拉取项目...");
     try {
-      const response = await initOnboardingProject(initPrompt.targetDir);
+      const response = await initCloudOnboardingProject(selectedCloudProjectId, initPrompt.targetDir);
       setInitPrompt(undefined);
       setProjects(response.projects);
       onProjectsChanged(response.projects, response.selectedProjectId);
       onSelectProject(response.project.id);
       setProjectState("done");
-      setNotice(`已初始化并绑定项目：${response.project.name}`);
+      setNotice(`已拉取并绑定项目：${response.project.name}`);
+    } catch (error) {
+      setProjectState("error");
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function handlePullFirstCloudProject() {
+    const appId = selectedCloudProjectId || cloudProjects[0]?.id;
+    if (!appId) return;
+    setProjectState("working");
+    setNotice("正在从 Maker 云端拉取项目...");
+    try {
+      const response = await initCloudOnboardingProject(appId);
+      setProjects(response.projects);
+      onProjectsChanged(response.projects, response.selectedProjectId);
+      onSelectProject(response.project.id);
+      setProjectDirDraft(response.project.rootPath);
+      setInitPrompt(undefined);
+      setProjectState("done");
+      setNotice(`已拉取并绑定项目：${response.project.name}`);
     } catch (error) {
       setProjectState("error");
       setNotice(error instanceof Error ? error.message : String(error));
@@ -378,9 +531,24 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
               <h2 className="m-0 text-lg font-bold text-text">首次启动配置</h2>
               <p className="mt-1 text-sm text-text-subtle">完成本地可测的最小链路：项目总目录、MCP、登录、单个游戏项目。</p>
             </div>
-            <Button variant="ghost" size="icon" onClick={onClose} aria-label="关闭首次启动配置">
-              <X className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="icon" onClick={() => void refreshOnboardingState()} disabled={working || refreshing} aria-label="刷新首次启动配置状态">
+                <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onPointerDown={handleClosePointerDown}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  requestClose();
+                }}
+                aria-label="关闭首次启动配置"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
 
           <div className="min-h-0 flex-1 overflow-auto px-8 py-6">
@@ -415,15 +583,34 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
 
               <OnboardingStep
                 index={2}
-                title="检查或安装 MCP 包"
-                description="检查 @taptap/maker 版本；如有新版，会安装并预热本地 npm-cache。"
+                title="检查并安装 MCP 包"
+                description="进入此页会自动检查本地状态和云端版本；安装按钮只负责安装当前下拉框选中的版本。"
                 icon={<PackageCheck />}
                 state={packageState}
               >
-                <Button variant="outline" size="sm" onClick={() => void handleCheckPackage()} disabled={working}>
-                  <RefreshCw className={cn("mr-1 h-3.5 w-3.5", packageState === "working" && "animate-spin")} />
-                  检查/安装 MCP
-                </Button>
+                <div className="flex w-full flex-col gap-2">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <Button size="sm" onClick={() => void handleInstallSelectedPackageVersion()} disabled={working || !selectedPackageVersion}>
+                      {installButtonLabel}
+                    </Button>
+                    <Select
+                      value={selectedPackageVersion}
+                      onValueChange={setSelectedPackageVersion}
+                      disabled={working || !packageVersionOptions.length}
+                    >
+                      <SelectTrigger className="h-9 min-w-[190px] flex-1 rounded-control border-border bg-surface-app text-xs focus:ring-brand/50">
+                        <SelectValue placeholder={packageState === "working" ? "读取云端版本..." : "云端版本"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {packageVersionOptions.map((version) => (
+                          <SelectItem key={version} value={version} className="text-xs">
+                            {version === packageStatus?.latestVersion ? `${version}（最新版）` : version}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               </OnboardingStep>
 
               <OnboardingStep
@@ -445,7 +632,7 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
                       className="inline-flex items-center gap-1.5 rounded-control px-0 py-1 text-xs font-medium text-text-subtle transition-colors hover:text-text"
                     >
                       <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", manualTokenOpen && "rotate-180")} />
-                      手动输入 Token
+                      {manualToken ? "手动 Token 已保存" : "手动输入 Token"}
                     </button>
                   </div>
                   {manualTokenOpen ? (
@@ -470,7 +657,7 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
                         </Button>
                       </div>
                       <p className="m-0 mt-2 text-[11px] leading-relaxed text-text-subtle">
-                        用于无法自动跳转登录或本地测试；保存后会清空输入框。
+                        用于无法自动跳转登录或本地测试；保存后会在首次启动页保留。
                       </p>
                     </motion.div>
                   ) : null}
@@ -484,7 +671,8 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
                 icon={<Plus />}
                 state={projectState}
               >
-                <div className="flex w-full flex-col gap-3">
+                <div className="flex w-full flex-col gap-4">
+                  {/* Primary Action: Select Local Directory */}
                   <div className="flex min-w-0 flex-wrap justify-end gap-2">
                     <input
                       readOnly
@@ -497,27 +685,73 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
                     </Button>
                   </div>
 
-                  {initPrompt ? (
+                  {initPrompt && (
                     <motion.div 
                       initial={{ opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: "auto" }}
-                      className="rounded-control border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-text overflow-hidden"
+                      className="overflow-hidden"
                     >
-                      <div className="font-semibold text-amber-500">未检测到完整 Maker 项目</div>
-                      <div className="mt-1 break-all font-mono text-[11px] text-text-subtle">{initPrompt.targetDir}</div>
-                      <div className="mt-1 line-clamp-2 text-text-subtle">{initPrompt.message}</div>
-                      <div className="mt-3 flex justify-end gap-2">
-                        <Button variant="outline" size="sm" onClick={() => setInitPrompt(undefined)} disabled={working}>
-                          取消
-                        </Button>
-                        <Button size="sm" onClick={() => void handleInitializeProject()} disabled={working}>
-                          在此目录初始化
-                        </Button>
+                      <div className="rounded-control border border-amber-500/50 bg-amber-500/10 p-3 text-xs text-amber-500">
+                        <div className="flex items-center gap-2 font-bold mb-1">
+                          <AlertTriangle className="h-4 w-4" />
+                          未检测到完整 Maker 项目
+                        </div>
+                        <div className="font-mono text-[11px] opacity-80 mb-1">{initPrompt.targetDir}</div>
+                        <div className="opacity-80">
+                          此目录不包含项目配置文件。请重新选择有效的项目目录，或者在下方直接拉取云端项目。
+                        </div>
                       </div>
                     </motion.div>
-                  ) : null}
+                  )}
 
-                  {projects.length ? (
+                  <div className="flex items-center gap-4 py-1">
+                    <div className="h-[1px] flex-1 bg-border-soft" />
+                    <div className="text-[12px] text-text-subtle">或者</div>
+                    <div className="h-[1px] flex-1 bg-border-soft" />
+                  </div>
+
+                  {/* Standalone Cloud Project Selector */}
+                  <div className="rounded-control border border-border-soft bg-surface-panel p-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <div className="text-sm font-bold text-text">Maker 云端项目</div>
+                      <Button variant="ghost" size="sm" onClick={() => void refreshCloudProjects()} disabled={working} className="h-7 text-xs text-text-subtle hover:text-text">
+                        <RefreshCw className={cn("mr-1 h-3.5 w-3.5", projectState === "working" && "animate-spin")} />
+                        刷新
+                      </Button>
+                    </div>
+                    {cloudProjects.length ? (
+                      <div className="flex flex-col gap-2">
+                        <div className="text-xs text-text-subtle mb-1">选择一个项目，系统将自动拉取到您的 Maker 总目录中。</div>
+                        <div className="flex min-w-0 flex-wrap gap-2">
+                          <Select
+                            value={selectedCloudProjectId}
+                            onValueChange={setSelectedCloudProjectId}
+                          >
+                            <SelectTrigger className="h-9 min-w-[240px] flex-1 rounded-control border-border bg-surface-app text-xs focus:ring-brand/50">
+                              <SelectValue placeholder="选择云端项目" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {cloudProjects.map((project) => (
+                                <SelectItem key={project.id} value={project.id} className="text-xs">
+                                  {project.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Button size="sm" onClick={() => void handlePullFirstCloudProject()} disabled={working || !selectedCloudProjectId}>
+                            拉取到总目录
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="m-0 text-xs text-text-subtle bg-surface-muted/50 p-2 rounded-control">
+                        暂未读取到云端项目。请确保已登录 Maker 账号，或手动点击刷新重试。
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Recent Projects List */}
+                  {!initPrompt && projects.length ? (
                     <motion.div 
                       initial={{ opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: "auto" }}
@@ -543,7 +777,7 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
 
           <div className="flex items-center justify-between gap-4 border-t border-border-soft px-8 py-5 bg-surface-panel">
             <div className="min-w-0 truncate text-[11px] text-text-subtle font-medium">{notice || "选择目录会自动检测项目状态；不需要手动判断扫描、初始化或绑定。"}</div>
-            <Button size="sm" onClick={onClose} className="rounded-full px-6 shadow-sm">
+            <Button size="sm" onClick={requestEnterWorkbench} disabled={!canEnterWorkbench || working} className="rounded-full px-6 shadow-sm">
               进入工作台
             </Button>
           </div>
@@ -657,10 +891,10 @@ function ProcessAnimation() {
             {tick > 0 && tick < 4 && (
               <motion.circle 
                 cx="16" 
-                cy={`${((tick - 1) / 3) * 100}%`}
                 r="3" 
                 className="fill-brand drop-shadow-[0_0_5px_rgba(0,217,197,0.8)]"
-                animate={{ cy: [`${((tick - 1) / 3) * 100}%`, `${(tick / 3) * 100}%`] }}
+                initial={{ cy: `${((tick - 1) / 3) * 100}%` }}
+                animate={{ cy: `${(tick / 3) * 100}%` }}
                 transition={{ duration: 1.2, ease: "linear" }}
               />
             )}

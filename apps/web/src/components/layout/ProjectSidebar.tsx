@@ -40,6 +40,12 @@ const moduleIcons: Record<string, React.ElementType> = {
   "settings": Settings2,
 };
 
+function normalizeSettingsSearchText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[\s_\-()[\]（）/\\:：,.，。"'“”]+/g, "");
+}
+
 export function ProjectSidebar({ projects, selectedProjectId, activeModule, activeSettingsTab, collapsed, width, developerMode, onToggleCollapsed, onClearProject, onSelectModule, onSelectSettingsTab, onExitSettings }: Props) {
   const [settingsSearch, setSettingsSearch] = useState("");
   const [disabledPagesOpen, setDisabledPagesOpen] = useState(false);
@@ -51,9 +57,16 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
   const isSettingsMode = activeModule === "settings";
   const disabledRoutes = workbenchRoutes.filter((route) => route.developerOnly);
   const visibleSettingsTabs = useMemo(() => {
-    const query = settingsSearch.trim().toLowerCase();
+    const query = normalizeSettingsSearchText(settingsSearch);
     if (!query) return settingsTabs;
-    return settingsTabs.filter((tab) => tab.label.toLowerCase().includes(query) || tab.id.toLowerCase().includes(query));
+    return settingsTabs.filter((tab) => {
+      const searchableText = [
+        tab.label,
+        tab.id,
+        ...tab.keywords,
+      ].map(normalizeSettingsSearchText).join("");
+      return searchableText.includes(query);
+    });
   }, [settingsSearch]);
 
   if (isSettingsMode) {
@@ -113,13 +126,20 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
                       onClick={() => onSelectSettingsTab(tab.id)}
                     >
                       <Icon className="h-[20px] w-[20px] shrink-0" strokeWidth={active ? 2.5 : 2} />
-                      {!collapsed ? <span className="truncate text-[14px]">{tab.label}</span> : null}
+                      {!collapsed ? <span className="min-w-0 flex-1 truncate text-[14px] text-left">{tab.label}</span> : null}
+                      {!collapsed && settingsSearch.trim() ? (
+                        <span className="ml-auto max-w-[92px] truncate text-[10px] font-normal text-text-subtle">
+                          {tab.keywords.find((keyword) =>
+                            normalizeSettingsSearchText(keyword).includes(normalizeSettingsSearchText(settingsSearch)),
+                          ) ?? "相关设置"}
+                        </span>
+                      ) : null}
                     </button>
                   </li>
                 );
               })}
               {!visibleSettingsTabs.length ? (
-                <li className="px-3 py-2 text-[12px] text-text-subtle">无匹配设置</li>
+                <li className="px-3 py-2 text-[12px] text-text-subtle">没有找到相关设置项</li>
               ) : null}
             </ul>
           </div>

@@ -7,12 +7,18 @@ const Select = SelectPrimitive.Root
 const SelectGroup = SelectPrimitive.Group
 const SelectValue = SelectPrimitive.Value
 
+function suppressContextMenu(event: React.MouseEvent) {
+  event.preventDefault()
+  event.stopPropagation()
+}
+
 const SelectTrigger = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Trigger>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>
 >(({ className, children, ...props }, ref) => (
   <SelectPrimitive.Trigger
     ref={ref}
+    onContextMenu={suppressContextMenu}
     className={cn(
       "flex h-9 w-full items-center justify-between rounded-control border border-border bg-surface-panel px-3 py-2 text-sm placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-brand/50 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1 text-left cursor-pointer transition-all hover:border-brand/40",
       className
@@ -34,8 +40,9 @@ const SelectContent = React.forwardRef<
   <SelectPrimitive.Portal>
     <SelectPrimitive.Content
       ref={ref}
+      onContextMenu={suppressContextMenu}
       className={cn(
-        "relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-card border border-border bg-surface-panel text-text shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+        "relative z-[100] max-h-96 min-w-[8rem] overflow-hidden rounded-card border border-border bg-surface-panel text-text shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
         position === "popper" &&
           "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
         className
@@ -63,6 +70,7 @@ const SelectItem = React.forwardRef<
 >(({ className, children, ...props }, ref) => (
   <SelectPrimitive.Item
     ref={ref}
+    onContextMenu={suppressContextMenu}
     className={cn(
       "relative flex w-full cursor-pointer select-none items-center rounded-control py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-brand/10 focus:text-brand-strong data-[disabled]:pointer-events-none data-[disabled]:opacity-50 transition-colors",
       className

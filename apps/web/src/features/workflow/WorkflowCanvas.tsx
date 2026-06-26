@@ -799,7 +799,7 @@ export function WorkflowCanvas({ project, tools, tasks, onSelectTool, onCommandC
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-surface-app p-4 md:p-6">
+    <section className="flex h-full min-h-0 flex-col bg-transparent p-4 md:p-6">
       <div className="mb-4 flex shrink-0 items-center justify-between gap-4">
         <div className="min-w-0">
           <span className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-text-subtle">

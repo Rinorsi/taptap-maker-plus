@@ -1,6 +1,6 @@
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { ChevronRight } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import type { AppCommandContext, Command } from "./types";
 import { formatShortcut } from "./keyboard";
 import { useCommandRegistry } from "./CommandProvider";
@@ -18,6 +18,11 @@ type AppContextMenuProps = {
   children: ReactNode;
   triggerClassName?: string;
 };
+
+function suppressNativeContextMenu(event: ReactMouseEvent) {
+  event.preventDefault();
+  event.stopPropagation();
+}
 
 export type MenuCommandItem = {
   type: "command";
@@ -361,6 +366,7 @@ export function AppContextMenu({ context, children, triggerClassName }: AppConte
               className={menuContentClasses}
               sideOffset={4}
               alignOffset={-4}
+              onContextMenu={suppressNativeContextMenu}
             >
               {item.items.map(renderMenuItem)}
             </ContextMenu.SubContent>
@@ -411,6 +417,7 @@ export function AppContextMenu({ context, children, triggerClassName }: AppConte
           data-app-context-menu
           avoidCollisions
           collisionPadding={8}
+          onContextMenu={suppressNativeContextMenu}
         >
           <ContextMenu.Label className={ContextMenuStyles.label}>
             {contextMenuTitle(context.objectType)}

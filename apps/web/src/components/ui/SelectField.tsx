@@ -17,6 +17,11 @@ type Props = {
   ariaLabel?: string;
 };
 
+function suppressContextMenu(event: React.MouseEvent) {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
 export function SelectField({ id, value, options, onChange, className, ariaLabel }: Props) {
   const [open, setOpen] = useState(false);
   const [menuStyle, setMenuStyle] = useState<CSSProperties>();
@@ -75,6 +80,7 @@ export function SelectField({ id, value, options, onChange, className, ariaLabel
           open && "border-brand ring-1 ring-brand/30"
         )}
         onClick={toggleOpen}
+        onContextMenu={suppressContextMenu}
       >
         <span className="min-w-0 truncate">{selected?.label ?? ""}</span>
         <ChevronDown className={cn("h-4 w-4 shrink-0 text-text-subtle transition-transform", open && "rotate-180 text-brand-strong")} />
@@ -87,6 +93,7 @@ export function SelectField({ id, value, options, onChange, className, ariaLabel
           onPointerDown={(e) => {
              e.stopPropagation();
           }}
+          onContextMenu={suppressContextMenu}
         >
           {options.map((option) => {
             const active = option.value === value;
@@ -104,6 +111,7 @@ export function SelectField({ id, value, options, onChange, className, ariaLabel
                   onChange(option.value);
                   setOpen(false);
                 }}
+                onContextMenu={suppressContextMenu}
               >
                 <span className="min-w-0 truncate">{option.label}</span>
                 {active && <Check className="h-4 w-4 shrink-0" />}

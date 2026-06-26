@@ -4,6 +4,7 @@ import {
   getMcpPackageStatus,
   installMcpPackage,
   uninstallMcpPackage,
+  type McpPackageUninstallResult,
   type McpPackageUpdateStatus
 } from "../../api";
 import { Button } from "../../components/ui/Button";
@@ -15,12 +16,68 @@ type Props = {
   compact?: boolean;
 };
 
+const pendingUninstallSteps = [
+  { id: "stop_runtime", label: "停止 MCP runtime", status: "done", detail: "正在请求停止当前 MCP runtime。" },
+  { id: "clear_settings", label: "清理版本设置", status: "done", detail: "等待清理桌面端 MCP 包版本设置。" },
+  { id: "clear_cache", label: "清理 npm-cache", status: "done", detail: "等待清理本地 MCP 包缓存。" },
+  { id: "preserve_projects", label: "保留 Maker 项目", status: "done", detail: "不会删除 Maker 项目目录。" },
+  { id: "ai_client_config", label: "AI client 配置", status: "skipped", detail: "不会改动 AI client 配置文件。" },
+] as const;
+
+function formatCheckNotice(status: McpPackageUpdateStatus) {
+  if (!status.localInstalled) {
+    return status.latestVersion
+      ? `本地 MCP 未安装；云端最新版本为 ${status.latestVersion}，可以选择版本安装。`
+      : "本地 MCP 未安装；云端版本列表暂未读取到。";
+  }
+  return status.updateAvailable ? "检测到云端新版本" : "本地 MCP 已是当前云端最新版本";
+}
+
+function formatLocalStatus(status?: McpPackageUpdateStatus) {
+  if (!status) return "未检查";
+  if (!status.localInstalled) return "未安装";
+  return status.currentVersion ?? "已安装";
+}
+
+function formatCloudStatus(status?: McpPackageUpdateStatus) {
+  if (!status) return "未检查";
+  if (status.registryError) return "检查失败";
+  return status.latestVersion ?? "未检查";
+}
+
+function formatCache(status?: McpPackageUpdateStatus) {
+  if (!status) return "-";
+  if (!status.cacheExists) return "不存在";
+  return `${status.cacheEntryCount} 项 / ${formatBytes(status.cacheSizeBytes)}`;
+}
+
+function formatBytes(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let size = value;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function formatTime(value?: string) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
 export function McpPackageManager({ busy, compact = false }: Props) {
   const [status, setStatus] = useState<McpPackageUpdateStatus>();
   const [selectedVersion, setSelectedVersion] = useState("");
   const [working, setWorking] = useState(false);
+  const [operation, setOperation] = useState<"check" | "install" | "uninstall" | undefined>();
   const [notice, setNotice] = useState("");
   const [uninstallConfirmText, setUninstallConfirmText] = useState("");
+  const [uninstallResult, setUninstallResult] = useState<McpPackageUninstallResult>();
 
   useEffect(() => {
     void refreshStatus(true);
@@ -28,20 +85,22 @@ export function McpPackageManager({ busy, compact = false }: Props) {
 
   async function refreshStatus(checkRegistry: boolean) {
     setWorking(true);
-    setNotice(checkRegistry ? "正在检查 MCP 包版本..." : "");
+    setOperation(checkRegistry ? "check" : undefined);
+    setNotice(checkRegistry ? "正在检查云端 MCP 包版本..." : "");
     try {
       const response = await getMcpPackageStatus(checkRegistry);
       setStatus(response.status);
-      setSelectedVersion(response.status.currentVersion ?? response.status.latestVersion ?? response.status.availableVersions.at(-1) ?? "");
+      setSelectedVersion(response.status.latestVersion ?? response.status.availableVersions.at(-1) ?? response.status.currentVersion ?? "");
       if (response.status.registryError) {
-        setNotice(`版本检查失败：${response.status.registryError}`);
+        setNotice(`云端版本检查失败：${response.status.registryError}`);
       } else if (checkRegistry) {
-        setNotice(response.status.updateAvailable ? "检测到可用更新" : "当前没有检测到新版本");
+        setNotice(formatCheckNotice(response.status));
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
       setWorking(false);
+      setOperation(undefined);
     }
   }
 
@@ -49,33 +108,40 @@ export function McpPackageManager({ busy, compact = false }: Props) {
     if (!status || !selectedVersion) return;
     const nextSpec = `${status.packageName}@${selectedVersion}`;
     setWorking(true);
+    setOperation("install");
+    setUninstallResult(undefined);
     setNotice("正在安装并预热 MCP 包缓存...");
     try {
       const result = await installMcpPackage(nextSpec);
       setStatus(result.status);
       setSelectedVersion(result.status.currentVersion ?? selectedVersion);
-      setNotice(`已安装：${result.status.packageSpec}。当前 MCP 会话已停止，重新启动后生效。`);
+      setNotice(`已安装：${result.status.packageSpec}。重新启动 MCP 后使用此版本。`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
       setWorking(false);
+      setOperation(undefined);
     }
   }
 
   async function handleUninstall() {
     if (uninstallConfirmText !== "卸载 MCP") return;
     setWorking(true);
+    setOperation("uninstall");
+    setUninstallResult(undefined);
     setNotice("正在停止 MCP runtime 并清理本地 MCP 包缓存...");
     try {
       const result = await uninstallMcpPackage();
       setStatus(result.status);
-      setSelectedVersion(result.status.currentVersion ?? result.status.latestVersion ?? "");
+      setSelectedVersion(result.status.latestVersion ?? result.status.availableVersions.at(-1) ?? "");
+      setUninstallResult(result);
       setUninstallConfirmText("");
-      setNotice(`已卸载 MCP 包缓存；已清理 ${result.clearedSettingKeys.length} 项版本设置。项目目录未删除。`);
+      setNotice(`本地 MCP 已卸载；云端版本仍可检查。项目目录未删除。`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
       setWorking(false);
+      setOperation(undefined);
     }
   }
 
@@ -87,6 +153,9 @@ export function McpPackageManager({ busy, compact = false }: Props) {
       label: version === status?.latestVersion ? `${version}（最新版）` : version,
     }));
   const canInstall = Boolean(status && selectedVersion && versionOptions.some((option) => option.value === selectedVersion));
+  const localStatus = formatLocalStatus(status);
+  const cloudStatus = formatCloudStatus(status);
+  const uninstallSteps = uninstallResult?.steps ?? (operation === "uninstall" ? pendingUninstallSteps : []);
 
   if (compact) {
     return (
@@ -94,22 +163,22 @@ export function McpPackageManager({ busy, compact = false }: Props) {
         <div className="border-b border-border-soft px-3 py-2.5">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
-              <span className="block truncate text-[12px] font-bold text-text">MCP 包更新</span>
+              <span className="block truncate text-[12px] font-bold text-text">MCP 包状态</span>
               <span className="mt-0.5 block truncate font-mono text-[10px] text-text-subtle" title={status?.packageSpec ?? "-"}>
                 {status?.packageSpec ?? "等待检查"}
               </span>
             </div>
             <Button variant="outline" size="sm" onClick={() => void refreshStatus(true)} disabled={disabled} className="h-7 shrink-0 px-2 text-[10px]">
-              <RefreshCw className={cn("mr-1 h-3 w-3", working && "animate-spin")} />
-              检查
+              <RefreshCw className={cn("mr-1 h-3 w-3", operation === "check" && "animate-spin")} />
+              查云端
             </Button>
           </div>
           {notice ? <div className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-brand">{notice}</div> : null}
         </div>
 
         <div className="grid grid-cols-2 gap-1.5 border-b border-border-soft px-3 py-2 text-[10px] text-text-subtle">
-          <CompactStatus label="当前" value={status?.currentVersion ?? "未检查"} />
-          <CompactStatus label="最新" value={status?.latestVersion ?? "未检查"} />
+          <CompactStatus label="本地" value={localStatus} title={status?.cachePath} />
+          <CompactStatus label="云端" value={cloudStatus} />
           <CompactStatus label="检查" value={formatTime(status?.lastCheckedAt)} />
           <CompactStatus label="安装" value={formatTime(status?.lastInstalledAt)} />
         </div>
@@ -151,6 +220,7 @@ export function McpPackageManager({ busy, compact = false }: Props) {
             <p className="text-[11px] leading-relaxed text-text-subtle">
               停止当前 MCP runtime，清理版本设置和 npm-cache，不删除 Maker 项目目录。
             </p>
+            <UninstallStepList steps={uninstallSteps} working={operation === "uninstall"} />
             <input
               value={uninstallConfirmText}
               onChange={(event) => setUninstallConfirmText(event.target.value)}
@@ -178,22 +248,31 @@ export function McpPackageManager({ busy, compact = false }: Props) {
       {/* MCP Package Update */}
       <div className="flex flex-col md:flex-row md:items-center justify-between p-4 border-b border-border-soft hover:bg-surface-muted/30 transition-colors gap-4">
         <div className="flex flex-col flex-1 pr-0 md:pr-8">
-          <span className="text-[13px] font-medium text-text">MCP 包更新</span>
+          <span className="text-[13px] font-medium text-text">MCP 包状态</span>
           <span className="mt-1 text-xs text-text-muted leading-relaxed">
-            当前启动链路使用 <span className="font-mono">{status?.packageSpec ?? "-"}</span>。
+            本地安装状态和云端版本检查分开显示；卸载本地 MCP 不影响继续检查云端版本。
           </span>
-          <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-text-subtle">
-            <StatusPill label="当前版本" value={status?.currentVersion ?? "未检查"} />
-            <StatusPill label="最新版本" value={status?.latestVersion ?? "未检查"} />
-            <StatusPill label="检查时间" value={formatTime(status?.lastCheckedAt)} />
+          <div className="mt-3 grid gap-2 text-[11px] text-text-subtle md:grid-cols-2">
+            <StatusCard
+              label="本地 MCP"
+              value={localStatus}
+              detail={`缓存：${formatCache(status)}`}
+              title={status?.cachePath}
+            />
+            <StatusCard
+              label="云端版本"
+              value={cloudStatus}
+              detail={`检查时间：${formatTime(status?.lastCheckedAt)}`}
+            />
             <StatusPill label="安装时间" value={formatTime(status?.lastInstalledAt)} />
+            <StatusPill label="包名" value={status?.packageName ?? "-"} />
           </div>
           {notice ? <div className="mt-2 text-xs text-brand">{notice}</div> : null}
         </div>
         <div className="shrink-0 flex items-center md:justify-end">
           <Button variant="outline" size="sm" onClick={() => void refreshStatus(true)} disabled={disabled}>
-            <RefreshCw className={cn("mr-1 h-3.5 w-3.5", working && "animate-spin")} />
-            检查更新
+            <RefreshCw className={cn("mr-1 h-3.5 w-3.5", operation === "check" && "animate-spin")} />
+            检查云端版本
           </Button>
         </div>
       </div>
@@ -202,6 +281,9 @@ export function McpPackageManager({ busy, compact = false }: Props) {
       <div className="flex flex-col md:flex-row md:items-center justify-between p-4 border-b border-border-soft hover:bg-surface-muted/30 transition-colors gap-4">
         <div className="flex flex-col pr-0 md:pr-8">
           <span className="text-[13px] font-medium text-text">指定 MCP 包版本</span>
+          <span className="mt-1 text-xs text-text-muted leading-relaxed">
+            从云端版本列表选择一个版本，安装后会写入桌面端 MCP 包设置并预热本地缓存。
+          </span>
         </div>
         <div className="shrink-0 flex items-center justify-end gap-2">
           <SelectField
@@ -239,6 +321,7 @@ export function McpPackageManager({ busy, compact = false }: Props) {
           <span className="mt-1 text-xs text-text-muted leading-relaxed">
             停止当前 MCP runtime，清理桌面端保存的 MCP 包版本设置和 <span className="font-mono">data/npm-cache</span> 下的 MCP 包缓存。不删除 Maker 项目目录，也不会改动 AI client 配置文件。
           </span>
+          <UninstallStepList steps={uninstallSteps} working={operation === "uninstall"} />
         </div>
         <div className="shrink-0 flex flex-col items-stretch justify-end gap-2">
           <input
@@ -263,9 +346,9 @@ export function McpPackageManager({ busy, compact = false }: Props) {
   );
 }
 
-function CompactStatus({ label, value }: { label: string; value: string }) {
+function CompactStatus({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
-    <div className="min-w-0 rounded-control bg-surface-muted px-2 py-1">
+    <div className="min-w-0 rounded-control bg-surface-muted px-2 py-1" title={title}>
       <span className="mr-1 text-text-subtle">{label}</span>
       <span className="font-mono text-text">{value}</span>
     </div>
@@ -280,9 +363,45 @@ function StatusPill({ label, value }: { label: string; value: string }) {
   );
 }
 
-function formatTime(value?: string) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+function StatusCard({ label, value, detail, title }: { label: string; value: string; detail: string; title?: string }) {
+  return (
+    <div className="min-w-0 rounded-panel border border-border-soft bg-surface-muted px-3 py-2" title={title}>
+      <div className="text-[11px] font-bold text-text">{label}</div>
+      <div className="mt-1 break-all font-mono text-[12px] text-text">{value}</div>
+      <div className="mt-1 break-all text-[11px] text-text-subtle">{detail}</div>
+    </div>
+  );
+}
+
+function UninstallStepList({
+  steps,
+  working
+}: {
+  steps: ReadonlyArray<{ label: string; status: "done" | "skipped"; detail: string }>;
+  working: boolean;
+}) {
+  if (!steps.length) return null;
+  return (
+    <div className="mt-3 grid gap-1.5 rounded-panel border border-border-soft bg-surface-app/70 p-2">
+      {steps.map((step, index) => (
+        <div key={`${step.label}-${index}`} className="grid grid-cols-[18px_1fr] gap-2 text-[11px] leading-relaxed">
+          <span
+            className={cn(
+              "mt-0.5 flex h-4 w-4 items-center justify-center rounded-full border text-[9px]",
+              step.status === "done"
+                ? "border-brand bg-brand text-white"
+                : "border-border-soft bg-surface-muted text-text-subtle",
+              working && index === 0 && "animate-pulse"
+            )}
+          >
+            {step.status === "done" ? "✓" : "-"}
+          </span>
+          <span className="min-w-0">
+            <span className="font-bold text-text">{step.label}</span>
+            <span className="ml-1 break-all text-text-subtle">{step.detail}</span>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 }

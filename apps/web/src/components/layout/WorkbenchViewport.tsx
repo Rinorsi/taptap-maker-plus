@@ -102,6 +102,7 @@ type Props = {
   projects: ProjectSummary[];
   onSelectProject: (projectId: string) => void;
   onScanProjects: () => void;
+  onOpenCloudProjects?: () => void;
   onOpenModule: (module: WorkbenchModule) => void;
   activeSettingsTab: SettingsTab;
   sidebarCollapsed: boolean;
@@ -142,6 +143,7 @@ export function WorkbenchViewport(props: Props) {
           assets={props.assets}
           onSelectProject={props.onSelectProject}
           onScanProjects={props.onScanProjects}
+          onOpenCloudProjects={props.onOpenCloudProjects}
           onScanAssets={props.onScanAssets}
           onRefreshProject={props.onRefreshProject}
           onStartRuntime={props.onStartRuntime}
@@ -323,7 +325,7 @@ export function WorkbenchViewport(props: Props) {
   );
 
   return (
-    <main className="flex-1 min-h-0 relative">
+    <main className="workbench-page-scrim flex-1 min-h-0 relative">
       <AnimatePresence mode="wait">
         <motion.div
           key={props.activeModule}

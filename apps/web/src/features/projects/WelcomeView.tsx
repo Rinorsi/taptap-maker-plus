@@ -26,6 +26,7 @@ type Props = {
   assets: AssetSummary[];
   onSelectProject: (projectId: string) => void;
   onScanProjects: () => void;
+  onOpenCloudProjects?: () => void;
   onScanAssets: () => void;
   onRefreshProject?: () => void | Promise<void>;
   onStartRuntime: () => void;
@@ -53,6 +54,7 @@ export function WelcomeView({
   assets,
   onSelectProject,
   onScanProjects,
+  onOpenCloudProjects,
   onScanAssets,
   onRefreshProject,
   onStartRuntime,
@@ -103,7 +105,18 @@ export function WelcomeView({
               <div className="flex h-8 w-8 items-center justify-center rounded bg-surface-panel text-text-muted transition-colors group-hover:bg-brand/10 group-hover:text-brand">
                 <FolderSync className="h-4 w-4" />
               </div>
-              扫描本地项目...
+              选择本地项目...
+            </button>
+            <button
+              onClick={onOpenCloudProjects}
+              disabled={busy || !onOpenCloudProjects}
+              className="group mt-1 flex w-full items-center gap-3 rounded-lg py-2 text-left text-sm font-medium text-text transition-colors hover:text-brand disabled:cursor-not-allowed disabled:opacity-50"
+              type="button"
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded bg-surface-panel text-text-muted transition-colors group-hover:bg-brand/10 group-hover:text-brand">
+                <RefreshCw className="h-4 w-4" />
+              </div>
+              从云端拉取项目...
             </button>
           </div>
 
@@ -132,8 +145,8 @@ export function WelcomeView({
         <section className="flex min-w-0 flex-1 flex-col pt-2 lg:pt-0">
           {!selectedProject ? (
             <div className="flex h-64 flex-col items-center justify-center text-center opacity-60">
-              <img src="/logo.png" alt="Logo" className="mb-4 h-16 w-16 object-contain opacity-20 grayscale" />
-              <p className="text-sm text-text-muted">请从左侧选择一个项目开始工作</p>
+              <img src="/files.png" alt="Logo" className="mb-4 h-16 w-16 rounded-xl object-contain opacity-20 grayscale" />
+              <p className="text-sm text-text-muted">请选择本地项目，或从云端拉取项目后开始工作</p>
             </div>
           ) : (
             <div className="flex flex-col gap-10">

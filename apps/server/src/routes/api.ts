@@ -56,7 +56,7 @@ import { getMcpPackageUpdateStatus, installMcpPackage, uninstallMcpPackage } fro
 import { executeToolCall, syncCreditRecordsFromTasks } from "../services/toolExecution.js";
 import { buildAgentContext } from "../agent/contextBuilder.js";
 import { appVersion } from "../generated/appVersion.js";
-import { bindExistingMakerProject, initMakerProject, loginMaker, scanExistingMakerProjects, setMakerToken } from "../services/makerOnboarding.js";
+import { bindExistingMakerProject, initMakerCloudProject, listMakerCloudProjects, loginMaker, scanExistingMakerProjects, setMakerToken } from "../services/makerOnboarding.js";
 import { getProjectBuildLogs } from "../services/projectLogs.js";
 import { scanModelPackages, organizeModelPackage, bindModelPackage, discardModelPackage, restoreModelPackage, updateResourceTable, runModelPackageBatchAction } from "../services/modelPackage.js";
 import { convertMdlToGltf, inspectMdlFile } from "../services/urhoMdl.js";
@@ -86,6 +86,11 @@ const onboardingTargetDirSchema = z.object({
   targetDir: z.string().min(1)
 });
 
+const onboardingCloudProjectInitSchema = z.object({
+  appId: z.string().min(1),
+  targetDir: z.string().min(1).optional()
+});
+
 const onboardingScanSchema = z.object({
   rootDir: z.string().min(1).optional()
 });
@@ -93,6 +98,7 @@ const onboardingScanSchema = z.object({
 const onboardingTokenSchema = z.object({
   token: z.string().min(1)
 });
+const storedMakerTokenSettingKey = "maker_onboarding_token";
 
 const assetPathsSchema = z.object({
   relativePaths: z.array(z.string()).min(1)
@@ -792,7 +798,22 @@ export async function registerApiRoutes(app: FastifyInstance) {
     const parsed = onboardingTokenSchema.safeParse(request.body ?? {});
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
     try {
-      return { cli: await setMakerToken(parsed.data.token) };
+      const cli = await setMakerToken(parsed.data.token);
+      setAppSetting(storedMakerTokenSettingKey, parsed.data.token.trim());
+      return { cli };
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.get("/api/onboarding/token", async () => {
+    return { token: getAppSetting(storedMakerTokenSettingKey) ?? "" };
+  });
+
+  app.get("/api/onboarding/cloud-projects", async (_request, reply) => {
+    try {
+      const result = await listMakerCloudProjects();
+      return { cli: result.cli, projects: result.projects };
     } catch (error) {
       return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -812,8 +833,14 @@ export async function registerApiRoutes(app: FastifyInstance) {
   app.post<{ Body: unknown }>("/api/onboarding/projects/init", async (request, reply) => {
     const parsed = onboardingTargetDirSchema.safeParse(request.body ?? {});
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    return reply.code(400).send({ error: "请先读取 Maker 云端项目列表，并通过 /api/onboarding/projects/init-cloud 指定 appId 后再拉取项目。" });
+  });
+
+  app.post<{ Body: unknown }>("/api/onboarding/projects/init-cloud", async (request, reply) => {
+    const parsed = onboardingCloudProjectInitSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
     try {
-      const result = await initMakerProject(parsed.data.targetDir);
+      const result = await initMakerCloudProject(parsed.data.appId, parsed.data.targetDir);
       return {
         cli: result.cli,
         project: withRuntime(result.project),

@@ -19,6 +19,19 @@ export type MakerOnboardingProjectResult = {
   project: ProjectSummary;
 };
 
+export type MakerCloudProject = {
+  id: string;
+  name: string;
+  userId?: string;
+  user_id?: string;
+  createdAt?: string;
+  lastAccessedAt?: string | null;
+  lastConversationAt?: string | null;
+  pinnedAt?: string | null;
+  stage?: string;
+  gameType?: string;
+};
+
 function parseCliJson(stdout: string): unknown | undefined {
   const trimmed = stdout.trim();
   if (!trimmed) return undefined;
@@ -69,6 +82,40 @@ async function bindProjectRoot(targetDir: string): Promise<ProjectSummary> {
   return project;
 }
 
+function normalizeCloudProjects(value: unknown): MakerCloudProject[] {
+  if (!Array.isArray(value)) return [];
+  const projects: MakerCloudProject[] = [];
+  for (const item of value) {
+      if (!item || typeof item !== "object") continue;
+      const source = item as Record<string, unknown>;
+      const id = typeof source.id === "string" ? source.id : "";
+      const name = typeof source.name === "string" ? source.name : id;
+      if (!id || !name) continue;
+      projects.push({
+        id,
+        name,
+        userId: typeof source.userId === "string" ? source.userId : undefined,
+        user_id: typeof source.user_id === "string" ? source.user_id : undefined,
+        createdAt: typeof source.createdAt === "string" ? source.createdAt : undefined,
+        lastAccessedAt: typeof source.lastAccessedAt === "string" || source.lastAccessedAt === null ? source.lastAccessedAt : undefined,
+        lastConversationAt: typeof source.lastConversationAt === "string" || source.lastConversationAt === null ? source.lastConversationAt : undefined,
+        pinnedAt: typeof source.pinnedAt === "string" || source.pinnedAt === null ? source.pinnedAt : undefined,
+        stage: typeof source.stage === "string" ? source.stage : undefined,
+        gameType: typeof source.gameType === "string" ? source.gameType : undefined
+      });
+  }
+  return projects;
+}
+
+function sanitizeDirectoryName(value: string) {
+  return value
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[. ]+$/g, "")
+    .slice(0, 80) || "MakerProject";
+}
+
 export async function loginMaker(): Promise<MakerCliResult> {
   const result = await runMakerCli(["login", "--json"], { timeout: 180_000 });
   ensureMakerCliSucceeded(result, "Maker login");
@@ -86,12 +133,30 @@ export async function setMakerToken(token: string): Promise<MakerCliResult> {
   return result;
 }
 
-export async function initMakerProject(targetDir: string): Promise<MakerOnboardingProjectResult> {
+export async function listMakerCloudProjects(): Promise<{ cli: MakerCliResult; projects: MakerCloudProject[] }> {
+  const result = await runMakerCli(["apps", "--json"], { timeout: 120_000 });
+  ensureMakerCliSucceeded(result, "Maker apps");
+  return { cli: result, projects: normalizeCloudProjects(result.json) };
+}
+
+export async function initMakerProject(targetDir: string, appId?: string): Promise<MakerOnboardingProjectResult> {
   const projectRoot = path.resolve(targetDir);
   await fs.mkdir(projectRoot, { recursive: true });
-  const result = await runMakerCli(["init", "--target-dir", projectRoot, "--json"], { timeout: 180_000 });
+  const args = ["init", "--target-dir", projectRoot, "--json"];
+  if (appId) args.splice(1, 0, "--app-id", appId);
+  const result = await runMakerCli(args, { timeout: 180_000 });
   ensureMakerCliSucceeded(result, "Maker init");
   return { cli: result, project: await bindProjectRoot(projectRoot) };
+}
+
+export async function initMakerCloudProject(appId: string, targetDir?: string): Promise<MakerOnboardingProjectResult> {
+  const { projects } = await listMakerCloudProjects();
+  const cloudProject = projects.find((project) => project.id === appId);
+  if (!cloudProject) throw new Error(`未在 Maker 云端项目列表中找到项目：${appId}`);
+  const projectRoot = targetDir?.trim()
+    ? path.resolve(targetDir)
+    : path.join(config.makerProjectsRoot, sanitizeDirectoryName(cloudProject.name));
+  return initMakerProject(projectRoot, appId);
 }
 
 export async function bindExistingMakerProject(targetDir: string): Promise<MakerOnboardingProjectResult> {

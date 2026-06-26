@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   callTool,
+  bindExistingOnboardingProject,
   copyAssetFolder,
   copyAssets,
   createAssetFolder,
@@ -24,9 +25,9 @@ import {
   renameAssetFolder,
   renameAssetWithResult,
   removeProjectRecord,
-  scanAssets,
-  scanAssetReferences,
   scanProjects,
+  scanAssetReferences,
+  scanAssets,
   selectProject,
   startRuntime,
   stopRuntime,
@@ -117,6 +118,7 @@ const NODE_PRESET_DRAG_MIME = "application/reactflow";
 const NODE_PRESET_TEXT_PREFIX = "taptap-node-preset:";
 const BOOTSTRAP_RETRY_DELAYS_MS = [800, 1200, 1800, 2600, 3600];
 const ASSET_REFERENCE_CACHE_TTL_MS = 30_000;
+const ONBOARDING_DISMISSED_STORAGE_KEY = "taptap.onboardingDismissed";
 
 function resolveThemePreference(preference: ThemePreference): "light" | "dark" {
   if (preference === "light" || preference === "dark") return preference;
@@ -235,7 +237,9 @@ export function AppShell() {
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const themeCinemaTargetRef = useRef<"light" | "dark" | undefined>(undefined);
   const startupPromptedRef = useRef(false);
-  const onboardingDismissedRef = useRef(false);
+  const onboardingDismissedRef = useRef(
+    localStorage.getItem(ONBOARDING_DISMISSED_STORAGE_KEY) === "true",
+  );
   const mcpUpdatePromptedProjectRef = useRef<string | undefined>(undefined);
   const autoRuntimeStartedProjectRef = useRef<string | undefined>(undefined);
   const assetReferenceScanCacheRef = useRef(
@@ -688,26 +692,29 @@ export function AppShell() {
   async function handleScanProjects() {
     setBusy(true);
     try {
-      const response = await scanProjects();
-      if (response.onboardingRequired) {
-        setProjects([]);
-        setSelectedProjectId("");
-        setTools([]);
-        setAssets([]);
-        setAssetTree(undefined);
-        setTasks([]);
-        setRuntime(undefined);
-        setStatusText("");
-        setSelection(undefined);
-        onboardingDismissedRef.current = false;
-        setOnboardingOpen(true);
-        setNotice("恢复初始状态后需要先完成首次启动配置，暂不自动扫描旧项目。");
+      let selectedDirectory: string | undefined;
+      try {
+        const { open } = await import("@tauri-apps/plugin-dialog");
+        const selected = await open({
+          title: "选择本地 Maker 项目目录",
+          directory: true,
+          multiple: false,
+          canCreateDirectories: true,
+        });
+        selectedDirectory = typeof selected === "string" ? selected : undefined;
+      } catch {
+        selectedDirectory = window.prompt("选择本地 Maker 项目目录") ?? undefined;
+      }
+      if (!selectedDirectory) {
+        setNotice("已取消选择本地 Maker 项目目录");
         return;
       }
-      setProjects(response.projects);
-      if (!selectedProjectId && response.projects[0])
-        setSelectedProjectId(response.projects[0].id);
-      setNotice(`扫描完成：${response.projects.length} 个项目`);
+
+      setNotice("正在检测本地 Maker 项目目录...");
+      const response = await bindExistingOnboardingProject(selectedDirectory);
+      handleProjectsRootChanged(response.projects, response.selectedProjectId);
+      setActiveModule(resolveDefaultProjectModule());
+      setNotice(`已绑定本地项目：${response.project.name}`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
@@ -787,6 +794,7 @@ export function AppShell() {
     setInspectorWidth(280);
     startupPromptedRef.current = false;
     onboardingDismissedRef.current = false;
+    localStorage.removeItem(ONBOARDING_DISMISSED_STORAGE_KEY);
     setOnboardingOpen(true);
     autoRuntimeStartedProjectRef.current = undefined;
     assetReferenceScanCacheRef.current.clear();
@@ -2218,9 +2226,9 @@ export function AppShell() {
       },
       {
         commandId: "project.scanProjects",
-        title: "扫描项目",
+        title: "选择本地项目",
         icon: <Scan className="h-4 w-4" />,
-        description: "刷新本地 Maker 项目列表",
+        description: "选择并检测一个本地 Maker 项目目录",
         scope: "global",
         run: () => void handleScanProjects(),
       },
@@ -3743,6 +3751,7 @@ export function AppShell() {
     const onContextMenu = (event: MouseEvent) => {
       closeAllContextMenus();
       if (isLocalContextMenuTarget(event.target)) {
+        event.preventDefault();
         setFallbackMenu(undefined);
         setEditableMenu(undefined);
         return;
@@ -4062,6 +4071,11 @@ export function AppShell() {
               agentPage={agentPage}
               onSelectProject={handleSelectProject}
               onScanProjects={handleScanProjects}
+              onOpenCloudProjects={() => {
+                onboardingDismissedRef.current = false;
+                localStorage.removeItem(ONBOARDING_DISMISSED_STORAGE_KEY);
+                setOnboardingOpen(true);
+              }}
               onProjectsRootChanged={handleProjectsRootChanged}
               onResetInitialState={handleResetInitialState}
               onThemePreferenceChange={handleThemePreferenceChange}
@@ -4146,6 +4160,7 @@ export function AppShell() {
           busy={busy}
           onClose={() => {
             onboardingDismissedRef.current = true;
+            localStorage.setItem(ONBOARDING_DISMISSED_STORAGE_KEY, "true");
             setOnboardingOpen(false);
           }}
           onProjectsChanged={handleProjectsRootChanged}
@@ -4264,7 +4279,7 @@ function McpUpdateConfirmBody({ status }: { status: McpPackageUpdateStatus }) {
       </p>
       <div className="grid gap-2 rounded-xl border border-border-soft bg-surface-panel/50 p-4 text-xs">
         <InfoRow label="包名" value={status.packageName} />
-        <InfoRow label="当前版本" value={status.currentVersion ?? "未检查"} />
+        <InfoRow label="本地版本" value={status.localInstalled ? status.currentVersion ?? "已安装" : "未安装"} />
         <InfoRow label="最新版本" value={status.latestVersion ?? "未检查"} />
         <InfoRow label="日志文件" value={status.releaseNotesPath} />
       </div>

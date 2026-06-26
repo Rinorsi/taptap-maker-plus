@@ -56,7 +56,6 @@ export function shouldUseNativeContextMenu(target: EventTarget | null) {
     [
       "[data-native-context-menu]",
       "[data-no-app-context-menu]",
-      "select",
       "[contenteditable='true']",
       "[contenteditable='']",
       "[role='textbox']",

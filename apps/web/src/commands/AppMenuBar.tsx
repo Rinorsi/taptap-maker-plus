@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { ChevronDown } from "lucide-react";
 import type { AppCommandContext, Command } from "./types";
 import { formatShortcut } from "./keyboard";
@@ -33,6 +33,11 @@ const sections: MenuSection[] = [
   }
 ];
 
+function suppressNativeContextMenu(event: ReactMouseEvent) {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
 export function AppMenuBar({ context }: AppMenuBarProps) {
   const registry = useCommandRegistry();
   const [openSection, setOpenSection] = useState("");
@@ -49,7 +54,13 @@ export function AppMenuBar({ context }: AppMenuBarProps) {
   }, [openSection]);
 
   return (
-    <nav ref={rootRef} className="flex h-8 shrink-0 items-center gap-1 px-1 text-[13px] font-medium text-text-subtle" data-no-window-drag>
+    <nav
+      ref={rootRef}
+      className="flex h-8 shrink-0 items-center gap-1 px-1 text-[13px] font-medium text-text-subtle"
+      data-no-window-drag
+      data-local-context-menu
+      onContextMenuCapture={suppressNativeContextMenu}
+    >
       {sections.map((section) => {
         const commands = section.commandIds
           .map((commandId) => registry.get(commandId))
@@ -66,12 +77,18 @@ export function AppMenuBar({ context }: AppMenuBarProps) {
                   : "hover:bg-surface-panel/50 hover:text-text"
               )}
               onClick={() => setOpenSection((current) => current === section.label ? "" : section.label)}
+              onContextMenu={suppressNativeContextMenu}
             >
               {section.label}
               <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200", openSection === section.label ? "rotate-180 text-text" : "text-text-muted")} />
             </button>
             {openSection === section.label ? (
-              <div className="absolute left-0 top-full mt-1.5 z-[90] min-w-[300px] overflow-hidden rounded-xl border border-border/60 bg-surface-panel/95 backdrop-blur-xl p-1.5 shadow-popover origin-top-left animate-in fade-in zoom-in-95 duration-100">
+              <div
+                className="absolute left-0 top-full mt-1.5 z-[90] min-w-[300px] overflow-hidden rounded-xl border border-border/60 bg-surface-panel/95 backdrop-blur-xl p-1.5 shadow-popover origin-top-left animate-in fade-in zoom-in-95 duration-100"
+                data-local-context-menu
+                role="menu"
+                onContextMenu={suppressNativeContextMenu}
+              >
                 {commands.map((command) => (
                   <button
                     type="button"
@@ -80,6 +97,7 @@ export function AppMenuBar({ context }: AppMenuBarProps) {
                       setOpenSection("");
                       void registry.run(command.commandId, context);
                     }}
+                    onContextMenu={suppressNativeContextMenu}
                     className={cn(
                       "group grid w-full cursor-pointer select-none grid-cols-[minmax(0,1fr)_auto] items-center gap-8 rounded-lg px-3 py-2.5 text-left text-[13px] outline-none transition-all duration-200",
                       command.danger 

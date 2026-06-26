@@ -440,6 +440,12 @@ export type McpPackageUpdateStatus = {
   updateAvailable: boolean;
   lastCheckedAt?: string;
   lastInstalledAt?: string;
+  localInstalled: boolean;
+  packageConfigured: boolean;
+  cachePath: string;
+  cacheExists: boolean;
+  cacheSizeBytes: number;
+  cacheEntryCount: number;
   releaseNotes: string;
   releaseNotesPath: string;
   availableVersions: string[];
@@ -451,12 +457,20 @@ export type McpPackageInstallResult = {
   installOutput: string;
 };
 
+export type McpPackageUninstallStep = {
+  id: "stop_runtime" | "clear_settings" | "clear_cache" | "preserve_projects" | "ai_client_config";
+  label: string;
+  status: "done" | "skipped";
+  detail: string;
+};
+
 export type McpPackageUninstallResult = {
   ok: true;
   stoppedRuntime: true;
   clearedSettingKeys: string[];
   clearedCachePath: string;
   removedCache: boolean;
+  steps: McpPackageUninstallStep[];
   aiClientConfigCleanup: {
     supported: false;
     message: string;
@@ -477,6 +491,19 @@ export type OnboardingProjectResult = {
   project: ProjectSummary;
   projects: ProjectSummary[];
   selectedProjectId?: string;
+};
+
+export type MakerCloudProject = {
+  id: string;
+  name: string;
+  userId?: string;
+  user_id?: string;
+  createdAt?: string;
+  lastAccessedAt?: string | null;
+  lastConversationAt?: string | null;
+  pinnedAt?: string | null;
+  stage?: string;
+  gameType?: string;
 };
 
 export type ProjectHealthSummary = {
@@ -1064,6 +1091,16 @@ export async function setMakerTokenOnboarding(token: string): Promise<{ cli: Mak
   );
 }
 
+export async function getMakerTokenOnboarding(): Promise<{ token: string }> {
+  return json<{ token: string }>(await fetch("/api/onboarding/token"));
+}
+
+export async function listMakerCloudProjects(): Promise<{ cli: MakerCliResult; projects: MakerCloudProject[] }> {
+  return json<{ cli: MakerCliResult; projects: MakerCloudProject[] }>(
+    await fetch("/api/onboarding/cloud-projects"),
+  );
+}
+
 export async function scanOnboardingProjects(rootDir?: string): Promise<{ projects: ProjectSummary[]; selectedProjectId?: string }> {
   return json<{ projects: ProjectSummary[]; selectedProjectId?: string }>(
     await fetch("/api/onboarding/projects/scan", {
@@ -1080,6 +1117,16 @@ export async function initOnboardingProject(targetDir: string): Promise<Onboardi
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ targetDir }),
+    }),
+  );
+}
+
+export async function initCloudOnboardingProject(appId: string, targetDir?: string): Promise<OnboardingProjectResult> {
+  return json<OnboardingProjectResult>(
+    await fetch("/api/onboarding/projects/init-cloud", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ appId, targetDir }),
     }),
   );
 }

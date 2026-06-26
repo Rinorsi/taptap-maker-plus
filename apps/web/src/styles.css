@@ -89,6 +89,24 @@
     background-position: center;
   }
 
+  .workbench-page-scrim {
+    background-color: transparent;
+  }
+
+  .workbench-top-scrim {
+    background-color: transparent;
+  }
+
+  :root[data-theme="dark"] .workbench-page-scrim {
+    background-color: color-mix(in srgb, var(--surface-app) 70%, transparent);
+    backdrop-filter: blur(1px);
+  }
+
+  :root[data-theme="dark"] .workbench-top-scrim {
+    background-color: color-mix(in srgb, var(--surface-app) 75%, transparent);
+    backdrop-filter: blur(8px);
+  }
+
   .flow-step-connector {
     position: absolute;
     inset-inline-end: 8px;

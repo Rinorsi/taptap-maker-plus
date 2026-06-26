@@ -26,6 +26,12 @@ export type McpPackageUpdateStatus = {
   updateAvailable: boolean;
   lastCheckedAt?: string;
   lastInstalledAt?: string;
+  localInstalled: boolean;
+  packageConfigured: boolean;
+  cachePath: string;
+  cacheExists: boolean;
+  cacheSizeBytes: number;
+  cacheEntryCount: number;
   releaseNotes: string;
   releaseNotesPath: string;
   availableVersions: string[];
@@ -37,12 +43,20 @@ export type McpPackageInstallResult = {
   installOutput: string;
 };
 
+export type McpPackageUninstallStep = {
+  id: "stop_runtime" | "clear_settings" | "clear_cache" | "preserve_projects" | "ai_client_config";
+  label: string;
+  status: "done" | "skipped";
+  detail: string;
+};
+
 export type McpPackageUninstallResult = {
   ok: true;
   stoppedRuntime: true;
   clearedSettingKeys: string[];
   clearedCachePath: string;
   removedCache: boolean;
+  steps: McpPackageUninstallStep[];
   aiClientConfigCleanup: {
     supported: false;
     message: string;
@@ -69,16 +83,17 @@ export function getMcpReleaseNotesPath() {
 export async function getMcpPackageUpdateStatus(options: { checkRegistry?: boolean } = {}): Promise<McpPackageUpdateStatus> {
   const packageSpec = config.makerPackage;
   const packageName = extractPackageName(packageSpec);
-  const currentVersion = getAppSetting("maker_package_resolved_version") ?? extractFixedPackageVersion(packageSpec);
-  let resolvedCurrentVersion = currentVersion;
+  const configuredPackageSpec = getAppSetting(MAKER_PACKAGE_SETTING_KEY);
+  const storedCurrentVersion = getAppSetting("maker_package_resolved_version");
+  const currentVersion = storedCurrentVersion ?? (configuredPackageSpec ? extractFixedPackageVersion(packageSpec) : undefined);
+  const packageConfigured = Boolean(configuredPackageSpec || storedCurrentVersion);
+  const cacheStats = readCacheStats(config.makerNpmCacheDir);
   let latestVersion: string | undefined;
   let availableVersions: string[] = [];
   let registryError: string | undefined;
 
   if (options.checkRegistry) {
     try {
-      resolvedCurrentVersion = await readPackageVersion(packageSpec);
-      setAppSetting("maker_package_resolved_version", resolvedCurrentVersion);
       availableVersions = await readPackageVersions(packageName);
       latestVersion = availableVersions[availableVersions.length - 1];
       if (!latestVersion) latestVersion = await readLatestVersion(packageName);
@@ -97,11 +112,17 @@ export async function getMcpPackageUpdateStatus(options: { checkRegistry?: boole
     packageName,
     packageSpec,
     installedSpec: config.makerPackage,
-    currentVersion: resolvedCurrentVersion,
+    currentVersion,
     latestVersion,
-    updateAvailable: Boolean(resolvedCurrentVersion && latestVersion && resolvedCurrentVersion !== latestVersion),
+    updateAvailable: Boolean(currentVersion && latestVersion && currentVersion !== latestVersion),
     lastCheckedAt: getAppSetting("maker_package_last_checked_at"),
     lastInstalledAt: getAppSetting("maker_package_last_installed_at"),
+    localInstalled: Boolean(packageConfigured && currentVersion && cacheStats.exists && cacheStats.entryCount > 0),
+    packageConfigured,
+    cachePath: config.makerNpmCacheDir,
+    cacheExists: cacheStats.exists,
+    cacheSizeBytes: cacheStats.sizeBytes,
+    cacheEntryCount: cacheStats.entryCount,
     releaseNotes: getMcpReleaseNotes(),
     releaseNotesPath: getMcpReleaseNotesPath(),
     availableVersions,
@@ -147,7 +168,22 @@ export async function installMcpPackage(packageSpec: string): Promise<McpPackage
 
 export async function uninstallMcpPackage(): Promise<McpPackageUninstallResult> {
   await runtimeManager.stopAll();
+  const steps: McpPackageUninstallStep[] = [
+    {
+      id: "stop_runtime",
+      label: "停止 MCP runtime",
+      status: "done",
+      detail: "已请求停止当前桌面端内所有 MCP runtime。"
+    }
+  ];
+
   deleteAppSettings(MCP_PACKAGE_SETTING_KEYS);
+  steps.push({
+    id: "clear_settings",
+    label: "清理版本设置",
+    status: "done",
+    detail: `已清理 ${MCP_PACKAGE_SETTING_KEYS.length} 项桌面端 MCP 包版本设置。`
+  });
   setMakerPackage("@taptap/maker");
 
   let removedCache = false;
@@ -156,6 +192,26 @@ export async function uninstallMcpPackage(): Promise<McpPackageUninstallResult> 
     removedCache = true;
   }
   fs.mkdirSync(config.makerNpmCacheDir, { recursive: true });
+  steps.push({
+    id: "clear_cache",
+    label: "清理 npm-cache",
+    status: removedCache ? "done" : "skipped",
+    detail: removedCache
+      ? `已清空本地缓存目录：${config.makerNpmCacheDir}`
+      : `本地缓存目录原本不存在，已创建空目录：${config.makerNpmCacheDir}`
+  });
+  steps.push({
+    id: "preserve_projects",
+    label: "保留 Maker 项目",
+    status: "done",
+    detail: "未删除任何 Maker 项目目录。"
+  });
+  steps.push({
+    id: "ai_client_config",
+    label: "AI client 配置",
+    status: "skipped",
+    detail: "暂未接入 AI client MCP 配置清理；没有改动任何 AI client 配置文件。"
+  });
 
   return {
     ok: true,
@@ -163,12 +219,47 @@ export async function uninstallMcpPackage(): Promise<McpPackageUninstallResult> 
     clearedSettingKeys: MCP_PACKAGE_SETTING_KEYS,
     clearedCachePath: config.makerNpmCacheDir,
     removedCache,
+    steps,
     aiClientConfigCleanup: {
       supported: false,
       message: "暂未接入 AI client MCP 配置清理；不会改动任何 AI client 配置文件。"
     },
-    status: await getMcpPackageUpdateStatus()
+    status: await getMcpPackageUpdateStatus({ checkRegistry: true })
   };
+}
+
+function readCacheStats(cachePath: string) {
+  if (!fs.existsSync(cachePath)) {
+    return { exists: false, sizeBytes: 0, entryCount: 0 };
+  }
+
+  let sizeBytes = 0;
+  let entryCount = 0;
+  const stack = [cachePath];
+  while (stack.length) {
+    const current = stack.pop()!;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const entryPath = path.join(current, entry.name);
+      entryCount += 1;
+      if (entry.isDirectory()) {
+        stack.push(entryPath);
+        continue;
+      }
+      try {
+        sizeBytes += fs.statSync(entryPath).size;
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  return { exists: true, sizeBytes, entryCount };
 }
 
 function extractPackageName(packageSpec: string) {

@@ -507,10 +507,10 @@ export function SettingsView({
   }, []);
 
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden bg-surface-app">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden bg-transparent">
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex min-h-[52px] shrink-0 items-center justify-between gap-4 border-b border-border-soft bg-surface-app px-8">
+          <div className="workbench-top-scrim flex min-h-[52px] shrink-0 items-center justify-between gap-4 border-b border-border-soft px-8">
             <div className="flex min-w-0 items-center gap-3">
               <div
                 className={cn(

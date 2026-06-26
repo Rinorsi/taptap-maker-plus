@@ -5,6 +5,7 @@ export type ThemePreference = "system" | "light" | "dark";
 export type StartupPreference = "last-project" | "home" | "home-picker";
 export type DefaultWorkspace = "assets" | "studio-video" | "studio-image" | "studio-music" | "studio-3d";
 export type DensityPreference = "comfortable" | "standard" | "compact";
+export type WindowMinimumSizePreset = "1366x768" | "1440x900" | "1600x900" | "custom";
 export type PanelPreference = "remember" | "expanded" | "collapsed";
 export type ConfirmationPreference = "standard" | "strict";
 export type AutoRuntimePreference = "manual" | "selected-project";
@@ -41,6 +42,9 @@ export type SettingsPreferences = {
   startupPreference: StartupPreference;
   defaultWorkspace: DefaultWorkspace;
   density: DensityPreference;
+  windowMinimumSizePreset: WindowMinimumSizePreset;
+  windowMinimumWidth: number;
+  windowMinimumHeight: number;
   sidebarPreference: PanelPreference;
   inspectorPreference: PanelPreference;
   confirmationPreference: ConfirmationPreference;
@@ -92,6 +96,9 @@ export const settingsPreferenceKeys = {
   startupPreference: "taptap.settings.startupPreference",
   defaultWorkspace: "taptap.settings.defaultWorkspace",
   density: "taptap.settings.density",
+  windowMinimumSizePreset: "taptap.settings.windowMinimumSizePreset",
+  windowMinimumWidth: "taptap.settings.windowMinimumWidth",
+  windowMinimumHeight: "taptap.settings.windowMinimumHeight",
   sidebarPreference: "taptap.settings.sidebarPreference",
   inspectorPreference: "taptap.settings.inspectorPreference",
   confirmationPreference: "taptap.settings.confirmationPreference",
@@ -151,6 +158,9 @@ export const defaultSettingsPreferences: SettingsPreferences = {
   startupPreference: "last-project",
   defaultWorkspace: "assets",
   density: "standard",
+  windowMinimumSizePreset: "1366x768",
+  windowMinimumWidth: 1366,
+  windowMinimumHeight: 768,
   sidebarPreference: "remember",
   inspectorPreference: "remember",
   confirmationPreference: "standard",
@@ -262,6 +272,16 @@ export function readAllStoredSettingsPreferences(): Record<string, unknown> {
     }
   }
   return preferences;
+}
+
+export function resetLocalSettingsPreferences() {
+  for (const key of Object.values(settingsPreferenceKeys)) {
+    localStorage.removeItem(key);
+  }
+  for (const [preferenceKey, value] of Object.entries(defaultSettingsPreferences)) {
+    const storageKey = settingsPreferenceKeys[preferenceKey as keyof SettingsPreferences];
+    window.dispatchEvent(new CustomEvent(SETTINGS_PREFERENCES_CHANGED_EVENT, { detail: { key: storageKey, value } }));
+  }
 }
 
 export async function flushSettingsPreferencesSave(source: "auto" | "manual" = "manual") {

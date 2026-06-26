@@ -525,7 +525,7 @@ export function Model3DStudio({ project, tools, assets, tasks, busy, onCallTool,
                 {activeGenerationTask ? "生成中..." : "生成四视图预览 (阶段一)"}
               </Button>
             ) : (
-              <Button size="lg" onClick={handleGenerateModel} disabled={busy || !project || !modelTool || activeGenerationTask !== undefined || (stage === "confirm" && !confirmedImages) || (mode === "multiview_to_model" && !multiview.front)} className="gap-2 w-full text-[14px] h-11 font-black rounded-xl bg-gradient-to-r from-brand to-brand-strong text-[#04202a] shadow-lg shadow-brand/20 hover:shadow-brand/40 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-300 disabled:opacity-50 disabled:hover:translate-y-0">
+              <Button size="lg" onClick={handleGenerateModel} disabled={busy || !project || !modelTool || activeGenerationTask !== undefined || (stage === "confirm" && !confirmedImages) || (mode === "multiview_to_model" && !multiview.front)} className="gap-2 w-full text-[14px] h-11 font-black rounded-xl bg-gradient-to-r from-brand to-brand-strong text-white shadow-lg shadow-brand/20 hover:shadow-brand/40 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-300 disabled:opacity-50 disabled:hover:translate-y-0">
                 {activeGenerationTask ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Cuboid className="w-5 h-5" />}
                 {activeGenerationTask ? "3D建模中..." : "启动 3D 生成"}
               </Button>

@@ -5,6 +5,7 @@ import path from "node:path";
 import { config } from "../lib/config.js";
 import { getToolsListSnapshot, saveTools } from "../lib/db.js";
 import type { ProjectSummary, RuntimeSummary, ToolSummary } from "../types.js";
+import { appVersion } from "../generated/appVersion.js";
 
 type ToolLike = {
   name?: unknown;
@@ -78,7 +79,7 @@ class SdkMcpClient {
     this.closing = false;
     fs.mkdirSync(config.makerNpmCacheDir, { recursive: true });
     fs.mkdirSync(config.mcpLogDir, { recursive: true });
-    const client = new Client({ name: "taptap-maker-plus", version: "0.1.0" }, { capabilities: {} });
+    const client = new Client({ name: appVersion.appId, version: appVersion.packageVersion }, { capabilities: {} });
     const transport = new StdioClientTransport({
       command: "cmd.exe",
       args: ["/d", "/s", "/c", "npx.cmd", "-y", "-p", config.makerPackage, "taptap-maker"],

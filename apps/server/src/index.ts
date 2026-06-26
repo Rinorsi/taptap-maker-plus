@@ -42,7 +42,9 @@ await registerStaticWeb(app);
 const storedMakerProjectsRoot = getAppSetting("maker_projects_root");
 if (storedMakerProjectsRoot) setMakerProjectsRoot(storedMakerProjectsRoot);
 loadStoredMakerPackage();
-await scanMakerProjects();
+if (getAppSetting("maker_projects_root_confirmed") === config.makerProjectsRoot) {
+  await scanMakerProjects();
+}
 
 process.once("SIGINT", () => {
   void shutdown("SIGINT").finally(() => process.exit(0));

@@ -444,7 +444,7 @@ export function ImageStudio({
       </div>
       <div className={cn("shrink-0", leftPanelWidth < 390 ? "" : "mb-0.5")}>
          <button type="button" onClick={() => setTransparent(!transparent)} className={cn("inline-flex items-center gap-2 rounded-xl border-2 h-10 px-4 text-[13px] font-bold transition-all", transparent ? "bg-brand/10 border-brand text-brand-strong" : "bg-surface-raised border-transparent text-text-muted hover:bg-surface-panel hover:text-text")}>
-            <div className={cn("w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors", transparent ? "border-brand bg-brand text-[#04202a]" : "border-text-muted")}>
+            <div className={cn("w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors", transparent ? "border-brand bg-brand text-white" : "border-text-muted")}>
               {transparent && <Check className="w-2.5 h-2.5" />}
             </div>
             透明背景
@@ -460,7 +460,7 @@ export function ImageStudio({
         (mode === "batch" && (!batchTool || !batchPrompts)) ||
         (mode === "edit" && (!editTool || !prompt || !editSourceImage))
       }
-      className="gap-2 w-full text-[15px] h-12 font-black rounded-2xl bg-gradient-to-r from-brand to-brand-strong text-[#04202a] shadow-lg shadow-brand/20 hover:shadow-brand/40 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-300 disabled:opacity-50 disabled:hover:translate-y-0"
+      className="gap-2 w-full text-[15px] h-12 font-black rounded-2xl bg-gradient-to-r from-brand to-brand-strong text-white shadow-lg shadow-brand/20 hover:shadow-brand/40 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-300 disabled:opacity-50 disabled:hover:translate-y-0"
     >
       {activeGenerationTask ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Wand2 className="w-5 h-5" />}
       {activeGenerationTask ? "执行跃迁中..." : mode === "generate" ? "启动生成" : mode === "batch" ? "批量生成" : "启动编辑"}
@@ -515,7 +515,7 @@ export function ImageStudio({
                        <div className="relative mb-4 shrink-0">
                          <img src={assetPreviewUrl(project?.id ?? "", displayAsset.relativePath)} alt={displayAsset.fileName} className="max-h-[55vh] object-contain rounded-xl shadow-2xl" />
                          {isLastGenerated && (
-                           <div className="absolute -top-3 -left-3 bg-brand text-[#04202a] text-[10px] font-black px-2 py-1 rounded-lg shadow-lg border border-brand/20 rotate-[-5deg] z-10">上次生成</div>
+                           <div className="absolute -top-3 -left-3 bg-brand text-white text-[10px] font-black px-2 py-1 rounded-lg shadow-lg border border-brand/20 rotate-[-5deg] z-10">上次生成</div>
                          )}
                        </div>
                        <div className="w-full max-w-4xl shrink-0 bg-surface-raised/80 p-2.5 pr-3 rounded-xl border border-border flex items-center justify-between gap-4 text-[11px] text-text-subtle shadow-sm relative overflow-hidden">

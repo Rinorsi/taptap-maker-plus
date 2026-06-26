@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Download, RefreshCw } from "lucide-react";
+import { Download, RefreshCw, Trash2 } from "lucide-react";
 import {
   getMcpPackageStatus,
   installMcpPackage,
+  uninstallMcpPackage,
   type McpPackageUpdateStatus
 } from "../../api";
 import { Button } from "../../components/ui/Button";
@@ -19,6 +20,7 @@ export function McpPackageManager({ busy, compact = false }: Props) {
   const [selectedVersion, setSelectedVersion] = useState("");
   const [working, setWorking] = useState(false);
   const [notice, setNotice] = useState("");
+  const [uninstallConfirmText, setUninstallConfirmText] = useState("");
 
   useEffect(() => {
     void refreshStatus(true);
@@ -53,6 +55,23 @@ export function McpPackageManager({ busy, compact = false }: Props) {
       setStatus(result.status);
       setSelectedVersion(result.status.currentVersion ?? selectedVersion);
       setNotice(`已安装：${result.status.packageSpec}。当前 MCP 会话已停止，重新启动后生效。`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function handleUninstall() {
+    if (uninstallConfirmText !== "卸载 MCP") return;
+    setWorking(true);
+    setNotice("正在停止 MCP runtime 并清理本地 MCP 包缓存...");
+    try {
+      const result = await uninstallMcpPackage();
+      setStatus(result.status);
+      setSelectedVersion(result.status.currentVersion ?? result.status.latestVersion ?? "");
+      setUninstallConfirmText("");
+      setNotice(`已卸载 MCP 包缓存；已清理 ${result.clearedSettingKeys.length} 项版本设置。项目目录未删除。`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
@@ -123,6 +142,33 @@ export function McpPackageManager({ busy, compact = false }: Props) {
             </pre>
           </div>
         </details>
+
+        <details className="group border-t border-border-soft">
+          <summary className="cursor-pointer px-3 py-2 text-[11px] font-bold text-red-500 hover:text-red-400">
+            卸载 MCP
+          </summary>
+          <div className="grid gap-2 border-t border-border-soft px-3 py-2">
+            <p className="text-[11px] leading-relaxed text-text-subtle">
+              停止当前 MCP runtime，清理版本设置和 npm-cache，不删除 Maker 项目目录。
+            </p>
+            <input
+              value={uninstallConfirmText}
+              onChange={(event) => setUninstallConfirmText(event.target.value)}
+              placeholder="输入：卸载 MCP"
+              className="h-8 rounded-control border border-border bg-surface-app px-2 text-[11px] text-text outline-none focus:border-red-500"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void handleUninstall()}
+              disabled={disabled || uninstallConfirmText !== "卸载 MCP"}
+              className="h-8 w-full text-[11px] hover:border-red-500 hover:text-red-500"
+            >
+              <Trash2 className="mr-1 h-3.5 w-3.5" />
+              确认卸载 MCP
+            </Button>
+          </div>
+        </details>
       </div>
     );
   }
@@ -184,6 +230,34 @@ export function McpPackageManager({ busy, compact = false }: Props) {
         <pre className="mt-3 max-h-44 overflow-auto whitespace-pre-wrap rounded-control border border-border bg-surface-app px-3 py-2 text-[12px] leading-relaxed text-text">
           {status?.releaseNotes ?? "暂无更新日志"}
         </pre>
+      </div>
+
+      {/* Uninstall MCP */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between p-4 border-b border-border-soft last:border-b-0 hover:bg-red-500/5 transition-colors gap-4">
+        <div className="flex flex-col flex-1 pr-0 md:pr-8">
+          <span className="text-[13px] font-medium text-red-500">卸载 MCP</span>
+          <span className="mt-1 text-xs text-text-muted leading-relaxed">
+            停止当前 MCP runtime，清理桌面端保存的 MCP 包版本设置和 <span className="font-mono">data/npm-cache</span> 下的 MCP 包缓存。不删除 Maker 项目目录，也不会改动 AI client 配置文件。
+          </span>
+        </div>
+        <div className="shrink-0 flex flex-col items-stretch justify-end gap-2">
+          <input
+            value={uninstallConfirmText}
+            onChange={(event) => setUninstallConfirmText(event.target.value)}
+            placeholder="输入：卸载 MCP"
+            className="h-9 w-[220px] rounded-control border border-border bg-surface-app px-3 text-[12px] text-text outline-none focus:border-red-500"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void handleUninstall()}
+            disabled={disabled || uninstallConfirmText !== "卸载 MCP"}
+            className="justify-center hover:border-red-500 hover:text-red-500"
+          >
+            <Trash2 className="mr-1 h-3.5 w-3.5" />
+            确认卸载
+          </Button>
+        </div>
       </div>
     </div>
   );

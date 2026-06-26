@@ -11,7 +11,7 @@ const requiredRuntimePaths = [
   "apps/web/dist"
 ];
 
-const bundledReadOnlyPaths = [
+const optionalBundledReadOnlyPaths = [
   "docs/help",
   "docs/templates",
   "docs/workflow-templates"
@@ -33,13 +33,15 @@ function run(command, args) {
   return result.stdout.trim();
 }
 
-function copyRelative(relativePath) {
+function copyRelative(relativePath, options = {}) {
   const source = path.join(workspaceRoot, relativePath);
   const target = path.join(outputRoot, relativePath);
   if (!fs.existsSync(source)) {
+    if (options.optional) return false;
     throw new Error(`Missing desktop resource source: ${relativePath}`);
   }
   fs.cpSync(source, target, { recursive: true, dereference: true });
+  return true;
 }
 
 function copyPackage(packagePath) {
@@ -56,8 +58,14 @@ for (const relativePath of requiredRuntimePaths) {
   copyRelative(relativePath);
 }
 
-for (const relativePath of bundledReadOnlyPaths) {
-  copyRelative(relativePath);
+const bundledReadOnlyPaths = [];
+const skippedReadOnlyPaths = [];
+for (const relativePath of optionalBundledReadOnlyPaths) {
+  if (copyRelative(relativePath, { optional: true })) {
+    bundledReadOnlyPaths.push(relativePath);
+  } else {
+    skippedReadOnlyPaths.push(relativePath);
+  }
 }
 
 const dependencyPaths = run("npm", ["ls", "--workspace", "@taptap/server", "--omit=dev", "--parseable", "--all"])
@@ -74,5 +82,6 @@ console.log(JSON.stringify({
   ok: true,
   outputRoot: path.relative(workspaceRoot, outputRoot).replaceAll(path.sep, "/"),
   dependencies: dependencyPaths.length,
-  bundledReadOnlyPaths
+  bundledReadOnlyPaths,
+  skippedReadOnlyPaths
 }, null, 2));

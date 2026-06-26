@@ -11,7 +11,7 @@ export function AppToaster() {
           toast: "group border-border bg-surface-panel text-text shadow-popover rounded-xl",
           title: "text-text font-medium",
           description: "text-text-muted",
-          actionButton: "bg-brand text-[#04202a] font-medium",
+          actionButton: "bg-brand text-white font-medium",
           cancelButton: "bg-surface-muted text-text font-medium"
         }
       }}

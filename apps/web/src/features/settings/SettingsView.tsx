@@ -36,6 +36,7 @@ import {
   confirmMakerProjectsRootSettings,
   getMakerProjectsRootSettings,
   listFrontendDiagnostics,
+  resetDesktopInitialState,
   saveMakerProjectsRootSettings,
   type FrontendDiagnosticEntry,
 } from "../../api";
@@ -67,6 +68,8 @@ import {
   writeLocalPreference,
   type SettingsPreferences
 } from "./preferences";
+import { McpPackageManager } from "./McpPackageManager";
+import { appVersion } from "../../generated/appVersion";
 
 type Props = {
   project?: ProjectSummary;
@@ -82,6 +85,7 @@ type Props = {
   onRefreshTools: () => void;
   onStatusLite: () => void;
   onProjectsRootChanged?: (projects: ProjectSummary[], selectedProjectId?: string) => void;
+  onResetInitialState?: () => void;
   onThemePreferenceChange?: (themePreference: SettingsPreferences["themePreference"]) => void;
   commands: Command[];
 };
@@ -139,6 +143,7 @@ export function SettingsView({
   onRefreshTools,
   onStatusLite,
   onProjectsRootChanged,
+  onResetInitialState,
   onThemePreferenceChange,
   commands,
 }: Props) {
@@ -163,6 +168,8 @@ export function SettingsView({
   const [makerRootSettings, setMakerRootSettings] = useState<MakerProjectsRootSettings>();
   const [makerRootDraft, setMakerRootDraft] = useState("");
   const [makerRootNotice, setMakerRootNotice] = useState("");
+  const [resetInitialStateText, setResetInitialStateText] = useState("");
+  const [resetInitialStateNotice, setResetInitialStateNotice] = useState("");
 
   const developerLogs = formatDeveloperLogsForDisplay();
   const serverLogs = formatDiagnosticEntries(serverLogEntries);
@@ -285,6 +292,31 @@ export function SettingsView({
     }
   };
 
+  const applyWindowMinimumSizePreset = (value: SettingsPreferences["windowMinimumSizePreset"]) => {
+    setPref("windowMinimumSizePreset", value);
+    if (value === "1366x768") {
+      setPref("windowMinimumWidth", 1366);
+      setPref("windowMinimumHeight", 768);
+    } else if (value === "1440x900") {
+      setPref("windowMinimumWidth", 1440);
+      setPref("windowMinimumHeight", 900);
+    } else if (value === "1600x900") {
+      setPref("windowMinimumWidth", 1600);
+      setPref("windowMinimumHeight", 900);
+    }
+  };
+
+  const updateWindowMinimumSize = (axis: "width" | "height", value: string) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return;
+    setPref("windowMinimumSizePreset", "custom");
+    if (axis === "width") {
+      setPref("windowMinimumWidth", Math.max(1024, Math.round(parsed)));
+    } else {
+      setPref("windowMinimumHeight", Math.max(640, Math.round(parsed)));
+    }
+  };
+
   const refreshServerLogs = async () => {
     try {
       const response = await listFrontendDiagnostics();
@@ -366,6 +398,19 @@ export function SettingsView({
     anchor.download = `taptap-settings-diagnostics-${Date.now()}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleResetInitialState = async () => {
+    if (resetInitialStateText !== "重置软件") return;
+    setResetInitialStateNotice("正在重置桌面端本地状态...");
+    try {
+      await resetDesktopInitialState("重置软件");
+      setResetInitialStateText("");
+      setResetInitialStateNotice("已重置为未绑定状态；Maker 项目目录、npm-cache 和 AI client 配置未删除。");
+      onResetInitialState?.();
+    } catch (error) {
+      setResetInitialStateNotice(error instanceof Error ? error.message : String(error));
+    }
   };
 
   void developerLogVersion;
@@ -539,6 +584,42 @@ export function SettingsView({
                   options={[{label: "宽松", value: "comfortable"}, {label: "标准", value: "standard"}, {label: "紧凑", value: "compact"}]}
                   onChange={(v) => setPref("density", v as any)}
                 />
+                <SettingContainer
+                  label="界面最小尺寸"
+                  description="限制桌面窗口最小宽高，避免设置页、画布和右栏在过小窗口里挤压错位。默认 1366 x 768。"
+                >
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <SelectField
+                      id="window-minimum-size-preset"
+                      value={prefs.windowMinimumSizePreset}
+                      options={[
+                        { label: "1366 x 768", value: "1366x768" },
+                        { label: "1440 x 900", value: "1440x900" },
+                        { label: "1600 x 900", value: "1600x900" },
+                        { label: "自定义", value: "custom" },
+                      ]}
+                      onChange={(value) => applyWindowMinimumSizePreset(value as SettingsPreferences["windowMinimumSizePreset"])}
+                      className="w-[140px] text-[12px]"
+                    />
+                    <input
+                      type="number"
+                      min={1024}
+                      value={prefs.windowMinimumWidth}
+                      onChange={(event) => updateWindowMinimumSize("width", event.target.value)}
+                      className="h-9 w-[88px] rounded-control border border-border bg-surface-app px-2 text-right text-[12px] text-text outline-none focus:border-brand"
+                      aria-label="最小宽度"
+                    />
+                    <span className="text-xs text-text-subtle">x</span>
+                    <input
+                      type="number"
+                      min={640}
+                      value={prefs.windowMinimumHeight}
+                      onChange={(event) => updateWindowMinimumSize("height", event.target.value)}
+                      className="h-9 w-[88px] rounded-control border border-border bg-surface-app px-2 text-right text-[12px] text-text outline-none focus:border-brand"
+                      aria-label="最小高度"
+                    />
+                  </div>
+                </SettingContainer>
                 <SegmentedSetting
                   label="危险操作确认强度"
                   value={prefs.confirmationPreference}
@@ -793,6 +874,13 @@ export function SettingsView({
                      </Button>
                    </div>
                 </SettingContainer>
+                <SettingContainer
+                  label="软件版本"
+                  description={`${appVersion.displayVersion} · ${appVersion.channel} · ${appVersion.announcementBody}`}
+                />
+              </SettingsGroup>
+              <SettingsGroup>
+                <McpPackageManager busy={busy} />
               </SettingsGroup>
             </div>
 
@@ -829,6 +917,33 @@ export function SettingsView({
                     <Terminal className="w-3.5 h-3.5 mr-1" />
                     Open Devtools
                   </Button>
+                </SettingContainer>
+                <SettingContainer
+                  label={<span className="text-red-500">重置软件为初始状态</span>}
+                  description={
+                    <span>
+                      清空桌面端保存的项目列表、选中项目、任务/资产索引和设置偏好，并停止当前 MCP runtime。不删除 Maker 项目目录，不清 npm-cache，不改 AI client 配置。{resetInitialStateNotice ? ` ${resetInitialStateNotice}` : ""}
+                    </span>
+                  }
+                >
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <input
+                      value={resetInitialStateText}
+                      onChange={(event) => setResetInitialStateText(event.target.value)}
+                      placeholder="输入：重置软件"
+                      className="h-9 w-[180px] rounded-control border border-border bg-surface-app px-3 text-[12px] text-text outline-none focus:border-red-500"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleResetInitialState()}
+                      disabled={resetInitialStateText !== "重置软件"}
+                      className="hover:border-red-500 hover:text-red-500"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 mr-1" />
+                      确认重置
+                    </Button>
+                  </div>
                 </SettingContainer>
               </SettingsGroup>
             </div>

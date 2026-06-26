@@ -11,12 +11,28 @@ type MakerConfig = {
   updated_at?: string;
 };
 
-async function readJson<T>(filePath: string): Promise<T | undefined> {
+export async function readJson<T>(filePath: string): Promise<T | undefined> {
   try {
     return JSON.parse(await fs.readFile(filePath, "utf8")) as T;
   } catch {
     return undefined;
   }
+}
+
+export async function readMakerProjectAt(projectRoot: string): Promise<ProjectSummary | undefined> {
+  const configPath = path.join(projectRoot, ".maker-mcp", "config.json");
+  const makerConfig = await readJson<MakerConfig>(configPath);
+  if (!makerConfig?.project_id) return undefined;
+
+  return {
+    id: makerConfig.project_id,
+    name: path.basename(projectRoot),
+    rootPath: projectRoot,
+    makerProjectId: makerConfig.project_id,
+    configPath,
+    createdAt: makerConfig.created_at,
+    updatedAt: makerConfig.updated_at
+  };
 }
 
 export async function scanMakerProjects(root = config.makerProjectsRoot): Promise<ProjectSummary[]> {
@@ -26,19 +42,8 @@ export async function scanMakerProjects(root = config.makerProjectsRoot): Promis
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const projectRoot = path.join(root, entry.name);
-    const configPath = path.join(projectRoot, ".maker-mcp", "config.json");
-    const makerConfig = await readJson<MakerConfig>(configPath);
-    if (!makerConfig?.project_id) continue;
-
-    const project: ProjectSummary = {
-      id: makerConfig.project_id,
-      name: entry.name,
-      rootPath: projectRoot,
-      makerProjectId: makerConfig.project_id,
-      configPath,
-      createdAt: makerConfig.created_at,
-      updatedAt: makerConfig.updated_at
-    };
+    const project = await readMakerProjectAt(projectRoot);
+    if (!project) continue;
     upsertProject(project);
     projects.push(project);
   }

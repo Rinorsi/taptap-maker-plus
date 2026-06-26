@@ -1165,7 +1165,7 @@ export function GenericExecutorNode({ data, id, selected }: any) {
         {!collapsed && (
           <div className="p-5 pt-2 nodrag shrink-0">
             <Button
-              className="w-full font-black text-[13px] h-11 rounded-xl shadow-lg shadow-brand/20 transition-all hover:shadow-brand/40 bg-gradient-to-r from-brand to-brand-strong text-[#04202a]"
+              className="w-full font-black text-[13px] h-11 rounded-xl shadow-lg shadow-brand/20 transition-all hover:shadow-brand/40 bg-gradient-to-r from-brand to-brand-strong text-white"
               onClick={(e) => {
                 e.stopPropagation();
                 data.onRun();

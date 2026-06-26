@@ -879,7 +879,7 @@ export function VideoStudio({
                   !prompt ||
                   (videoMode !== "text_to_video" && !firstFrame)
                 }
-                className="gap-2 w-full text-[15px] h-12 font-black rounded-2xl bg-gradient-to-r from-brand to-brand-strong text-[#04202a] shadow-lg shadow-brand/20 hover:shadow-brand/40 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-300 disabled:opacity-50 disabled:hover:translate-y-0"
+                className="gap-2 w-full text-[15px] h-12 font-black rounded-2xl bg-gradient-to-r from-brand to-brand-strong text-white shadow-lg shadow-brand/20 hover:shadow-brand/40 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-300 disabled:opacity-50 disabled:hover:translate-y-0"
               >
                 {activeGenerationTask || isCloudVideoRunning ? (
                   <Activity className="h-5 w-5 animate-pulse" />
@@ -1074,7 +1074,7 @@ export function VideoStudio({
                               </span>
                             </button>
                             {isLastGenerated && (
-                              <div className="absolute -top-3 -left-3 bg-brand text-[#04202a] text-[10px] font-black px-2 py-1 rounded-lg shadow-lg border border-brand/20 rotate-[-5deg] z-10">
+                              <div className="absolute -top-3 -left-3 bg-brand text-white text-[10px] font-black px-2 py-1 rounded-lg shadow-lg border border-brand/20 rotate-[-5deg] z-10">
                                 上次生成
                               </div>
                             )}

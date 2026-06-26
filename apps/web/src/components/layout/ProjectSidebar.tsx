@@ -107,7 +107,7 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
                         "flex w-full cursor-pointer select-none items-center rounded-lg outline-none transition-colors",
                         collapsed ? "h-[44px] justify-center p-0" : "gap-3 px-3 py-[10px]",
                         active
-                          ? "bg-surface-muted font-semibold text-text"
+                          ? "bg-brand/10 font-semibold text-brand-strong shadow-[inset_3px_0_0_0_var(--brand)]"
                           : "text-text-muted hover:bg-surface-muted hover:text-text",
                       )}
                       onClick={() => onSelectSettingsTab(tab.id)}
@@ -254,21 +254,8 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
       </div>
 
       <div className={cn("shrink-0 border-t border-border-soft p-3", collapsed ? "px-2" : "px-3")}>
-        <button
-          type="button"
-          title="设置"
-          className={cn(
-            "flex w-full cursor-pointer select-none items-center rounded-lg text-text-muted outline-none transition-colors hover:bg-surface-muted hover:text-text",
-            collapsed ? "h-[44px] justify-center p-0" : "gap-3 px-3 py-[10px]",
-          )}
-          onClick={() => onSelectModule("settings")}
-        >
-          <Settings2 className="h-[20px] w-[20px] shrink-0" />
-          {!collapsed ? <span className="truncate text-[14px]">设置</span> : null}
-        </button>
-
         {developerMode && isProjectOpened && disabledRoutes.length ? (
-          <div className={cn("mt-2", collapsed ? "flex flex-col items-center" : "")}>
+          <div className={cn("mb-2", collapsed ? "flex flex-col items-center" : "")}>
             {collapsed ? (
               <button
                 type="button"
@@ -333,6 +320,19 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
             ) : null}
           </div>
         ) : null}
+
+        <button
+          type="button"
+          title="设置"
+          className={cn(
+            "flex w-full cursor-pointer select-none items-center rounded-lg text-text-muted outline-none transition-colors hover:bg-surface-muted hover:text-text",
+            collapsed ? "h-[44px] justify-center p-0" : "gap-3 px-3 py-[10px]",
+          )}
+          onClick={() => onSelectModule("settings")}
+        >
+          <Settings2 className="h-[20px] w-[20px] shrink-0" />
+          {!collapsed ? <span className="truncate text-[14px]">设置</span> : null}
+        </button>
       </div>
     </motion.aside>
   );

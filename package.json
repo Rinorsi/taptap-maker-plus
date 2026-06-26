@@ -1,19 +1,20 @@
 {
   "name": "taptap-maker-plus",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.13.0-alpha",
   "type": "module",
   "workspaces": [
     "apps/*"
   ],
   "scripts": {
-    "dev": "npm run desktop:dev",
+    "sync:version": "node scripts/sync-app-version.mjs",
+    "dev": "npm run sync:version && npm run desktop:dev",
     "dev:browser": "npm-run-all --parallel dev:web dev:server",
     "dev:web": "npm run dev --workspace @taptap/web",
     "dev:server": "npm run dev --workspace @taptap/server",
-    "build": "npm run build --workspace @taptap/server && npm run build --workspace @taptap/web",
+    "build": "npm run sync:version && npm run build --workspace @taptap/server && npm run build --workspace @taptap/web",
     "prepare:desktop": "node scripts/prepare-desktop-resources.mjs",
-    "build:desktop": "npm run build && npm run prepare:desktop",
+    "build:desktop": "npm run build && npm run sync:version && npm run prepare:desktop",
     "typecheck": "npm run typecheck --workspace @taptap/server && npm run typecheck --workspace @taptap/web",
     "lint": "npm run lint --workspace @taptap/server && npm run lint --workspace @taptap/web",
     "verify:assets": "tsx scripts/verify-asset-governance.ts",

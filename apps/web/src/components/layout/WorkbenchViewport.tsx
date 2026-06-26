@@ -92,6 +92,7 @@ type Props = {
   onScanAssetReferences: (relativePaths: string[]) => Promise<void>;
   onRefreshProject?: () => void | Promise<void>;
   onProjectsRootChanged?: (projects: ProjectSummary[], selectedProjectId?: string) => void;
+  onResetInitialState?: () => void;
   onThemePreferenceChange?: (themePreference: "system" | "light" | "dark") => void;
   onNotice: (notice: string) => void;
   onCallStatusLite: () => void;
@@ -313,6 +314,7 @@ export function WorkbenchViewport(props: Props) {
           onRefreshTools={props.onRefreshTools}
           onStatusLite={props.onCallStatusLite}
           onProjectsRootChanged={props.onProjectsRootChanged}
+          onResetInitialState={props.onResetInitialState}
           onThemePreferenceChange={props.onThemePreferenceChange}
           commands={props.commands}
         />

@@ -22,3 +22,4 @@ fix*.cjs
 patch*.cjs
 restore.cjs
 update_*.cjs
+old_view.txt

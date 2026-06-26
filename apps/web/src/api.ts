@@ -401,6 +401,11 @@ export type DesktopReadinessEnv = {
 
 export type DesktopReadiness = {
   ok: boolean;
+  appId?: string;
+  productName?: string;
+  version?: string;
+  packageVersion?: string;
+  channel?: string;
   mode: string;
   server: {
     host: string;
@@ -444,6 +449,34 @@ export type McpPackageUpdateStatus = {
 export type McpPackageInstallResult = {
   status: McpPackageUpdateStatus;
   installOutput: string;
+};
+
+export type McpPackageUninstallResult = {
+  ok: true;
+  stoppedRuntime: true;
+  clearedSettingKeys: string[];
+  clearedCachePath: string;
+  removedCache: boolean;
+  aiClientConfigCleanup: {
+    supported: false;
+    message: string;
+  };
+  status: McpPackageUpdateStatus;
+};
+
+export type MakerCliResult = {
+  ok: boolean;
+  exitCode?: number;
+  stdout: string;
+  stderr: string;
+  json?: unknown;
+};
+
+export type OnboardingProjectResult = {
+  cli: MakerCliResult;
+  project: ProjectSummary;
+  projects: ProjectSummary[];
+  selectedProjectId?: string;
 };
 
 export type ProjectHealthSummary = {
@@ -490,6 +523,18 @@ export type AppSettingsPreferencesResponse = {
   updatedAt?: string;
 };
 
+export type ResetInitialStateResponse = {
+  ok: true;
+  resetAt: string;
+  projects: ProjectSummary[];
+  selectedProjectId?: string;
+  preserved: {
+    makerProjectDirectories: true;
+    npmCache: true;
+    aiClientConfig: true;
+  };
+};
+
 const json = async <T>(response: Response): Promise<T> => {
   if (!response.ok) throw new Error(await response.text());
   return response.json() as Promise<T>;
@@ -499,7 +544,12 @@ export function assetPreviewUrl(projectId: string, relativePath: string) {
   return `/api/projects/${encodeURIComponent(projectId)}/assets/preview?relativePath=${encodeURIComponent(relativePath)}`;
 }
 
-export async function scanProjects(): Promise<{ projects: ProjectSummary[]; selectedProjectId?: string }> {
+export async function scanProjects(): Promise<{
+  projects: ProjectSummary[];
+  selectedProjectId?: string;
+  onboardingRequired?: boolean;
+  settings?: MakerProjectsRootSettings;
+}> {
   return json(await fetch("/api/projects/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }));
 }
 
@@ -984,6 +1034,66 @@ export async function installMcpPackage(packageSpec: string): Promise<McpPackage
   );
 }
 
+export async function uninstallMcpPackage(): Promise<McpPackageUninstallResult> {
+  return json<McpPackageUninstallResult>(
+    await fetch("/api/mcp/package/uninstall", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    }),
+  );
+}
+
+export async function loginMakerOnboarding(): Promise<{ cli: MakerCliResult }> {
+  return json<{ cli: MakerCliResult }>(
+    await fetch("/api/onboarding/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    }),
+  );
+}
+
+export async function setMakerTokenOnboarding(token: string): Promise<{ cli: MakerCliResult }> {
+  return json<{ cli: MakerCliResult }>(
+    await fetch("/api/onboarding/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    }),
+  );
+}
+
+export async function scanOnboardingProjects(rootDir?: string): Promise<{ projects: ProjectSummary[]; selectedProjectId?: string }> {
+  return json<{ projects: ProjectSummary[]; selectedProjectId?: string }>(
+    await fetch("/api/onboarding/projects/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rootDir }),
+    }),
+  );
+}
+
+export async function initOnboardingProject(targetDir: string): Promise<OnboardingProjectResult> {
+  return json<OnboardingProjectResult>(
+    await fetch("/api/onboarding/projects/init", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetDir }),
+    }),
+  );
+}
+
+export async function bindExistingOnboardingProject(targetDir: string): Promise<OnboardingProjectResult> {
+  return json<OnboardingProjectResult>(
+    await fetch("/api/onboarding/projects/bind-existing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetDir }),
+    }),
+  );
+}
+
 export async function listFrontendDiagnostics() {
   return json<FrontendDiagnosticsResponse>(
     await fetch("/api/developer/frontend-diagnostics"),
@@ -1009,6 +1119,16 @@ export async function clearFrontendDiagnostics(retention: "all" | "14d" | "30d" 
   if (!res.ok) {
     throw new Error(`Failed to clear frontend diagnostics: ${res.statusText}`);
   }
+}
+
+export async function resetDesktopInitialState(confirmText: "重置软件"): Promise<ResetInitialStateResponse> {
+  return json<ResetInitialStateResponse>(
+    await fetch("/api/developer/reset-initial-state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmText }),
+    }),
+  );
 }
 
 export async function saveWorkflow(projectId: string, name: string, graph: MakerWorkflowGraph, id?: string) {

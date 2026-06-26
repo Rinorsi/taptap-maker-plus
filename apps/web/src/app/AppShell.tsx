@@ -1,5 +1,6 @@
 import { Terminal, FolderSync, Search, Settings, Moon, Sun, PanelLeft, PanelRight, RefreshCw, Copy, Trash2, Eye, Save, Play, Code, ClipboardList, Scan, Edit2, Move, ExternalLink, Image, FolderOpen, Download, Crosshair, Check } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   callTool,
   copyAssetFolder,
@@ -31,10 +32,10 @@ import {
   stopRuntime,
   clearTasks,
   deleteProjectLocalFolder,
-  confirmMakerProjectsRootSettings,
   getMakerProjectsRootSettings,
   getMcpPackageStatus,
   installMcpPackage,
+  type MakerProjectsRootSettings,
   type AgentPageState,
   type AssetDirectoryNode,
   type AssetMutationResponse,
@@ -90,7 +91,9 @@ import {
   defaultWorkspaceToModule,
   loadRemoteSettingsPreferences,
   readStoredPreference,
+  resetLocalSettingsPreferences,
   settingsPreferenceKeys,
+  writeLocalPreference,
   type AutoRuntimePreference,
   type AssetReferencePreference,
   type ConfirmationPreference,
@@ -104,8 +107,10 @@ import {
 } from "../features/settings/preferences";
 import {
   isDeveloperModeEnabled,
+  setDeveloperModeEnabled,
   subscribeDeveloperMode,
 } from "../lib/developerMode";
+import { FirstRunOnboarding } from "../features/onboarding/FirstRunOnboarding";
 
 const DEFAULT_PROJECT_MODULE: WorkbenchModule = defaultWorkspaceToModule("assets");
 const NODE_PRESET_DRAG_MIME = "application/reactflow";
@@ -130,6 +135,21 @@ function resolveDefaultProjectModule() {
   return defaultWorkspaceToModule(readStoredPreference("defaultWorkspace") as DefaultWorkspace);
 }
 
+function readWindowMinimumSize() {
+  const width = Number(readStoredPreference("windowMinimumWidth"));
+  const height = Number(readStoredPreference("windowMinimumHeight"));
+  return {
+    minWidth: Number.isFinite(width) ? Math.max(1024, Math.round(width)) : 1366,
+    minHeight: Number.isFinite(height) ? Math.max(640, Math.round(height)) : 768,
+  };
+}
+
+function applyWindowMinimumSize() {
+  if (!("__TAURI_INTERNALS__" in window)) return;
+  const size = readWindowMinimumSize();
+  void getCurrentWindow().setSizeConstraints(size).catch(() => undefined);
+}
+
 function isDeveloperOnlyModule(module: WorkbenchModule) {
   return module === "studio-canvas" || module === "runs" || module === "build" || module === "agent";
 }
@@ -138,6 +158,13 @@ function resolvePanelCollapsed(preference: PanelPreference, storageKey: string) 
   if (preference === "expanded") return false;
   if (preference === "collapsed") return true;
   return localStorage.getItem(storageKey) === "true";
+}
+
+function clearTapTapLocalState() {
+  for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+    const key = localStorage.key(index);
+    if (key?.startsWith("taptap.")) localStorage.removeItem(key);
+  }
 }
 
 type ResizeEdge = "n" | "e" | "s" | "w" | "ne" | "nw" | "se" | "sw";
@@ -205,8 +232,11 @@ export function AppShell() {
   const [notice, setNotice] = useState("准备就绪");
   const [settingsPreferenceVersion, setSettingsPreferenceVersion] = useState(0);
   const [developerModeEnabled, setDeveloperModeEnabledState] = useState(() => isDeveloperModeEnabled());
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const themeCinemaTargetRef = useRef<"light" | "dark" | undefined>(undefined);
   const startupPromptedRef = useRef(false);
+  const onboardingDismissedRef = useRef(false);
+  const mcpUpdatePromptedProjectRef = useRef<string | undefined>(undefined);
   const autoRuntimeStartedProjectRef = useRef<string | undefined>(undefined);
   const assetReferenceScanCacheRef = useRef(
     new Map<string, { expiresAt: number; results: AssetReferenceScanResult[] }>(),
@@ -265,6 +295,7 @@ export function AppShell() {
 
   useEffect(() => {
     loadRemoteSettingsPreferences();
+    applyWindowMinimumSize();
   }, []);
 
   useEffect(() => {
@@ -365,6 +396,12 @@ export function AppShell() {
         if (preference !== "remember") {
           setInspectorMinimized(preference === "collapsed");
         }
+      } else if (
+        key === settingsPreferenceKeys.windowMinimumWidth ||
+        key === settingsPreferenceKeys.windowMinimumHeight ||
+        key === settingsPreferenceKeys.windowMinimumSizePreset
+      ) {
+        applyWindowMinimumSize();
       }
     };
     window.addEventListener(SETTINGS_PREFERENCES_CHANGED_EVENT, handlePreferenceChange);
@@ -407,16 +444,20 @@ export function AppShell() {
     if (!selectedProjectId) return;
     localStorage.setItem("taptap.selectedProjectId", selectedProjectId);
     void refreshProject(selectedProjectId);
-  }, [selectedProjectId]);
+    if (!onboardingOpen) void promptForMcpPackageUpdate(selectedProjectId);
+  }, [selectedProjectId, onboardingOpen]);
 
   async function bootstrap() {
     setBusy(true);
     try {
-      const { stored, scanned } = await loadBootstrapDataWithRetry(
-        (attempt, maxAttempts) => {
-          setNotice(`本地 API 未就绪，正在重试 ${attempt}/${maxAttempts}`);
-        },
-      );
+      const makerRootSettings = await loadMakerProjectsRootSettingsWithRetry((attempt, maxAttempts) => {
+        setNotice(`本地 API 未就绪，正在重试 ${attempt}/${maxAttempts}`);
+      });
+      const { stored, scanned } = makerRootSettings.confirmed
+        ? await loadBootstrapDataWithRetry((attempt, maxAttempts) => {
+            setNotice(`本地 API 未就绪，正在重试 ${attempt}/${maxAttempts}`);
+          })
+        : { stored: { projects: [], selectedProjectId: undefined }, scanned: { projects: [], selectedProjectId: undefined } };
       const nextProjects = scanned.projects.length
         ? scanned.projects
         : stored.projects;
@@ -441,7 +482,7 @@ export function AppShell() {
       setNotice(`发现 ${nextProjects.length} 个项目`);
       const allTasks = await listTasks().catch(() => []);
       setTasks(allTasks);
-      void runStartupChecks();
+      void runStartupChecks(makerRootSettings, nextProjects.length);
     } catch (error) {
       setNotice(
         `本地 API 仍未就绪，请确认 Fastify 服务已启动：${error instanceof Error ? error.message : String(error)}`,
@@ -451,44 +492,24 @@ export function AppShell() {
     }
   }
 
-  async function runStartupChecks() {
+  async function runStartupChecks(initialMakerRootSettings?: MakerProjectsRootSettings, projectCount = projects.length) {
     if (startupPromptedRef.current) return;
     startupPromptedRef.current = true;
 
-    await promptForMakerProjectsRoot();
-    await promptForMcpPackageUpdate();
+    maybeOpenFirstRunOnboarding(initialMakerRootSettings, projectCount);
   }
 
-  async function promptForMakerProjectsRoot() {
-    const response = await getMakerProjectsRootSettings().catch(() => undefined);
-    const settings = response?.settings;
-    if (!settings || settings.confirmed) return;
-    const confirmed = await requestConfirm({
-      title: "确认 Maker 项目根目录",
-      body: (
-        <div className="flex flex-col gap-4 mt-1">
-          <p className="text-sm text-text-subtle">
-            当前将使用下面的目录扫描 Maker 项目，并作为删除本地项目文件夹时的边界。
-          </p>
-          <div className="rounded-xl border border-border-soft bg-surface-panel/50 p-4">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted">当前目录</div>
-            <div className="mt-1 break-all font-mono text-xs text-text">{settings.rootPath}</div>
-            <div className="mt-2 text-[11px] text-text-subtle">
-              来源：{settings.source} · 当前状态：{settings.exists ? "目录存在" : "目录不存在"}
-            </div>
-          </div>
-        </div>
-      ),
-      confirmLabel: "确认使用",
-      cancelLabel: "稍后再说",
-    });
-    if (!confirmed) return;
-    await confirmMakerProjectsRootSettings()
-      .then((next) => setNotice(`已确认 Maker 项目根目录：${next.settings.rootPath}`))
-      .catch((error) => setNotice(error instanceof Error ? error.message : String(error)));
+  function maybeOpenFirstRunOnboarding(settings?: MakerProjectsRootSettings, projectCount = projects.length) {
+    if (onboardingDismissedRef.current) return;
+    if (!settings?.confirmed || projectCount === 0) {
+      setOnboardingOpen(true);
+    }
   }
 
-  async function promptForMcpPackageUpdate() {
+  async function promptForMcpPackageUpdate(projectId: string) {
+    if (!projectId || onboardingOpen) return;
+    if (mcpUpdatePromptedProjectRef.current === projectId) return;
+    mcpUpdatePromptedProjectRef.current = projectId;
     const response = await getMcpPackageStatus(true).catch(() => undefined);
     const status = response?.status;
     if (!status) return;
@@ -668,6 +689,21 @@ export function AppShell() {
     setBusy(true);
     try {
       const response = await scanProjects();
+      if (response.onboardingRequired) {
+        setProjects([]);
+        setSelectedProjectId("");
+        setTools([]);
+        setAssets([]);
+        setAssetTree(undefined);
+        setTasks([]);
+        setRuntime(undefined);
+        setStatusText("");
+        setSelection(undefined);
+        onboardingDismissedRef.current = false;
+        setOnboardingOpen(true);
+        setNotice("恢复初始状态后需要先完成首次启动配置，暂不自动扫描旧项目。");
+        return;
+      }
       setProjects(response.projects);
       if (!selectedProjectId && response.projects[0])
         setSelectedProjectId(response.projects[0].id);
@@ -724,6 +760,39 @@ export function AppShell() {
     }
 
     setNotice(`Maker 项目根目录已更新，扫描到 ${nextProjects.length} 个项目`);
+  }
+
+  function handleResetInitialState() {
+    clearTapTapLocalState();
+    resetLocalSettingsPreferences();
+    setDeveloperModeEnabled(false);
+    setDeveloperModeEnabledState(false);
+    setTheme(resolveThemePreference(readStoredPreference("themePreference") as ThemePreference));
+    setProjects([]);
+    setSelectedProjectId("");
+    setTools([]);
+    setAssets([]);
+    setAssetTree(undefined);
+    setTasks([]);
+    setRuntime(undefined);
+    setStatusText("");
+    setSelection(undefined);
+    setRightPanelTab("status");
+    setActiveModule("home");
+    setLastNonSettingsModule("home");
+    setActiveSettingsTab("appearance");
+    setSidebarCollapsed(false);
+    setSidebarWidth(240);
+    setInspectorMinimized(false);
+    setInspectorWidth(280);
+    startupPromptedRef.current = false;
+    onboardingDismissedRef.current = false;
+    setOnboardingOpen(true);
+    autoRuntimeStartedProjectRef.current = undefined;
+    assetReferenceScanCacheRef.current.clear();
+    activeReferenceScanRef.current?.controller.abort();
+    activeReferenceScanRef.current = undefined;
+    setNotice("已重置为初始未绑定状态");
   }
 
   async function handleStartRuntime(options: { skipConfirm?: boolean } = {}) {
@@ -3882,6 +3951,7 @@ export function AppShell() {
           tasks={tasks}
           onThemeToggle={() => {
             const nextTheme = theme === "light" ? "dark" : "light";
+            writeLocalPreference(settingsPreferenceKeys.themePreference, nextTheme);
             playThemeCinema(nextTheme);
           }}
           onOpenSettings={() => selectModule("settings")}
@@ -3993,6 +4063,7 @@ export function AppShell() {
               onSelectProject={handleSelectProject}
               onScanProjects={handleScanProjects}
               onProjectsRootChanged={handleProjectsRootChanged}
+              onResetInitialState={handleResetInitialState}
               onThemePreferenceChange={handleThemePreferenceChange}
               onOpenModule={selectModule}
               activeSettingsTab={activeSettingsTab}
@@ -4070,6 +4141,16 @@ export function AppShell() {
           }}
           onSelect={handleSelectSelection}
         />
+        <FirstRunOnboarding
+          open={onboardingOpen}
+          busy={busy}
+          onClose={() => {
+            onboardingDismissedRef.current = true;
+            setOnboardingOpen(false);
+          }}
+          onProjectsChanged={handleProjectsRootChanged}
+          onSelectProject={handleSelectProject}
+        />
         {fallbackMenu ? (
           <>
             <div
@@ -4137,6 +4218,24 @@ async function loadBootstrapDataWithRetry(
         scanProjects(),
       ]);
       return { stored, scanned };
+    } catch (error) {
+      lastError = error;
+      if (attempt === maxAttempts) break;
+      onRetry(attempt, maxAttempts);
+      await sleep(BOOTSTRAP_RETRY_DELAYS_MS[attempt - 1]);
+    }
+  }
+  throw lastError;
+}
+
+async function loadMakerProjectsRootSettingsWithRetry(
+  onRetry: (attempt: number, maxAttempts: number) => void,
+): Promise<MakerProjectsRootSettings> {
+  let lastError: unknown;
+  const maxAttempts = BOOTSTRAP_RETRY_DELAYS_MS.length + 1;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return (await getMakerProjectsRootSettings()).settings;
     } catch (error) {
       lastError = error;
       if (attempt === maxAttempts) break;

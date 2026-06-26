@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 
 const workspaceRoot = path.resolve(import.meta.dirname, "..");
 const rootPackagePath = path.join(workspaceRoot, "package.json");
+const appVersionPath = path.join(workspaceRoot, "app-version.json");
 const tauriCliPackagePath = path.join(workspaceRoot, "node_modules", "@tauri-apps", "cli", "package.json");
 const tauriConfigPath = path.join(workspaceRoot, "src-tauri", "tauri.conf.json");
 const tauriCargoPath = path.join(workspaceRoot, "src-tauri", "Cargo.toml");
@@ -17,7 +18,7 @@ const npmCacheDir = path.join(workspaceRoot, "data", "npm-cache");
 const desktopDistDir = path.join(workspaceRoot, "desktop-dist");
 const webIdentityName = 'name="taptap-maker-plus"';
 const webIdentityContent = 'content="web"';
-const bundledReadOnlyPaths = [
+const optionalBundledReadOnlyPaths = [
   "docs/help",
   "docs/templates",
   "docs/workflow-templates"
@@ -153,6 +154,7 @@ function requireViteDevServerConfig() {
 
 function requireServerArtifact() {
   requireFile(serverDistIndex);
+  requireFile(path.join(workspaceRoot, "apps", "server", "dist", "generated", "appVersion.js"));
   requireFile(path.join(workspaceRoot, "apps", "server", "dist", "lib", "config.js"));
   requireFile(path.join(workspaceRoot, "apps", "server", "dist", "routes", "api.js"));
   requireFile(path.join(workspaceRoot, "apps", "server", "dist", "services", "mcpRuntime.js"));
@@ -177,9 +179,18 @@ function requireServerArtifact() {
   }
   const apiPath = path.join(workspaceRoot, "apps", "server", "dist", "routes", "api.js");
   const api = fs.readFileSync(apiPath, "utf8");
-  for (const requiredText of ["/api/desktop/readiness", "taptap-maker-plus", "desktopInstanceToken", "TAPTAP_DESKTOP_INSTANCE_TOKEN"]) {
+  for (const requiredText of ["/api/desktop/readiness", "../generated/appVersion.js", "desktopInstanceToken", "TAPTAP_DESKTOP_INSTANCE_TOKEN"]) {
     if (!api.includes(requiredText)) {
       throw new Error(`${relative(apiPath)} does not include ${requiredText}`);
+    }
+  }
+  const appVersionSource = readJsonObject(appVersionPath);
+  const appVersionDistPath = path.join(workspaceRoot, "apps", "server", "dist", "generated", "appVersion.js");
+  const appVersionDist = fs.readFileSync(appVersionDistPath, "utf8");
+  for (const key of ["appId", "displayVersion", "packageVersion"]) {
+    const value = requireString(appVersionSource[key], `app-version.json ${key}`);
+    if (!appVersionDist.includes(value)) {
+      throw new Error(`${relative(appVersionDistPath)} does not include app-version.json ${key}`);
     }
   }
 }
@@ -237,9 +248,10 @@ function requireTauriConfig(rootPackage: JsonObject, tauriCliPackage: JsonObject
   const beforeBuildCommand = requireExactString(build.beforeBuildCommand, "npm run build:desktop", "tauri.conf.json build.beforeBuildCommand");
   requirePackageScript(rootPackage, "dev:web", "npm run dev --workspace @taptap/web");
   requirePackageScript(rootPackage, "dev:server", "npm run dev --workspace @taptap/server");
-  requirePackageScript(rootPackage, "build", "npm run build --workspace @taptap/server && npm run build --workspace @taptap/web");
+  requirePackageScript(rootPackage, "sync:version", "node scripts/sync-app-version.mjs");
+  requirePackageScript(rootPackage, "build", "npm run sync:version && npm run build --workspace @taptap/server && npm run build --workspace @taptap/web");
   requirePackageScript(rootPackage, "prepare:desktop", "node scripts/prepare-desktop-resources.mjs");
-  requirePackageScript(rootPackage, "build:desktop", "npm run build && npm run prepare:desktop");
+  requirePackageScript(rootPackage, "build:desktop", "npm run build && npm run sync:version && npm run prepare:desktop");
   requireDirectory(resolveFromDir(tauriConfigPath, frontendDist));
 
   const app = requireObject(tauriConfig.app, "tauri.conf.json app");
@@ -259,10 +271,15 @@ function requireTauriConfig(rootPackage: JsonObject, tauriCliPackage: JsonObject
   requireFile(path.join(desktopDistDir, "apps", "server", "dist", "index.js"));
   requireFile(path.join(desktopDistDir, "apps", "server", "package.json"));
   requireFile(path.join(desktopDistDir, "apps", "web", "dist", "index.html"));
-  for (const relativePath of bundledReadOnlyPaths) {
-    requireDirectory(path.join(desktopDistDir, relativePath));
+  for (const relativePath of optionalBundledReadOnlyPaths) {
+    const sourcePath = path.join(workspaceRoot, relativePath);
+    const outputPath = path.join(desktopDistDir, relativePath);
+    if (fs.existsSync(sourcePath)) requireDirectory(outputPath);
   }
-  requireFile(path.join(desktopDistDir, "docs", "workflow-templates", "basic-asset-workflow.json"));
+  const workflowTemplateSource = path.join(workspaceRoot, "docs", "workflow-templates", "basic-asset-workflow.json");
+  if (fs.existsSync(workflowTemplateSource)) {
+    requireFile(path.join(desktopDistDir, "docs", "workflow-templates", "basic-asset-workflow.json"));
+  }
   requireDirectory(path.join(desktopDistDir, "node_modules", "fastify"));
   requireDirectory(path.join(desktopDistDir, "node_modules", "better-sqlite3"));
   const icons = requireArray(bundle.icon, "tauri.conf.json bundle.icon");
@@ -321,6 +338,7 @@ function requireTauriConfig(rootPackage: JsonObject, tauriCliPackage: JsonObject
 }
 
 requireFile(rootPackagePath);
+requireFile(appVersionPath);
 requireFile(tauriCliPackagePath);
 const rootPackage = readJsonObject(rootPackagePath);
 const tauriCliPackage = readJsonObject(tauriCliPackagePath);

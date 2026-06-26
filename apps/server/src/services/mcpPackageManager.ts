@@ -2,11 +2,20 @@ import { execa } from "execa";
 import fs from "node:fs";
 import path from "node:path";
 import { config, setMakerPackage } from "../lib/config.js";
-import { getAppSetting, setAppSetting } from "../lib/db.js";
+import { deleteAppSettings, getAppSetting, setAppSetting } from "../lib/db.js";
+import { runtimeManager } from "./mcpRuntime.js";
 
 const MAKER_PACKAGE_SETTING_KEY = "maker_package_spec";
 const DEFAULT_CHANGELOG_TEXT = "暂无更新日志";
 const RELEASE_NOTES_FILE_NAME = "mcp-release-notes.md";
+const MCP_PACKAGE_SETTING_KEYS = [
+  MAKER_PACKAGE_SETTING_KEY,
+  "maker_package_resolved_version",
+  "maker_package_latest_version",
+  "maker_package_last_checked_at",
+  "maker_package_versions",
+  "maker_package_last_installed_at"
+];
 
 export type McpPackageUpdateStatus = {
   packageName: string;
@@ -26,6 +35,19 @@ export type McpPackageUpdateStatus = {
 export type McpPackageInstallResult = {
   status: McpPackageUpdateStatus;
   installOutput: string;
+};
+
+export type McpPackageUninstallResult = {
+  ok: true;
+  stoppedRuntime: true;
+  clearedSettingKeys: string[];
+  clearedCachePath: string;
+  removedCache: boolean;
+  aiClientConfigCleanup: {
+    supported: false;
+    message: string;
+  };
+  status: McpPackageUpdateStatus;
 };
 
 export function loadStoredMakerPackage() {
@@ -120,6 +142,32 @@ export async function installMcpPackage(packageSpec: string): Promise<McpPackage
   return {
     status: await getMcpPackageUpdateStatus(),
     installOutput
+  };
+}
+
+export async function uninstallMcpPackage(): Promise<McpPackageUninstallResult> {
+  await runtimeManager.stopAll();
+  deleteAppSettings(MCP_PACKAGE_SETTING_KEYS);
+  setMakerPackage("@taptap/maker");
+
+  let removedCache = false;
+  if (fs.existsSync(config.makerNpmCacheDir)) {
+    fs.rmSync(config.makerNpmCacheDir, { recursive: true, force: true });
+    removedCache = true;
+  }
+  fs.mkdirSync(config.makerNpmCacheDir, { recursive: true });
+
+  return {
+    ok: true,
+    stoppedRuntime: true,
+    clearedSettingKeys: MCP_PACKAGE_SETTING_KEYS,
+    clearedCachePath: config.makerNpmCacheDir,
+    removedCache,
+    aiClientConfigCleanup: {
+      supported: false,
+      message: "暂未接入 AI client MCP 配置清理；不会改动任何 AI client 配置文件。"
+    },
+    status: await getMcpPackageUpdateStatus()
   };
 }
 

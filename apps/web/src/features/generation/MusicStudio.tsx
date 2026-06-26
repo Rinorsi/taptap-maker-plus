@@ -377,13 +377,13 @@ export function MusicStudio({
                           <Label className="text-xs font-bold text-text-muted">人声选项</Label>
                           <div className="flex items-center gap-2">
                              <button type="button" onClick={() => setVocalGender("m")} className={cn("inline-flex items-center gap-2 rounded-xl border-2 h-10 px-4 text-[13px] font-bold transition-all", vocalGender === "m" ? "bg-brand/10 border-brand text-brand-strong" : "bg-surface-raised border-transparent text-text-muted hover:bg-surface-panel hover:text-text")}>
-                                <div className={cn("w-3.5 h-3.5 rounded-full border flex items-center justify-center transition-colors", vocalGender === "m" ? "border-brand bg-brand text-[#04202a]" : "border-text-muted")}>
+                                <div className={cn("w-3.5 h-3.5 rounded-full border flex items-center justify-center transition-colors", vocalGender === "m" ? "border-brand bg-brand text-white" : "border-text-muted")}>
                                   {vocalGender === "m" && <div className="w-1.5 h-1.5 bg-[#04202a] rounded-full" />}
                                 </div>
                                 男声
                              </button>
                              <button type="button" onClick={() => setVocalGender("f")} className={cn("inline-flex items-center gap-2 rounded-xl border-2 h-10 px-4 text-[13px] font-bold transition-all", vocalGender === "f" ? "bg-brand/10 border-brand text-brand-strong" : "bg-surface-raised border-transparent text-text-muted hover:bg-surface-panel hover:text-text")}>
-                                <div className={cn("w-3.5 h-3.5 rounded-full border flex items-center justify-center transition-colors", vocalGender === "f" ? "border-brand bg-brand text-[#04202a]" : "border-text-muted")}>
+                                <div className={cn("w-3.5 h-3.5 rounded-full border flex items-center justify-center transition-colors", vocalGender === "f" ? "border-brand bg-brand text-white" : "border-text-muted")}>
                                   {vocalGender === "f" && <div className="w-1.5 h-1.5 bg-[#04202a] rounded-full" />}
                                 </div>
                                 女声
@@ -434,7 +434,7 @@ export function MusicStudio({
               size="lg" 
               onClick={handleGenerate} 
               disabled={busy || !prompt.trim() || Boolean(showAdvanced && (title.trim() || style.trim()) && !style.trim())}
-              className="gap-2 w-full text-[15px] h-12 font-black rounded-2xl bg-gradient-to-r from-brand to-brand-strong text-[#04202a] shadow-lg shadow-brand/20 hover:shadow-brand/40 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-300 disabled:opacity-50 disabled:hover:translate-y-0"
+              className="gap-2 w-full text-[15px] h-12 font-black rounded-2xl bg-gradient-to-r from-brand to-brand-strong text-white shadow-lg shadow-brand/20 hover:shadow-brand/40 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-300 disabled:opacity-50 disabled:hover:translate-y-0"
             >
               {activeGenerationTask ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Music className="w-5 h-5" />}
               {activeGenerationTask ? "生成调度中..." : "启动生成"}

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import type { AssetSummary, ProjectSummary, RuntimeSummary, TaskRecord, ToolSummary } from "../../api";
 import type { WorkbenchModule } from "../../app/routes";
+import { appVersion } from "../../generated/appVersion";
 
 type Props = {
   projects: ProjectSummary[];
@@ -150,7 +151,7 @@ export function WelcomeView({
                     type="button"
                     disabled={busy}
                     onClick={onStartRuntime}
-                    className="inline-flex h-9 items-center justify-center gap-2 rounded bg-brand px-5 text-sm font-bold text-black hover:brightness-110 transition-all disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex h-9 items-center justify-center gap-2 rounded bg-brand px-5 text-sm font-bold text-white hover:brightness-110 transition-all disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Play className="h-4 w-4 fill-current" />
                     启动引擎
@@ -221,7 +222,7 @@ export function WelcomeView({
       {/* Footer Version */}
       <div className="absolute bottom-6 left-1/2 -translate-x-1/2 opacity-20 pointer-events-none select-none">
         <span className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-text">
-          Maker Plus v0.1.0-alpha
+          Maker Plus {appVersion.displayVersion}
         </span>
       </div>
     </div>

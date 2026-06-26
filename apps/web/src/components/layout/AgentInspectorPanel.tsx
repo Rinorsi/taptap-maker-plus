@@ -1586,7 +1586,7 @@ function RecoveryButton({ taskId, state, onRecoverVideoTask }: { taskId: string;
     <Button
       variant="outline"
       size="sm"
-      className="w-full text-[11px] h-8 bg-brand/10 border-brand/30 text-brand hover:bg-brand hover:text-[#04202a] transition-all font-bold mt-1 shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+      className="w-full text-[11px] h-8 bg-brand/10 border-brand/30 text-brand hover:bg-brand hover:text-white transition-all font-bold mt-1 shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
       onClick={() => onRecoverVideoTask?.(taskId)}
       disabled={state.disabled || !onRecoverVideoTask}
     >

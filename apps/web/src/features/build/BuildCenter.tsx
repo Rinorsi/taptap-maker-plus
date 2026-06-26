@@ -354,7 +354,7 @@ function BuildConsolePanel({
         <button
           disabled={busy || !project}
           onClick={submit}
-          className="relative inline-flex items-center justify-center gap-1.5 whitespace-nowrap text-[12px] font-bold transition-all cursor-pointer bg-text text-surface-app hover:bg-brand hover:text-[#04202a] px-4 py-1.5 h-[28px] rounded-full shadow-sm disabled:opacity-50 disabled:cursor-not-allowed group/btn overflow-hidden"
+          className="relative inline-flex items-center justify-center gap-1.5 whitespace-nowrap text-[12px] font-bold transition-all cursor-pointer bg-text text-surface-app hover:bg-brand hover:text-white px-4 py-1.5 h-[28px] rounded-full shadow-sm disabled:opacity-50 disabled:cursor-not-allowed group/btn overflow-hidden"
         >
           <div className="absolute inset-0 bg-white/20 translate-y-full group-hover/btn:translate-y-0 transition-transform duration-300" />
           <Play className="h-3.5 w-3.5 fill-current relative z-10" />

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "TapTap Maker Plus",
-  "version": "0.1.0",
+  "productName": "TapTap Maker Plus 桌面端",
+  "version": "0.13.0-alpha",
   "identifier": "com.taptap.makerplus",
   "build": {
     "frontendDist": "../apps/web/dist",
@@ -47,6 +47,19 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    },
+    "publisher": "TapTap Maker",
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "installMode": "currentUser",
+        "languages": [
+          "SimpChinese"
+        ],
+        "displayLanguageSelector": false,
+        "startMenuFolder": "TapTap Maker Plus"
+      }
     }
   }
 }

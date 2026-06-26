@@ -370,7 +370,7 @@ export function SelectionBox({
       onClick={onClick}
       className={cn(
         "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
-        selected ? "border-brand bg-brand text-[#04202a]" : "border-border-strong bg-surface-panel hover:border-brand"
+        selected ? "border-brand bg-brand text-white" : "border-border-strong bg-surface-panel hover:border-brand"
       )}
       title={title}
     >

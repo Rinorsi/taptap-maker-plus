@@ -3,7 +3,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
-import { config, defaultMakerProjectsRoot, setMakerProjectsRoot } from "../lib/config.js";
+import { config, defaultMakerProjectsRoot, setMakerPackage, setMakerProjectsRoot } from "../lib/config.js";
 import {
   clearSelectedProject,
   createWorkflowRun,
@@ -31,6 +31,7 @@ import {
   removeProjectRecord,
   saveWorkflowGraph,
   saveAppSettingsPreferences,
+  resetDesktopState,
   setSelectedProject,
   setAppSetting,
   listCreditRecords
@@ -51,9 +52,11 @@ import {
 import { buildAssetDirectoryTree, listProjectAssetDirectories } from "../services/assetTree.js";
 import { rebuildAssetProvenance } from "../services/assetProvenance.js";
 import { runtimeManager } from "../services/mcpRuntime.js";
-import { getMcpPackageUpdateStatus, installMcpPackage } from "../services/mcpPackageManager.js";
+import { getMcpPackageUpdateStatus, installMcpPackage, uninstallMcpPackage } from "../services/mcpPackageManager.js";
 import { executeToolCall, syncCreditRecordsFromTasks } from "../services/toolExecution.js";
 import { buildAgentContext } from "../agent/contextBuilder.js";
+import { appVersion } from "../generated/appVersion.js";
+import { bindExistingMakerProject, initMakerProject, loginMaker, scanExistingMakerProjects, setMakerToken } from "../services/makerOnboarding.js";
 import { getProjectBuildLogs } from "../services/projectLogs.js";
 import { scanModelPackages, organizeModelPackage, bindModelPackage, discardModelPackage, restoreModelPackage, updateResourceTable, runModelPackageBatchAction } from "../services/modelPackage.js";
 import { convertMdlToGltf, inspectMdlFile } from "../services/urhoMdl.js";
@@ -77,6 +80,18 @@ const makerProjectsRootSchema = z.object({
 
 const mcpPackageInstallSchema = z.object({
   packageSpec: z.string().min(1)
+});
+
+const onboardingTargetDirSchema = z.object({
+  targetDir: z.string().min(1)
+});
+
+const onboardingScanSchema = z.object({
+  rootDir: z.string().min(1).optional()
+});
+
+const onboardingTokenSchema = z.object({
+  token: z.string().min(1)
 });
 
 const assetPathsSchema = z.object({
@@ -213,6 +228,9 @@ const frontendDiagnosticSchema = z.object({
 });
 const frontendDiagnosticDeleteQuerySchema = z.object({
   retention: z.enum(["all", "14d", "30d", "100mb"]).optional()
+});
+const developerResetInitialStateSchema = z.object({
+  confirmText: z.literal("重置软件")
 });
 
 const workflowGraphSchema = z.object({
@@ -370,6 +388,10 @@ function getMakerProjectsRootSettings() {
     exists: fs.existsSync(rootPath),
     source: storedRoot ? "app_settings" : process.env.TAPTAP_MAKER_PROJECTS_ROOT ? "env" : "default"
   };
+}
+
+function isMakerProjectsRootConfirmed() {
+  return getAppSetting("maker_projects_root_confirmed") === config.makerProjectsRoot;
 }
 
 function readProjectConfigHealth(project: ProjectSummary) {
@@ -632,7 +654,7 @@ function sendAssetFile(reply: FastifyReply, filePath: string, range?: string) {
 }
 
 export async function registerApiRoutes(app: FastifyInstance) {
-  app.get("/api/health", async () => ({ ok: true, name: "taptap-maker-plus" }));
+  app.get("/api/health", async () => ({ ok: true, name: appVersion.appId, version: appVersion.displayVersion, packageVersion: appVersion.packageVersion }));
 
   app.get("/api/settings/preferences", async (): Promise<AppSettingsPreferencesResponse> => {
     return getAppSettingsPreferences();
@@ -694,9 +716,33 @@ export async function registerApiRoutes(app: FastifyInstance) {
     return { ok: true, ...result };
   });
 
+  app.post<{ Body: unknown }>("/api/developer/reset-initial-state", async (request, reply) => {
+    const parsed = developerResetInitialStateSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    await runtimeManager.stopAll().catch(() => undefined);
+    resetDesktopState();
+    setMakerProjectsRoot(defaultMakerProjectsRoot);
+    setMakerPackage("@taptap/maker");
+    return {
+      ok: true,
+      resetAt: new Date().toISOString(),
+      projects: [],
+      selectedProjectId: undefined,
+      preserved: {
+        makerProjectDirectories: true,
+        npmCache: true,
+        aiClientConfig: true
+      }
+    };
+  });
+
   app.get("/api/desktop/readiness", async () => ({
     ok: true,
-    appId: "taptap-maker-plus",
+    appId: appVersion.appId,
+    productName: appVersion.productName,
+    version: appVersion.displayVersion,
+    packageVersion: appVersion.packageVersion,
+    channel: appVersion.channel,
     desktopInstanceToken: config.desktopInstanceToken,
     mode: process.env.NODE_ENV ?? "development",
     server: {
@@ -734,6 +780,67 @@ export async function registerApiRoutes(app: FastifyInstance) {
     return { context: buildAgentContext({ projectId: parsed.data.projectId, page: pageStateFromQuery(parsed.data) }) };
   });
 
+  app.post("/api/onboarding/login", async (_request, reply) => {
+    try {
+      return { cli: await loginMaker() };
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{ Body: unknown }>("/api/onboarding/token", async (request, reply) => {
+    const parsed = onboardingTokenSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
+      return { cli: await setMakerToken(parsed.data.token) };
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{ Body: unknown }>("/api/onboarding/projects/scan", async (request, reply) => {
+    const parsed = onboardingScanSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
+      const projects = await scanExistingMakerProjects(parsed.data.rootDir);
+      return { projects: projects.map((project) => withRuntime(project)), selectedProjectId: getSelectedProjectId() };
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{ Body: unknown }>("/api/onboarding/projects/init", async (request, reply) => {
+    const parsed = onboardingTargetDirSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
+      const result = await initMakerProject(parsed.data.targetDir);
+      return {
+        cli: result.cli,
+        project: withRuntime(result.project),
+        projects: listProjects().map((project) => withRuntime(project)),
+        selectedProjectId: getSelectedProjectId()
+      };
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{ Body: unknown }>("/api/onboarding/projects/bind-existing", async (request, reply) => {
+    const parsed = onboardingTargetDirSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
+      const result = await bindExistingMakerProject(parsed.data.targetDir);
+      return {
+        cli: result.cli,
+        project: withRuntime(result.project),
+        projects: listProjects().map((project) => withRuntime(project)),
+        selectedProjectId: getSelectedProjectId()
+      };
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   app.get("/api/projects", async () => {
     const selectedProjectId = getSelectedProjectId();
     const projects = listProjects();
@@ -741,6 +848,14 @@ export async function registerApiRoutes(app: FastifyInstance) {
   });
 
   app.post("/api/projects/scan", async () => {
+    if (!isMakerProjectsRootConfirmed()) {
+      return {
+        selectedProjectId: undefined,
+        projects: [],
+        onboardingRequired: true,
+        settings: getMakerProjectsRootSettings()
+      };
+    }
     const projects = await scanMakerProjects();
     const selectedProjectId = getSelectedProjectId();
     return { selectedProjectId, projects: projects.map((project) => withRuntime(project)) };
@@ -810,6 +925,14 @@ export async function registerApiRoutes(app: FastifyInstance) {
       const result = await installMcpPackage(parsed.data.packageSpec);
       await runtimeManager.stopAll();
       return result;
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post("/api/mcp/package/uninstall", async (_request, reply) => {
+    try {
+      return await uninstallMcpPackage();
     } catch (error) {
       return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
     }

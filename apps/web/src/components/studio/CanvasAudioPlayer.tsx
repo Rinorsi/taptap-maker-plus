@@ -69,7 +69,7 @@ export function CanvasAudioPlayer({
       <button
         type="button"
         className={cn(
-          "flex shrink-0 items-center justify-center rounded-lg border border-brand/30 bg-brand/12 text-brand transition-colors hover:bg-brand hover:text-[#04202a] active:bg-brand-strong",
+          "flex shrink-0 items-center justify-center rounded-lg border border-brand/30 bg-brand/12 text-brand transition-colors hover:bg-brand hover:text-white active:bg-brand-strong",
           compact ? "h-8 w-8" : "h-9 w-9",
         )}
         onPointerDown={(event) => event.stopPropagation()}

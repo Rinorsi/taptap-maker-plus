@@ -310,6 +310,36 @@ export function setAppSetting(key: string, value: string) {
   `).run(key, value, new Date().toISOString());
 }
 
+export function deleteAppSetting(key: string) {
+  sqlite.prepare("DELETE FROM app_settings WHERE key = ?").run(key);
+}
+
+export function deleteAppSettings(keys: string[]) {
+  if (!keys.length) return;
+  const remove = sqlite.prepare("DELETE FROM app_settings WHERE key = ?");
+  const tx = sqlite.transaction(() => {
+    for (const key of keys) remove.run(key);
+  });
+  tx();
+}
+
+export function resetDesktopState() {
+  const tx = sqlite.transaction(() => {
+    sqlite.prepare("DELETE FROM workflow_runs").run();
+    sqlite.prepare("DELETE FROM workflow_graphs").run();
+    sqlite.prepare("DELETE FROM credit_ledger").run();
+    sqlite.prepare("DELETE FROM generations").run();
+    sqlite.prepare("DELETE FROM tasks").run();
+    sqlite.prepare("DELETE FROM asset_provenance").run();
+    sqlite.prepare("DELETE FROM assets").run();
+    sqlite.prepare("DELETE FROM tools_list_snapshots").run();
+    sqlite.prepare("DELETE FROM tools").run();
+    sqlite.prepare("DELETE FROM projects").run();
+    sqlite.prepare("DELETE FROM app_settings").run();
+  });
+  tx();
+}
+
 export function getAppSettingsPreferences(): { preferences: Record<string, unknown>; updatedAt?: string } {
   const rows = sqlite.prepare("SELECT key, value, updated_at FROM app_settings WHERE key LIKE 'taptap.settings.%'").all() as Array<{ key: string; value: string; updated_at: string }>;
   const preferences: Record<string, unknown> = {};

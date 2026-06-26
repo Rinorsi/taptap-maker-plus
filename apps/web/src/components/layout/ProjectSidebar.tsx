@@ -50,7 +50,7 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
     return (
       <motion.aside
         initial={false}
-        animate={{ width: collapsed ? 56 : width }}
+        animate={{ width: width }}
         transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
         className="relative flex h-full shrink-0 select-none flex-col overflow-hidden border-r border-border bg-surface-panel"
       >

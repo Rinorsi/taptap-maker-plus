@@ -191,6 +191,7 @@ export function AppShell() {
   const [selection, setSelection] = useState<InspectorSelection>();
   const [notice, setNotice] = useState("准备就绪");
   const [settingsPreferenceVersion, setSettingsPreferenceVersion] = useState(0);
+  const themeCinemaTargetRef = useRef<"light" | "dark" | undefined>(undefined);
   const autoRuntimeStartedProjectRef = useRef<string | undefined>(undefined);
   const assetReferenceScanCacheRef = useRef(
     new Map<string, { expiresAt: number; results: AssetReferenceScanResult[] }>(),
@@ -334,7 +335,9 @@ export function AppShell() {
       if (!key) return;
       setSettingsPreferenceVersion((version) => version + 1);
       if (key === settingsPreferenceKeys.themePreference) {
-        setTheme(resolveThemePreference(detail.value as ThemePreference));
+        const nextTheme = resolveThemePreference(detail.value as ThemePreference);
+        if (themeCinemaTargetRef.current === nextTheme) return;
+        setTheme(nextTheme);
       } else if (key === settingsPreferenceKeys.density) {
         document.documentElement.dataset.density = detail.value as DensityPreference;
       } else if (key === settingsPreferenceKeys.sidebarPreference) {
@@ -354,6 +357,16 @@ export function AppShell() {
       window.removeEventListener(SETTINGS_PREFERENCES_CHANGED_EVENT, handlePreferenceChange);
     };
   }, []);
+
+  function playThemeCinema(nextTheme: "light" | "dark") {
+    if (nextTheme === theme && !cinemaThemeState.active) return;
+    themeCinemaTargetRef.current = nextTheme;
+    setCinemaThemeState({ active: true, toTheme: nextTheme });
+  }
+
+  function handleThemePreferenceChange(preference: ThemePreference) {
+    playThemeCinema(resolveThemePreference(preference));
+  }
 
   useEffect(() => {
     localStorage.setItem("taptap.sidebarCollapsed", String(sidebarCollapsed));
@@ -3751,7 +3764,10 @@ export function AppShell() {
            document.documentElement.dataset.theme = newTheme;
            setTheme(newTheme);
          }}
-         onComplete={() => setCinemaThemeState(prev => ({ ...prev, active: false }))}
+         onComplete={() => {
+           themeCinemaTargetRef.current = undefined;
+           setCinemaThemeState(prev => ({ ...prev, active: false }));
+         }}
       />
       <div
         className="w-full h-full flex flex-col app-background overflow-hidden text-text rounded-[10px] border border-border-soft shadow-panel"
@@ -3774,7 +3790,7 @@ export function AppShell() {
           tasks={tasks}
           onThemeToggle={() => {
             const nextTheme = theme === "light" ? "dark" : "light";
-            setCinemaThemeState({ active: true, toTheme: nextTheme });
+            playThemeCinema(nextTheme);
           }}
           onOpenSettings={() => selectModule("settings")}
           onSelectProject={handleSelectProject}
@@ -3884,6 +3900,7 @@ export function AppShell() {
               onSelectProject={handleSelectProject}
               onScanProjects={handleScanProjects}
               onProjectsRootChanged={handleProjectsRootChanged}
+              onThemePreferenceChange={handleThemePreferenceChange}
               onOpenModule={selectModule}
               activeSettingsTab={activeSettingsTab}
               sidebarCollapsed={effectiveSidebarCollapsed}

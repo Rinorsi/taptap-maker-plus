@@ -4,6 +4,7 @@ import type { AgentPageState, AssetDirectoryNode, AssetMutationResponse, AssetSu
 import type { InspectorSelection } from "./AgentInspectorPanel";
 import type { WorkbenchModule } from "../../app/routes";
 import type { AppCommandContext } from "../../commands";
+import type { SettingsTab } from "../../features/settings/settingsTabs";
 
 const WelcomeView = lazy(() =>
   import("../../features/projects/WelcomeView").then((module) => ({
@@ -91,6 +92,10 @@ type Props = {
   onSelectProject: (projectId: string) => void;
   onScanProjects: () => void;
   onOpenModule: (module: WorkbenchModule) => void;
+  activeSettingsTab: SettingsTab;
+  sidebarCollapsed: boolean;
+  onActiveSettingsTabChange: (tab: SettingsTab) => void;
+  onExitSettings: () => void;
   onCollapseSidebar?: () => void;
   onShowError?: () => void;
   onCanvasCommandContextChange?: (context?: AppCommandContext) => void;
@@ -266,6 +271,10 @@ export function WorkbenchViewport(props: Props) {
           runtime={props.runtime}
           tools={props.tools}
           busy={props.busy}
+          activeTab={props.activeSettingsTab}
+          sidebarCollapsed={props.sidebarCollapsed}
+          onActiveTabChange={props.onActiveSettingsTabChange}
+          onExitSettings={props.onExitSettings}
           onStartRuntime={props.onStartRuntime}
           onStopRuntime={props.onStopRuntime}
           onRefreshTools={props.onRefreshTools}

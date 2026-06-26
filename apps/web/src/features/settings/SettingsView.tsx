@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  ArrowLeft,
   Bug,
   Copy,
   Cpu,
@@ -37,38 +38,36 @@ import {
   subscribeDeveloperMode,
 } from "../../lib/developerMode";
 import { copyText } from "../../lib/clipboard";
-
-type SettingsTab = "project" | "runtime" | "schema" | "diagnostics";
+import type { SettingsTab } from "./settingsTabs";
 
 type Props = {
   project?: ProjectSummary;
   runtime?: RuntimeSummary;
   tools: ToolSummary[];
   busy: boolean;
+  activeTab: SettingsTab;
+  sidebarCollapsed: boolean;
+  onActiveTabChange: (tab: SettingsTab) => void;
+  onExitSettings: () => void;
   onStartRuntime: () => void;
   onStopRuntime: () => void;
   onRefreshTools: () => void;
   onStatusLite: () => void;
 };
 
-const settingTabs: Array<{ id: SettingsTab; label: string; icon: React.ElementType }> = [
-  { id: "project", label: "项目绑定", icon: FolderCog },
-  { id: "runtime", label: "Runtime", icon: Cpu },
-  { id: "schema", label: "MCP Schema", icon: FileJson },
-  { id: "diagnostics", label: "诊断日志", icon: Bug },
-];
-
 export function SettingsView({
   project,
   runtime,
   tools,
   busy,
+  activeTab,
+  sidebarCollapsed,
+  onExitSettings,
   onStartRuntime,
   onStopRuntime,
   onRefreshTools,
   onStatusLite,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("project");
   const [showPreview, setShowPreview] = useState(false);
   const [developerMode, setDeveloperMode] = useState(isDeveloperModeEnabled);
   const [developerLogVersion, setDeveloperLogVersion] = useState(0);
@@ -210,48 +209,31 @@ export function SettingsView({
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden p-4 md:p-6">
-      <div className="mb-4 shrink-0">
-        <span className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-text-subtle">
-          <Settings className="h-3.5 w-3.5" />
-          Settings
-        </span>
-        <h1 className="m-0 text-xl font-bold text-text">设置中心</h1>
-        <p className="mt-1 text-xs text-text-subtle">
-          项目绑定、Runtime、MCP schema 与诊断日志集中管理。
-        </p>
+      <div className="mb-4 flex shrink-0 items-start gap-3">
+        {sidebarCollapsed ? (
+          <button
+            type="button"
+            onClick={onExitSettings}
+            className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-muted hover:text-text"
+            title="返回工作台"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+        ) : null}
+        <div className="min-w-0">
+          <span className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-text-subtle">
+            <Settings className="h-3.5 w-3.5" />
+            Settings
+          </span>
+          <h1 className="m-0 text-xl font-bold text-text">设置中心</h1>
+          <p className="mt-1 text-xs text-text-subtle">
+            项目绑定、Runtime、MCP schema 与诊断日志集中管理。
+          </p>
+        </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 gap-4">
-        <nav className="hidden w-44 shrink-0 flex-col gap-1 md:flex">
-          {settingTabs.map((tab) => (
-            <SettingsTabButton
-              key={tab.id}
-              active={activeTab === tab.id}
-              icon={<tab.icon className="h-4 w-4" />}
-              label={tab.label}
-              onClick={() => setActiveTab(tab.id)}
-            />
-          ))}
-        </nav>
-
+      <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col gap-3">
-          <div className="flex shrink-0 gap-1 overflow-x-auto rounded-control border border-border-soft bg-surface-panel p-1 md:hidden">
-            {settingTabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`shrink-0 rounded-[4px] px-3 py-1.5 text-xs font-semibold ${
-                  activeTab === tab.id
-                    ? "bg-brand/10 text-brand-strong"
-                    : "text-text-muted hover:bg-surface-muted hover:text-text"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
           <div className="min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin">
             {activeTab === "project" ? (
               <div className="grid gap-4 lg:grid-cols-2">
@@ -560,33 +542,6 @@ export function SettingsView({
         </div>
       )}
     </section>
-  );
-}
-
-function SettingsTabButton({
-  active,
-  icon,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex h-9 items-center gap-2 rounded-control px-3 text-left text-xs font-semibold transition-colors ${
-        active
-          ? "bg-brand/10 text-brand-strong"
-          : "text-text-muted hover:bg-surface-muted hover:text-text"
-      }`}
-    >
-      {icon}
-      <span>{label}</span>
-    </button>
   );
 }
 

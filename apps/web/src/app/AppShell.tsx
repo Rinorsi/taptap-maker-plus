@@ -44,6 +44,7 @@ import {
 } from "../api";
 import { filterAssetsForDirectory } from "../features/assets/assetTree";
 import { type WorkbenchModule } from "./routes";
+import { type SettingsTab } from "../features/settings/settingsTabs";
 import { TopBar } from "../components/layout/TopBar";
 import { ProjectSidebar } from "../components/layout/ProjectSidebar";
 import { WorkbenchViewport } from "../components/layout/WorkbenchViewport";
@@ -131,6 +132,11 @@ export function AppShell() {
     const hasProject = localStorage.getItem("taptap.selectedProjectId");
     return hasProject ? DEFAULT_PROJECT_MODULE : "home";
   });
+  const [lastNonSettingsModule, setLastNonSettingsModule] = useState<WorkbenchModule>(() => {
+    const hasProject = localStorage.getItem("taptap.selectedProjectId");
+    return hasProject ? DEFAULT_PROJECT_MODULE : "home";
+  });
+  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("project");
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState(
     () => localStorage.getItem("taptap.selectedProjectId") ?? "",
@@ -1437,8 +1443,20 @@ export function AppShell() {
       setNotice("运行记录已合并到右侧任务日志");
       return;
     }
+    if (module === "settings") {
+      setLastNonSettingsModule(activeModule === "settings" ? lastNonSettingsModule : activeModule);
+      setActiveModule("settings");
+      setSelection(undefined);
+      return;
+    }
+    setLastNonSettingsModule(module);
     setActiveModule(module);
-    if (module === "settings") setSelection(undefined);
+  }
+
+  function exitSettings() {
+    const fallbackModule = selectedProject ? DEFAULT_PROJECT_MODULE : "home";
+    const nextModule = lastNonSettingsModule === "settings" ? fallbackModule : lastNonSettingsModule;
+    setActiveModule(nextModule);
   }
 
   function applyProjectRemoval(projectId: string, nextProjects: ProjectSummary[], nextSelectedProjectId?: string) {
@@ -3623,12 +3641,15 @@ export function AppShell() {
               projects={projects}
               selectedProjectId={selectedProjectId}
               activeModule={activeModule}
+              activeSettingsTab={activeSettingsTab}
               tasks={tasks}
               collapsed={sidebarCollapsed}
               width={sidebarWidth}
               onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
               onClearProject={handleClearProject}
               onSelectModule={selectModule}
+              onSelectSettingsTab={setActiveSettingsTab}
+              onExitSettings={exitSettings}
               onScanProjects={handleScanProjects}
             />
             {!sidebarCollapsed && (
@@ -3692,6 +3713,10 @@ export function AppShell() {
               onSelectProject={handleSelectProject}
               onScanProjects={handleScanProjects}
               onOpenModule={selectModule}
+              activeSettingsTab={activeSettingsTab}
+              sidebarCollapsed={sidebarCollapsed}
+              onActiveSettingsTabChange={setActiveSettingsTab}
+              onExitSettings={exitSettings}
               onCollapseSidebar={() => {
                 setSidebarCollapsed(true);
                 setInspectorMinimized(true);

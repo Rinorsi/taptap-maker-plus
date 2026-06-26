@@ -1,20 +1,24 @@
 import { motion } from "framer-motion";
-import { Menu, FolderSync, LayoutDashboard, Home, Image as ImageIcon, Video, Music, Box, Hammer, Settings2, GitBranch, Activity, Bot } from "lucide-react";
+import { ArrowLeft, Menu, FolderSync, LayoutDashboard, Home, Image as ImageIcon, Video, Music, Box, Hammer, Settings2, GitBranch, Activity, Bot } from "lucide-react";
 import type { ProjectSummary, TaskRecord } from "../../api";
 import { workbenchRoutes, type WorkbenchModule } from "../../app/routes";
 import { AppContextMenu } from "../../commands";
 import { cn } from "../../lib/utils";
+import { settingsTabs, type SettingsTab } from "../../features/settings/settingsTabs";
 
 type Props = {
   projects: ProjectSummary[];
   selectedProjectId: string;
   activeModule: WorkbenchModule;
+  activeSettingsTab: SettingsTab;
   tasks: TaskRecord[];
   collapsed: boolean;
   width: number;
   onToggleCollapsed: () => void;
   onClearProject: () => void;
   onSelectModule: (module: WorkbenchModule) => void;
+  onSelectSettingsTab: (tab: SettingsTab) => void;
+  onExitSettings: () => void;
   onScanProjects: () => void;
 };
 
@@ -34,12 +38,89 @@ const moduleIcons: Record<string, React.ElementType> = {
   "settings": Settings2,
 };
 
-export function ProjectSidebar({ projects, selectedProjectId, activeModule, tasks, collapsed, width, onToggleCollapsed, onClearProject, onSelectModule, onScanProjects }: Props) {
+export function ProjectSidebar({ projects, selectedProjectId, activeModule, activeSettingsTab, collapsed, width, onToggleCollapsed, onClearProject, onSelectModule, onSelectSettingsTab, onExitSettings }: Props) {
   
   const activeProject = projects.find(p => p.id === selectedProjectId);
 
   // 核心逻辑：是否处于“已打开项目”状态
   const isProjectOpened = !!activeProject;
+  const isSettingsMode = activeModule === "settings";
+
+  if (isSettingsMode) {
+    return (
+      <motion.aside
+        initial={false}
+        animate={{ width: collapsed ? 56 : width }}
+        transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+        className="relative flex h-full shrink-0 select-none flex-col overflow-hidden border-r border-border bg-surface-panel"
+      >
+        <div className="flex h-[52px] shrink-0 items-center gap-2 overflow-hidden border-b border-border-soft bg-surface-app px-3">
+          {collapsed ? (
+            <button
+              onClick={onToggleCollapsed}
+              className="mx-auto inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-text transition-colors hover:bg-surface-muted focus-visible:outline-none"
+              title="展开侧栏"
+              type="button"
+            >
+              <Menu className="h-4 w-4" />
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={onExitSettings}
+                className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-muted hover:text-text focus-visible:outline-none"
+                title="返回工作台"
+                type="button"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+              <div className="min-w-0 flex-1">
+                <span className="block truncate text-[14px] font-bold text-text">设置</span>
+              </div>
+              <button
+                onClick={onToggleCollapsed}
+                className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-muted hover:text-text focus-visible:outline-none"
+                title="收起侧栏"
+                type="button"
+              >
+                <Menu className="h-4 w-4" />
+              </button>
+            </>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto scrollbar-thin">
+          <div className={cn("p-3", collapsed ? "px-2" : "px-3")}>
+            <ul className="space-y-1">
+              {settingsTabs.map((tab) => {
+                const Icon = tab.icon;
+                const active = activeSettingsTab === tab.id;
+                return (
+                  <li key={tab.id}>
+                    <button
+                      type="button"
+                      title={tab.label}
+                      className={cn(
+                        "flex w-full cursor-pointer select-none items-center rounded-lg outline-none transition-colors",
+                        collapsed ? "h-[44px] justify-center p-0" : "gap-3 px-3 py-[10px]",
+                        active
+                          ? "bg-surface-muted font-semibold text-text"
+                          : "text-text-muted hover:bg-surface-muted hover:text-text",
+                      )}
+                      onClick={() => onSelectSettingsTab(tab.id)}
+                    >
+                      <Icon className="h-[20px] w-[20px] shrink-0" strokeWidth={active ? 2.5 : 2} />
+                      {!collapsed ? <span className="truncate text-[14px]">{tab.label}</span> : null}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
+      </motion.aside>
+    );
+  }
 
   return (
     <motion.aside 
@@ -116,7 +197,8 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, task
          <div className={cn("p-3 pb-0", collapsed ? "px-2" : "px-3")}>
             <ul className="space-y-1">
               {workbenchRoutes.map((route) => {
-                const isHomeOrSettings = route.id === "home" || route.id === "settings";
+                if (route.id === "settings") return null;
+                const isHomeOrSettings = route.id === "home";
                 
                 // 双状态逻辑核心：
                 // 如果未打开项目，则完全不渲染那些与项目相关的模块，保持界面纯净
@@ -152,6 +234,21 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, task
               })}
             </ul>
          </div>
+      </div>
+
+      <div className={cn("shrink-0 border-t border-border-soft p-3", collapsed ? "px-2" : "px-3")}>
+        <button
+          type="button"
+          title="设置"
+          className={cn(
+            "flex w-full cursor-pointer select-none items-center rounded-lg text-text-muted outline-none transition-colors hover:bg-surface-muted hover:text-text",
+            collapsed ? "h-[44px] justify-center p-0" : "gap-3 px-3 py-[10px]",
+          )}
+          onClick={() => onSelectModule("settings")}
+        >
+          <Settings2 className="h-[20px] w-[20px] shrink-0" />
+          {!collapsed ? <span className="truncate text-[14px]">设置</span> : null}
+        </button>
       </div>
     </motion.aside>
   );

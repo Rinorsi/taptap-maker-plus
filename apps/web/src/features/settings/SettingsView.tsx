@@ -422,7 +422,6 @@ export function SettingsView({
             <div id="settings-project" className="scroll-mt-12 flex flex-col gap-6">
               <SectionHeader title="项目偏好" icon={<FolderCog />} description="当前打开项目的相关行为。" />
               <SettingsGroup>
-                <SwitchSetting label="打开被隐藏的旧版工作区" checked={prefs.openHiddenLegacyWorkspaces} onChange={(v) => setPref("openHiddenLegacyWorkspaces", v)} />
                 <SettingContainer
                   label="Maker 项目根目录"
                   description={

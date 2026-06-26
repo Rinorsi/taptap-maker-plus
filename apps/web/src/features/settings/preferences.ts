@@ -48,7 +48,6 @@ export type SettingsPreferences = {
   logRetention: LogRetentionPreference;
   failureNotifications: boolean;
   autoOpenErrors: boolean;
-  openHiddenLegacyWorkspaces: boolean;
   canvasGrid: CanvasGridPreference;
   canvasMiniMap: CanvasMiniMapPreference;
   canvasAutoSave: CanvasAutoSavePreference;
@@ -100,7 +99,6 @@ export const settingsPreferenceKeys = {
   logRetention: "taptap.settings.logRetention",
   failureNotifications: "taptap.settings.failureNotifications",
   autoOpenErrors: "taptap.settings.autoOpenErrors",
-  openHiddenLegacyWorkspaces: "taptap.settings.openHiddenLegacyWorkspaces",
   canvasGrid: "taptap.settings.canvasGrid",
   canvasMiniMap: "taptap.settings.canvasMiniMap",
   canvasAutoSave: "taptap.settings.canvasAutoSave",
@@ -159,7 +157,6 @@ export const defaultSettingsPreferences: SettingsPreferences = {
   logRetention: "14d",
   failureNotifications: true,
   autoOpenErrors: true,
-  openHiddenLegacyWorkspaces: false,
   canvasGrid: "visible",
   canvasMiniMap: "visible",
   canvasAutoSave: "on",

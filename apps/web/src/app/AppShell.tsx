@@ -3838,6 +3838,7 @@ export function AppShell() {
               }}
               onShowError={() => setInspectorMinimized(false)}
               onCanvasCommandContextChange={setCanvasCommandContext}
+              commands={commands}
             />
           </div>
 

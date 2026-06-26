@@ -35,6 +35,7 @@ import {
 import { Button } from "../../components/ui/Button";
 import { SelectField } from "../../components/ui/SelectField";
 import { Switch } from "../../components/ui/Switch";
+import { commandShortcuts, formatShortcut, type Command } from "../../commands";
 import {
   clearDeveloperLogEntries,
   formatDeveloperLogsForDisplay,
@@ -70,6 +71,7 @@ type Props = {
   onStopRuntime: () => void;
   onRefreshTools: () => void;
   onStatusLite: () => void;
+  commands: Command[];
 };
 
 function useSettingsPreferences() {
@@ -113,6 +115,7 @@ export function SettingsView({
   onStopRuntime,
   onRefreshTools,
   onStatusLite,
+  commands,
 }: Props) {
   const [prefs, setPref] = useSettingsPreferences();
   const [developerMode, setDeveloperMode] = useState(isDeveloperModeEnabled());
@@ -317,20 +320,11 @@ export function SettingsView({
             </div>
 
             {/* Shortcuts (Prototype) */}
-            <div id="settings-shortcuts" className="scroll-mt-12 flex flex-col gap-6 opacity-60 grayscale pointer-events-none">
-              <SectionHeader title="快捷键" icon={<Keyboard />} badge="雏形" description="自定义常用操作的热键。" />
+            <div id="settings-shortcuts" className="scroll-mt-12 flex flex-col gap-6">
+              <SectionHeader title="快捷键" icon={<Keyboard />} badge="只读" description="查看当前可用命令与快捷键，改键能力待接入。" />
               <SettingsGroup>
-                <PreferenceNote text="快捷键绑定系统尚未实装。" />
-                <div className="flex flex-col text-sm border-t border-border-soft">
-                   <div className="flex items-center justify-between px-4 py-2.5 border-b border-border-soft">
-                     <span className="text-[13px] text-text-subtle">打开命令面板</span>
-                     <kbd className="px-2 py-1 bg-surface-app border border-border-soft rounded text-[11px] font-mono">Ctrl + Shift + P</kbd>
-                   </div>
-                   <div className="flex items-center justify-between px-4 py-2.5">
-                     <span className="text-[13px] text-text-subtle">全局搜索</span>
-                     <kbd className="px-2 py-1 bg-surface-app border border-border-soft rounded text-[11px] font-mono">Ctrl + P</kbd>
-                   </div>
-                </div>
+                <PreferenceNote text="这里读取真实命令注册表；当前仅用于查看，不会修改快捷键绑定。" />
+                <CommandShortcutList commands={commands} />
               </SettingsGroup>
             </div>
 
@@ -591,6 +585,63 @@ function PreferenceNote({ text }: { text: string }) {
         </div>
       }
     />
+  );
+}
+
+function CommandShortcutList({ commands }: { commands: Command[] }) {
+  const sortedCommands = [...commands].sort((a, b) => {
+    const aHasShortcut = commandShortcuts(a.shortcut, a.shortcuts).length > 0;
+    const bHasShortcut = commandShortcuts(b.shortcut, b.shortcuts).length > 0;
+    if (aHasShortcut !== bHasShortcut) return aHasShortcut ? -1 : 1;
+    return a.title.localeCompare(b.title, "zh-CN");
+  });
+
+  return (
+    <div className="flex max-h-[460px] flex-col overflow-y-auto border-t border-border-soft text-sm scrollbar-thin">
+      {sortedCommands.length === 0 ? (
+        <div className="px-4 py-6 text-center text-xs text-text-muted">暂无可用命令</div>
+      ) : (
+        sortedCommands.map((command) => {
+          const shortcuts = commandShortcuts(command.shortcut, command.shortcuts);
+          const scopeLabel = Array.isArray(command.scope) ? command.scope.join(" / ") : command.scope;
+          return (
+            <div
+              key={command.commandId}
+              className="grid gap-3 border-b border-border-soft px-4 py-3 last:border-b-0 hover:bg-surface-muted/30 md:grid-cols-[1fr_auto] md:items-center"
+            >
+              <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-[13px] font-semibold text-text">{command.title}</span>
+                  <span className="shrink-0 rounded bg-surface-muted px-1.5 py-0.5 text-[10px] font-medium text-text-subtle">
+                    {scopeLabel}
+                  </span>
+                </div>
+                <div className="mt-1 truncate text-[11px] font-mono text-text-muted">{command.commandId}</div>
+                {command.description ? (
+                  <p className="m-0 mt-1 text-xs leading-relaxed text-text-muted">{command.description}</p>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap justify-start gap-1.5 md:max-w-[260px] md:justify-end">
+                {shortcuts.length > 0 ? (
+                  shortcuts.map((shortcut) => (
+                    <kbd
+                      key={`${command.commandId}-${formatShortcut(shortcut)}`}
+                      className="rounded border border-border-soft bg-surface-app px-2 py-1 text-[11px] font-semibold text-text shadow-sm"
+                    >
+                      {formatShortcut(shortcut)}
+                    </kbd>
+                  ))
+                ) : (
+                  <span className="rounded border border-dashed border-border-soft px-2 py-1 text-[11px] text-text-muted">
+                    未绑定
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })
+      )}
+    </div>
   );
 }
 

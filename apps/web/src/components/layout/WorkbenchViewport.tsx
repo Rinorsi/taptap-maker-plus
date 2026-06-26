@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import type { AgentPageState, AssetDirectoryNode, AssetMutationResponse, AssetSummary, ProjectSummary, RuntimeSummary, TaskRecord, ToolSummary } from "../../api";
 import type { InspectorSelection } from "./AgentInspectorPanel";
 import type { WorkbenchModule } from "../../app/routes";
-import type { AppCommandContext } from "../../commands";
+import type { AppCommandContext, Command } from "../../commands";
 import type { SettingsTab } from "../../features/settings/settingsTabs";
 
 const WelcomeView = lazy(() =>
@@ -99,6 +99,7 @@ type Props = {
   onCollapseSidebar?: () => void;
   onShowError?: () => void;
   onCanvasCommandContextChange?: (context?: AppCommandContext) => void;
+  commands: Command[];
 };
 
 export function WorkbenchViewport(props: Props) {
@@ -279,6 +280,7 @@ export function WorkbenchViewport(props: Props) {
           onStopRuntime={props.onStopRuntime}
           onRefreshTools={props.onRefreshTools}
           onStatusLite={props.onCallStatusLite}
+          commands={props.commands}
         />
       ) : null}
     </>

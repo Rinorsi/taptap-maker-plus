@@ -28,6 +28,7 @@ import {
   scanProjects,
   selectProject,
   startRuntime,
+  stopRuntime,
   clearTasks,
   deleteProjectLocalFolder,
   type AgentPageState,
@@ -158,7 +159,7 @@ export function AppShell() {
     Number(localStorage.getItem("taptap.inspectorWidth") ?? 280),
   );
   const [rightPanelTab, setRightPanelTab] = useState<
-    "status" | "tools" | "logs" | "errors"
+    "status" | "tools" | "gameLogs" | "logs" | "errors"
   >("status");
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [searchFocusSignal, setSearchFocusSignal] = useState(0);
@@ -458,37 +459,78 @@ export function AppShell() {
 
   async function handleStartRuntime() {
     if (!selectedProject) return;
+    const currentRuntime = runtime ?? selectedProject.runtime;
+    const isRestart = currentRuntime?.status === "ready";
+    const confirmed = await requestConfirm({
+      title: isRestart ? "重启 MCP Runtime" : "启动 MCP Runtime",
+      body: (
+        <div className="flex flex-col gap-2">
+          <p>
+            {isRestart
+              ? "将先停止当前 MCP runtime，再重新建立连接并刷新 tools/list。"
+              : "将为当前项目启动 MCP runtime，并通过 Fastify 调用既有启动链路。"}
+          </p>
+          <code className="rounded bg-surface-muted px-2 py-1 text-xs text-text">
+            {selectedProject.name}
+          </code>
+          <code className="rounded bg-surface-muted px-2 py-1 text-xs text-text">
+            {selectedProject.rootPath}
+          </code>
+          {isRestart ? (
+            <code className="rounded bg-surface-muted px-2 py-1 text-xs text-text">
+              PID: {currentRuntime?.processId ?? "-"}
+            </code>
+          ) : null}
+        </div>
+      ),
+      confirmLabel: isRestart ? "重启 Runtime" : "启动 Runtime",
+      cancelLabel: "取消",
+      danger: isRestart,
+    });
+    if (!confirmed) return;
+
+    const startedAt = new Date().toISOString();
+    const startingRuntime: RuntimeSummary = {
+      projectId: selectedProject.id,
+      status: "starting",
+      toolCount: currentRuntime?.toolCount ?? tools.length,
+      cwd: selectedProject.rootPath,
+      startedAt,
+      toolsListUpdatedAt: currentRuntime?.toolsListUpdatedAt,
+    };
+
     setBusy(true);
     setRightPanelTab("status");
     setInspectorMinimized(false);
     setSelection(undefined);
-    setRuntime((current) => ({
-      projectId: selectedProject.id,
-      status: "starting",
-      toolCount: current?.toolCount ?? tools.length,
-      cwd: selectedProject.rootPath,
-      startedAt: new Date().toISOString(),
-      toolsListUpdatedAt: current?.toolsListUpdatedAt,
-    }));
-    setProjects((current) =>
-      current.map((project) =>
-        project.id === selectedProject.id
-          ? {
-              ...project,
-              runtime: {
-                projectId: selectedProject.id,
-                status: "starting",
-                toolCount: project.runtime?.toolCount ?? tools.length,
-                cwd: selectedProject.rootPath,
-                startedAt: new Date().toISOString(),
-                toolsListUpdatedAt: project.runtime?.toolsListUpdatedAt,
-              },
-            }
-          : project,
-      ),
-    );
-    setNotice("正在启动 MCP runtime：POST /api/projects/:projectId/mcp/start");
     try {
+      if (isRestart) {
+        setNotice("正在停止当前 MCP runtime，准备重启...");
+        const stopResponse = await stopRuntime(selectedProject.id);
+        if (stopResponse.runtime) {
+          setRuntime(stopResponse.runtime);
+          setProjects((current) =>
+            current.map((project) =>
+              project.id === selectedProject.id
+                ? { ...project, runtime: stopResponse.runtime }
+                : project,
+            ),
+          );
+        }
+      }
+      setRuntime(startingRuntime);
+      setProjects((current) =>
+        current.map((project) =>
+          project.id === selectedProject.id
+            ? { ...project, runtime: startingRuntime }
+            : project,
+        ),
+      );
+      setNotice(
+        isRestart
+          ? "正在重启 MCP runtime：POST /api/projects/:projectId/mcp/start"
+          : "正在启动 MCP runtime：POST /api/projects/:projectId/mcp/start",
+      );
       const response = await startRuntime(selectedProject.id);
       setRuntime(response.runtime);
       setTools(response.tools);
@@ -523,6 +565,53 @@ export function AppShell() {
         ),
       );
       setNotice(`MCP 启动失败：${message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleStopRuntime() {
+    if (!selectedProject) return;
+    const confirmed = await requestConfirm({
+      title: "停止 MCP Runtime",
+      body: (
+        <div className="flex flex-col gap-2">
+          <p>将停止当前项目的 MCP runtime。正在运行的本地 MCP 进程会被关闭。</p>
+          <code className="rounded bg-surface-muted px-2 py-1 text-xs text-text">
+            {selectedProject.name}
+          </code>
+          <code className="rounded bg-surface-muted px-2 py-1 text-xs text-text">
+            {selectedProject.rootPath}
+          </code>
+          <code className="rounded bg-surface-muted px-2 py-1 text-xs text-text">
+            PID: {runtimeView?.processId ?? "-"}
+          </code>
+        </div>
+      ),
+      confirmLabel: "停止 Runtime",
+      cancelLabel: "取消",
+      danger: true,
+    });
+    if (!confirmed) return;
+
+    setBusy(true);
+    setRightPanelTab("status");
+    setInspectorMinimized(false);
+    setSelection(undefined);
+    try {
+      const response = await stopRuntime(selectedProject.id);
+      setRuntime(response.runtime);
+      setProjects((current) =>
+        current.map((project) =>
+          project.id === selectedProject.id
+            ? { ...project, runtime: response.runtime }
+            : project,
+        ),
+      );
+      setNotice("MCP Runtime 已停止");
+      await refreshProject(selectedProject.id);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
     }
@@ -3517,6 +3606,8 @@ export function AppShell() {
               statusText={statusText}
               busy={busy}
               onStartRuntime={handleStartRuntime}
+              onStopRuntime={handleStopRuntime}
+              onRefreshTools={handleRefreshTools}
               onScanAssets={handleScanAssets}
               onRemoveProjectRecord={handleRemoveProjectRecord}
               onDeleteProjectLocalFolder={handleDeleteProjectLocalFolder}

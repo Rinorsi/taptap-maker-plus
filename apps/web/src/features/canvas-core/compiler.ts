@@ -1,5 +1,6 @@
 import type { Edge, Node } from "@xyflow/react";
-import { collectCanvasAssetReferences, describeAssetUse, extractMentionAliases } from "./assetReferences";
+import { collectCanvasAssetReferences, describeAssetUse, extractMentionAliases, getNodeAssetKind, getNodeAssetUse } from "./assetReferences";
+import { extractCanvasResultAssets } from "./resultExtraction";
 import { getCanvasToolDefinition, getCanvasToolForExecutorPreset } from "./toolRegistry";
 import type {
   CanvasAssetReference,
@@ -14,7 +15,7 @@ import type {
 export function compileCanvasPayload(nodes: Node[], edges: Edge[], executorNodeId?: string): CanvasCompileResult {
   const issues: CanvasCompileIssue[] = [];
   const fieldSources: CanvasPayloadFieldSource[] = [];
-  const references = collectCanvasAssetReferences(nodes);
+  const allReferences = collectCanvasAssetReferences(nodes);
   const executorNode = findExecutorNode(nodes, executorNodeId);
   if (!executorNode) {
     issues.push({
@@ -22,32 +23,34 @@ export function compileCanvasPayload(nodes: Node[], edges: Edge[], executorNodeI
       nodeId: executorNodeId,
       message: executorNodeId ? "没有找到要执行的节点。" : "缺少执行节点。",
     });
-    return { ok: false, issues, fieldSources, references };
+    return { ok: false, issues, fieldSources, references: allReferences };
   }
 
   const toolName = resolveExecutorToolName(executorNode);
   if (!toolName) {
     issues.push({ severity: "error", nodeId: executorNode.id, message: "执行节点没有绑定可识别的 MCP 工具。" });
-    return { ok: false, issues, fieldSources, references };
+    return { ok: false, issues, fieldSources, references: allReferences };
   }
 
   if (toolName === "create_video_task") {
     return compileVideoCanvasPayload(nodes, edges, executorNode.id);
   }
 
-  return compileSimpleCanvasTool(nodes, edges, executorNode, toolName, issues, fieldSources, references);
+  const reachableNodes = collectUpstreamNodes(nodes, edges, executorNode.id);
+  const references = collectCanvasAssetReferences(reachableNodes);
+  return compileSimpleCanvasTool(reachableNodes, edges, executorNode, toolName, issues, fieldSources, references);
 }
 
 export function compileVideoCanvasPayload(nodes: Node[], edges: Edge[], executorNodeId?: string): CanvasCompileResult {
   const issues: CanvasCompileIssue[] = [];
   const fieldSources: CanvasPayloadFieldSource[] = [];
-  const references = collectCanvasAssetReferences(nodes);
+  const allReferences = collectCanvasAssetReferences(nodes);
   const executorNodes = nodes.filter(
     (node) => node.type === "executorNode" && resolveExecutorToolName(node) === "create_video_task",
   );
   if (executorNodes.length === 0) {
     issues.push({ severity: "error", message: "缺少执行节点：创建视频任务。" });
-    return { ok: false, toolName: "create_video_task", issues, fieldSources, references };
+    return { ok: false, toolName: "create_video_task", issues, fieldSources, references: allReferences };
   }
 
   const executorNode = executorNodeId
@@ -55,12 +58,13 @@ export function compileVideoCanvasPayload(nodes: Node[], edges: Edge[], executor
     : executorNodes[0];
   if (!executorNode) {
     issues.push({ severity: "error", nodeId: executorNodeId, message: "没有找到要执行的创建视频任务节点。" });
-    return { ok: false, toolName: "create_video_task", issues, fieldSources, references };
+    return { ok: false, toolName: "create_video_task", issues, fieldSources, references: allReferences };
   }
   const definition = getCanvasToolDefinition("create_video_task");
   const settings = { ...(definition?.defaultSettings ?? {}) } as Record<string, unknown>;
   const settingSources = new Map<string, string>();
   const reachableNodes = collectUpstreamNodes(nodes, edges, executorNode.id);
+  const references = collectCanvasAssetReferences(reachableNodes);
   const promptParts: string[] = [];
   const referencedAliases = new Set<string>();
   const textMentionAliases = new Set<string>();
@@ -262,6 +266,7 @@ function collectUpstreamNodes(nodes: Node[], edges: Edge[], targetId: string): N
       visited.add(prevId);
       const node = byId.get(prevId);
       if (node) result.push(node);
+      if (node?.type === "executorNode" || node?.type === "resultNode") continue;
       visit(prevId);
     }
   };
@@ -283,6 +288,28 @@ function collectPromptAndSettings(
 ) {
   const referenceNodeIds = new Set(references.map((reference) => reference.nodeId));
   for (const node of nodes) {
+    if (node.type === "storyboardNode") {
+      const storyboardText = formatStoryboardNodeText(node);
+      if (!storyboardText) continue;
+      const sourceName = typeof node.data?.sourceName === "string" ? node.data.sourceName.trim() : "";
+      const promptText = sourceName ? `当前片段分镜表：${sourceName}\n${storyboardText}` : `当前片段分镜表：${storyboardText}`;
+      promptParts.push(promptText);
+      fieldSources.push({ path: "prompt.storyboard", nodeId: node.id, label: "当前片段分镜表", value: storyboardText });
+      continue;
+    }
+    if (node.type === "resultNode") {
+      const resultReferences = collectResultNodeReferences(node);
+      for (const reference of resultReferences) {
+        references.push(reference);
+        fieldSources.push({
+          path: `${reference.kind}s[].url`,
+          nodeId: node.id,
+          label: `@${reference.alias}`,
+          value: reference.relativePath ?? reference.url,
+        });
+      }
+      continue;
+    }
     if (node.type === "textNode") {
       const text = String(node.data?.text ?? "").trim();
       if (!text) continue;
@@ -317,6 +344,75 @@ function collectPromptAndSettings(
     settingSources.set(type, node.id);
     fieldSources.push({ path: type, nodeId: node.id, label: String(node.data?.presetId ?? "生成设置"), value: node.data?.value });
   }
+}
+
+function collectResultNodeReferences(node: Node): CanvasAssetReference[] {
+  const resultAssets = Array.isArray(node.data?.resultAssets)
+    ? node.data.resultAssets
+    : extractCanvasResultAssets(node.data?.rawResult);
+  const references: CanvasAssetReference[] = [];
+  resultAssets.forEach((asset: unknown, index: number) => {
+    if (!asset || typeof asset !== "object") return;
+    const record = asset as { kind?: unknown; role?: unknown; path?: unknown };
+    if (typeof record.kind !== "string" || typeof record.path !== "string" || !record.path) return;
+    const kind = getNodeAssetKind({
+      ...node,
+      type: "mediaNode",
+      data: {
+        ...node.data,
+        assetKind: record.kind,
+        role: typeof record.role === "string" ? record.role : "",
+      },
+    });
+    if (kind !== "image" && kind !== "video" && kind !== "audio") return;
+    references.push({
+      id: `${node.id}-result-${index}`,
+      nodeId: node.id,
+      alias:
+        kind === "image"
+          ? `结果图${index + 1}`
+          : kind === "video"
+            ? `结果视频${index + 1}`
+            : `结果音频${index + 1}`,
+      kind,
+      use: getNodeAssetUse({
+        ...node,
+        type: "mediaNode",
+        data: {
+          ...node.data,
+          role: typeof record.role === "string" ? record.role : "",
+        },
+      }),
+      relativePath: record.path,
+      fileName: record.path.split(/[\\/]/).pop() ?? record.path,
+    });
+  });
+  return references;
+}
+
+function formatStoryboardNodeText(node: Node) {
+  const columns = Array.isArray(node.data?.columns) ? node.data.columns.map((column) => String(column ?? "").trim()) : [];
+  const rows = Array.isArray(node.data?.rows)
+    ? node.data.rows
+        .map((row) => (Array.isArray(row) ? row.map((cell) => String(cell ?? "").trim()) : [String(row ?? "").trim()]))
+        .filter((row) => row.some(Boolean))
+    : [];
+  if (columns.length > 0 && rows.length > 0) {
+    return rows
+      .map((row, rowIndex) => {
+        const rowLabel = row[0] ? `#${row[0]}` : `#${rowIndex + 1}`;
+        const cells = columns
+          .map((column, columnIndex) => {
+            const value = row[columnIndex] ?? "";
+            return value ? `${column}：${value}` : "";
+          })
+          .filter(Boolean)
+          .join("；");
+        return `${rowLabel} ${cells}`;
+      })
+      .join("\n");
+  }
+  return String(node.data?.text ?? "").trim();
 }
 
 function promptNodeLabel(node: Node) {

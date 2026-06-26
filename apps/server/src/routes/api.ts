@@ -303,6 +303,43 @@ function withRuntime(project: ProjectSummary) {
   };
 }
 
+function readProjectConfigHealth(project: ProjectSummary) {
+  const rootExists = fs.existsSync(project.rootPath);
+  const configExists = fs.existsSync(project.configPath);
+  let configProjectId: string | undefined;
+  let configParseError: string | undefined;
+
+  if (configExists) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(project.configPath, "utf8")) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const value = (parsed as { project_id?: unknown }).project_id;
+        if (typeof value === "string") configProjectId = value;
+      }
+    } catch (error) {
+      configParseError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  const projectIdMatches = configProjectId === project.makerProjectId;
+  const toolsListSnapshot = getToolsListSnapshot(project.id);
+  return {
+    projectId: project.id,
+    rootPath: project.rootPath,
+    configPath: project.configPath,
+    rootExists,
+    configExists,
+    configProjectId,
+    makerProjectId: project.makerProjectId,
+    projectIdMatches,
+    configParseError,
+    runtime: runtimeManager.getSummary(project.id),
+    toolsListUpdatedAt: toolsListSnapshot?.updatedAt,
+    makerPackage: config.makerPackage,
+    makerEnv: config.makerEnv
+  };
+}
+
 function readNodeId(node: unknown): string | undefined {
   if (!node || typeof node !== "object") return undefined;
   const id = (node as { id?: unknown }).id;
@@ -575,10 +612,11 @@ export async function registerApiRoutes(app: FastifyInstance) {
       TAPTAP_DESKTOP_PARENT_PID: process.env.TAPTAP_DESKTOP_PARENT_PID,
       TAPTAP_MAKER_NPM_CACHE_DIR: process.env.TAPTAP_MAKER_NPM_CACHE_DIR,
       TAPTAP_MCP_LOG_DIR: process.env.TAPTAP_MCP_LOG_DIR,
-      TAPTAP_SERVER_PORT: process.env.TAPTAP_SERVER_PORT,
-      TAPTAP_SERVER_HOST: process.env.TAPTAP_SERVER_HOST,
+      TAPTAP_SERVER_PORT: String(config.port),
+      TAPTAP_SERVER_HOST: config.host,
       TAPTAP_DESKTOP_INSTANCE_TOKEN: process.env.TAPTAP_DESKTOP_INSTANCE_TOKEN,
-      TAPTAP_MCP_ENV: process.env.TAPTAP_MCP_ENV
+      TAPTAP_MCP_ENV: config.makerEnv,
+      TAPTAP_MAKER_PACKAGE: config.makerPackage
     }
   }));
 
@@ -641,6 +679,11 @@ export async function registerApiRoutes(app: FastifyInstance) {
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/mcp/status", async (request) => {
     const project = requireProject(request.params.projectId);
     return { project: withRuntime(project), runtime: runtimeManager.getSummary(project.id), toolsListSnapshot: getToolsListSnapshot(project.id) };
+  });
+
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/health", async (request) => {
+    const project = requireProject(request.params.projectId);
+    return { health: readProjectConfigHealth(project) };
   });
 
   app.get("/api/mcp/status", async () => {

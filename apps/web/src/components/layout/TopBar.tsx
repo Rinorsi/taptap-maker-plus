@@ -143,7 +143,7 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
         <div className="min-w-0">{appMenu}</div>
       </div>
 
-      <div className="flex-1 min-w-[220px] max-w-[560px] mx-auto relative" data-no-window-drag>
+      <div className="flex-1 min-w-[140px] max-w-[420px] mx-auto relative" data-no-window-drag>
         <label className="flex items-center gap-3 px-4 h-[44px] rounded-full bg-surface-muted hover:bg-surface-muted/80 focus-within:bg-surface-panel focus-within:shadow-[0_0_0_2px_rgba(0,217,197,0.2)] transition-all cursor-text" aria-label="命令搜索">
           <Search className="w-5 h-5 text-text-muted" strokeWidth={2.5} />
           <input

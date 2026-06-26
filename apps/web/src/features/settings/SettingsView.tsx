@@ -4,16 +4,23 @@ import {
   Copy,
   Cpu,
   Database,
+  Download,
   FileJson,
+  FolderCog,
+  RefreshCw,
   ServerCog,
   Settings,
+  Square,
   Trash2,
+  Play,
   PlaySquare,
   X,
 } from "lucide-react";
-import type { ProjectSummary, RuntimeSummary, ToolSummary } from "../../api";
+import type { DesktopReadiness, ProjectHealthSummary, ProjectSummary, RuntimeSummary, ToolSummary } from "../../api";
 import {
   clearFrontendDiagnostics,
+  getDesktopReadiness,
+  getProjectHealth,
   listFrontendDiagnostics,
   type FrontendDiagnosticEntry,
 } from "../../api";
@@ -31,12 +38,44 @@ import {
 } from "../../lib/developerMode";
 import { copyText } from "../../lib/clipboard";
 
-type Props = { project?: ProjectSummary; runtime?: RuntimeSummary; tools: ToolSummary[] };
+type SettingsTab = "project" | "runtime" | "schema" | "diagnostics";
 
-export function SettingsView({ project, runtime, tools }: Props) {
+type Props = {
+  project?: ProjectSummary;
+  runtime?: RuntimeSummary;
+  tools: ToolSummary[];
+  busy: boolean;
+  onStartRuntime: () => void;
+  onStopRuntime: () => void;
+  onRefreshTools: () => void;
+  onStatusLite: () => void;
+};
+
+const settingTabs: Array<{ id: SettingsTab; label: string; icon: React.ElementType }> = [
+  { id: "project", label: "项目绑定", icon: FolderCog },
+  { id: "runtime", label: "Runtime", icon: Cpu },
+  { id: "schema", label: "MCP Schema", icon: FileJson },
+  { id: "diagnostics", label: "诊断日志", icon: Bug },
+];
+
+export function SettingsView({
+  project,
+  runtime,
+  tools,
+  busy,
+  onStartRuntime,
+  onStopRuntime,
+  onRefreshTools,
+  onStatusLite,
+}: Props) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>("project");
   const [showPreview, setShowPreview] = useState(false);
   const [developerMode, setDeveloperMode] = useState(isDeveloperModeEnabled);
   const [developerLogVersion, setDeveloperLogVersion] = useState(0);
+  const [desktopReadiness, setDesktopReadiness] = useState<DesktopReadiness>();
+  const [readinessError, setReadinessError] = useState("");
+  const [projectHealth, setProjectHealth] = useState<ProjectHealthSummary>();
+  const [projectHealthError, setProjectHealthError] = useState("");
   const [serverLogPath, setServerLogPath] = useState("");
   const [serverLogEntries, setServerLogEntries] = useState<
     FrontendDiagnosticEntry[]
@@ -52,6 +91,7 @@ export function SettingsView({ project, runtime, tools }: Props) {
     getDeveloperLogEntries().length,
     serverLogEntries.length,
   );
+  const runtimeActionLabel = runtime?.status === "ready" ? "重启 Runtime" : "启动 Runtime";
 
   useEffect(() => {
     const unsubscribeMode = subscribeDeveloperMode(setDeveloperMode);
@@ -63,6 +103,41 @@ export function SettingsView({ project, runtime, tools }: Props) {
       unsubscribeLogs();
     };
   }, []);
+
+  const refreshDesktopReadiness = async () => {
+    try {
+      const response = await getDesktopReadiness();
+      setDesktopReadiness(response);
+      setReadinessError("");
+    } catch (error) {
+      setDesktopReadiness(undefined);
+      setReadinessError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  useEffect(() => {
+    void refreshDesktopReadiness();
+  }, []);
+
+  const refreshProjectHealth = async (projectId: string) => {
+    try {
+      const response = await getProjectHealth(projectId);
+      setProjectHealth(response.health);
+      setProjectHealthError("");
+    } catch (error) {
+      setProjectHealth(undefined);
+      setProjectHealthError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  useEffect(() => {
+    if (!project?.id) {
+      setProjectHealth(undefined);
+      setProjectHealthError("");
+      return;
+    }
+    void refreshProjectHealth(project.id);
+  }, [project?.id]);
 
   const refreshServerLogs = async () => {
     try {
@@ -101,51 +176,250 @@ export function SettingsView({ project, runtime, tools }: Props) {
     await refreshServerLogs();
   };
 
+  const handleExportLogs = () => {
+    const exportPayload = JSON.stringify(
+      {
+        generatedAt: new Date().toISOString(),
+        project: project
+          ? {
+              id: project.id,
+              name: project.name,
+              rootPath: project.rootPath,
+              makerProjectId: project.makerProjectId,
+            }
+          : undefined,
+        runtime,
+        desktopReadiness,
+        projectHealth,
+        serverLogPath,
+        logText: visibleLogs,
+      },
+      null,
+      2,
+    );
+    const blob = new Blob([exportPayload], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `taptap-settings-diagnostics-${Date.now()}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   void developerLogVersion;
 
   return (
-    <section className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-4 md:p-6">
-      <div className="shrink-0">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden p-4 md:p-6">
+      <div className="mb-4 shrink-0">
         <span className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-text-subtle">
           <Settings className="h-3.5 w-3.5" />
           Settings
         </span>
-        <h1 className="m-0 text-xl font-bold text-text">运行与绑定状态</h1>
+        <h1 className="m-0 text-xl font-bold text-text">设置中心</h1>
+        <p className="mt-1 text-xs text-text-subtle">
+          项目绑定、Runtime、MCP schema 与诊断日志集中管理。
+        </p>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <SettingsPanel icon={<ServerCog className="h-4 w-4" />} title="当前项目">
-          <SettingRow label="项目名" value={project?.name ?? "-"} />
-          <SettingRow label="项目路径" value={project?.rootPath ?? "-"} />
-          <SettingRow label="project_id" value={project?.makerProjectId ?? "-"} />
-          <SettingRow label="config.json" value={project?.configPath ?? "-"} />
-        </SettingsPanel>
-
-        <SettingsPanel icon={<Cpu className="h-4 w-4" />} title="MCP Runtime">
-          <SettingRow label="状态" value={runtime?.status ?? "idle"} />
-          <SettingRow label="processId" value={runtime?.processId ? String(runtime.processId) : "-"} />
-          <SettingRow label="cwd" value={runtime?.cwd ?? project?.rootPath ?? "-"} />
-          <SettingRow label="tools/list 更新时间" value={runtime?.toolsListUpdatedAt ?? "-"} />
-          <SettingRow label="启动命令" value="cmd.exe /d /s /c npx.cmd -y -p @taptap/maker taptap-maker" />
-        </SettingsPanel>
-
-        <SettingsPanel icon={<FileJson className="h-4 w-4" />} title="真实 MCP Schema">
-          <SettingRow label="工具总数" value={String(tools.length)} />
-          {Object.entries(categories).map(([category, count]) => (
-            <SettingRow key={category} label={category} value={`${count} tools`} />
+      <div className="flex min-h-0 flex-1 gap-4">
+        <nav className="hidden w-44 shrink-0 flex-col gap-1 md:flex">
+          {settingTabs.map((tab) => (
+            <SettingsTabButton
+              key={tab.id}
+              active={activeTab === tab.id}
+              icon={<tab.icon className="h-4 w-4" />}
+              label={tab.label}
+              onClick={() => setActiveTab(tab.id)}
+            />
           ))}
-          <SettingRow label="表单来源" value="tools/list inputSchema" />
-        </SettingsPanel>
+        </nav>
 
-        <SettingsPanel icon={<Database className="h-4 w-4" />} title="本地工作台能力">
-          <SettingRow label="HTTP API" value="Fastify / 127.0.0.1:8787" />
-          <SettingRow label="前端" value="React + Vite" />
-          <SettingRow label="Schema Form" value="@rjsf/core + validator-ajv8" />
-          <SettingRow label="Workflow Canvas" value="@xyflow/react" />
-          <SettingRow label="Asset Table" value="@tanstack/react-table" />
-        </SettingsPanel>
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
+          <div className="flex shrink-0 gap-1 overflow-x-auto rounded-control border border-border-soft bg-surface-panel p-1 md:hidden">
+            {settingTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`shrink-0 rounded-[4px] px-3 py-1.5 text-xs font-semibold ${
+                  activeTab === tab.id
+                    ? "bg-brand/10 text-brand-strong"
+                    : "text-text-muted hover:bg-surface-muted hover:text-text"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
 
-        <SettingsPanel icon={<Bug className="h-4 w-4" />} title="开发者模式">
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin">
+            {activeTab === "project" ? (
+              <div className="grid gap-4 lg:grid-cols-2">
+                <SettingsPanel icon={<ServerCog className="h-4 w-4" />} title="当前项目">
+                  <SettingRow label="项目名" value={project?.name ?? "-"} />
+                  <SettingRow label="项目路径" value={project?.rootPath ?? "-"} />
+                  <SettingRow label="project_id" value={project?.makerProjectId ?? "-"} />
+                  <SettingRow label="config.json" value={project?.configPath ?? "-"} />
+                </SettingsPanel>
+
+                <SettingsPanel icon={<Cpu className="h-4 w-4" />} title="项目健康">
+                  <SettingRow label="root exists" value={formatHealthValue(projectHealth?.rootExists)} tone={projectHealth && !projectHealth.rootExists ? "bad" : "neutral"} />
+                  <SettingRow label="config exists" value={formatHealthValue(projectHealth?.configExists)} tone={projectHealth && !projectHealth.configExists ? "bad" : "neutral"} />
+                  <SettingRow label="config project_id" value={projectHealth?.configProjectId ?? "-"} tone={projectHealth?.configExists && !projectHealth?.configProjectId ? "bad" : "neutral"} />
+                  <SettingRow label="project_id match" value={formatHealthValue(projectHealth?.projectIdMatches)} tone={projectHealth && !projectHealth.projectIdMatches ? "bad" : "neutral"} />
+                  <SettingRow label="tools/list 更新时间" value={projectHealth?.toolsListUpdatedAt ?? "-"} />
+                  <SettingRow label="maker package" value={projectHealth?.makerPackage ?? desktopReadiness?.env.TAPTAP_MAKER_PACKAGE ?? "-"} />
+                  <SettingRow label="maker env" value={projectHealth?.makerEnv ?? desktopReadiness?.env.TAPTAP_MCP_ENV ?? "-"} />
+                  {projectHealth?.configParseError ? (
+                    <SettingRow label="config parse error" value={projectHealth.configParseError} tone="bad" />
+                  ) : null}
+                  {projectHealthError ? (
+                    <SettingRow label="health error" value={projectHealthError} tone="bad" />
+                  ) : null}
+                  <div className="px-3 py-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      disabled={!project}
+                      onClick={() => project?.id ? void refreshProjectHealth(project.id) : undefined}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      刷新健康状态
+                    </Button>
+                  </div>
+                </SettingsPanel>
+
+                <SettingsPanel icon={<Database className="h-4 w-4" />} title="本地工作台能力">
+                  <SettingRow label="HTTP API" value={desktopReadiness ? `Fastify / ${desktopReadiness.server.host}:${desktopReadiness.server.port}` : "-"} />
+                  <SettingRow label="mode" value={desktopReadiness?.mode ?? "-"} />
+                  <SettingRow label="前端" value="React + Vite" />
+                  <SettingRow label="Schema Form" value="@rjsf/core + validator-ajv8" />
+                  <SettingRow label="Workflow Canvas" value="@xyflow/react" />
+                  <SettingRow label="Asset Table" value="@tanstack/react-table" />
+                  {readinessError ? <SettingRow label="readiness error" value={readinessError} tone="bad" /> : null}
+                </SettingsPanel>
+
+                <SettingsPanel icon={<FolderCog className="h-4 w-4" />} title="本地路径">
+                  <SettingRow label="dataDir" value={desktopReadiness?.paths.dataDir ?? "-"} />
+                  <SettingRow label="databasePath" value={desktopReadiness?.paths.databasePath ?? "-"} />
+                  <SettingRow label="workspaceRoot" value={desktopReadiness?.paths.workspaceRoot ?? "-"} />
+                  <SettingRow label="webDistDir" value={desktopReadiness?.paths.webDistDir ?? "-"} />
+                  <SettingRow label="makerProjectsRoot" value={desktopReadiness?.paths.makerProjectsRoot ?? "-"} />
+                  <SettingRow label="mcpLogDir" value={desktopReadiness?.paths.mcpLogDir ?? "-"} />
+                  <SettingRow label="makerNpmCacheDir" value={desktopReadiness?.paths.makerNpmCacheDir ?? "-"} />
+                </SettingsPanel>
+
+                <SettingsPanel icon={<ServerCog className="h-4 w-4" />} title="环境变量">
+                  <SettingRow label="TAPTAP_DATA_DIR" value={desktopReadiness?.env.TAPTAP_DATA_DIR ?? "-"} />
+                  <SettingRow label="TAPTAP_WORKSPACE_ROOT" value={desktopReadiness?.env.TAPTAP_WORKSPACE_ROOT ?? "-"} />
+                  <SettingRow label="TAPTAP_WEB_DIST_DIR" value={desktopReadiness?.env.TAPTAP_WEB_DIST_DIR ?? "-"} />
+                  <SettingRow label="TAPTAP_MAKER_PROJECTS_ROOT" value={desktopReadiness?.env.TAPTAP_MAKER_PROJECTS_ROOT ?? "-"} />
+                  <SettingRow label="TAPTAP_SERVER_HOST" value={desktopReadiness?.env.TAPTAP_SERVER_HOST ?? "-"} />
+                  <SettingRow label="TAPTAP_SERVER_PORT" value={desktopReadiness?.env.TAPTAP_SERVER_PORT ?? "-"} />
+                  <SettingRow label="TAPTAP_MAKER_NPM_CACHE_DIR" value={desktopReadiness?.env.TAPTAP_MAKER_NPM_CACHE_DIR ?? "-"} />
+                  <SettingRow label="TAPTAP_MCP_LOG_DIR" value={desktopReadiness?.env.TAPTAP_MCP_LOG_DIR ?? "-"} />
+                  <SettingRow label="TAPTAP_MCP_ENV" value={desktopReadiness?.env.TAPTAP_MCP_ENV ?? "-"} />
+                  <SettingRow label="TAPTAP_MAKER_PACKAGE" value={desktopReadiness?.env.TAPTAP_MAKER_PACKAGE ?? "-"} />
+                  <div className="px-3 py-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      onClick={() => void refreshDesktopReadiness()}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      刷新配置
+                    </Button>
+                  </div>
+                </SettingsPanel>
+              </div>
+            ) : null}
+
+            {activeTab === "runtime" ? (
+              <div className="grid gap-4 lg:grid-cols-2">
+                <SettingsPanel icon={<Cpu className="h-4 w-4" />} title="MCP Runtime">
+                  <SettingRow label="状态" value={runtime?.status ?? "idle"} />
+                  <SettingRow label="processId" value={runtime?.processId ? String(runtime.processId) : "-"} />
+                  <SettingRow label="cwd" value={runtime?.cwd ?? project?.rootPath ?? "-"} />
+                  <SettingRow label="tools/list 更新时间" value={runtime?.toolsListUpdatedAt ?? "-"} />
+                  <SettingRow label="启动命令" value="cmd.exe /d /s /c npx.cmd -y -p @taptap/maker taptap-maker" />
+                  <SettingRow label="TAPTAP_MCP_ENV" value={desktopReadiness?.env.TAPTAP_MCP_ENV ?? "-"} />
+                  <SettingRow label="TAPTAP_MAKER_PACKAGE" value={desktopReadiness?.env.TAPTAP_MAKER_PACKAGE ?? "@taptap/maker"} />
+                  <SettingRow label="npm cache" value={desktopReadiness?.paths.makerNpmCacheDir ?? "-"} />
+                  <SettingRow label="MCP logs" value={desktopReadiness?.paths.mcpLogDir ?? "-"} />
+                </SettingsPanel>
+
+                <SettingsPanel icon={<RefreshCw className="h-4 w-4" />} title="运行时动作">
+                  <div className="grid gap-2 p-2 sm:grid-cols-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="gap-1.5"
+                      disabled={!project || busy}
+                      onClick={onStartRuntime}
+                    >
+                      <Play className="h-3.5 w-3.5" />
+                      {runtimeActionLabel}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      disabled={!project || busy || runtime?.status === "idle"}
+                      onClick={onStopRuntime}
+                    >
+                      <Square className="h-3.5 w-3.5" />
+                      停止 Runtime
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      disabled={!project || busy}
+                      onClick={onRefreshTools}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      刷新 tools/list
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      disabled={!project || busy}
+                      onClick={onStatusLite}
+                    >
+                      <Cpu className="h-3.5 w-3.5" />
+                      状态检查
+                    </Button>
+                  </div>
+                  <p className="m-0 px-3 pb-3 text-[11px] leading-relaxed text-text-muted">
+                    这些动作仍走现有 Fastify / MCP runtime 链路，不由浏览器直接启动 MCP。
+                  </p>
+                </SettingsPanel>
+              </div>
+            ) : null}
+
+            {activeTab === "schema" ? (
+              <div className="grid gap-4 lg:grid-cols-2">
+                <SettingsPanel icon={<FileJson className="h-4 w-4" />} title="真实 MCP Schema">
+                  <SettingRow label="工具总数" value={String(tools.length)} />
+                  {Object.entries(categories).map(([category, count]) => (
+                    <SettingRow key={category} label={category} value={`${count} tools`} />
+                  ))}
+                  <SettingRow label="表单来源" value="tools/list inputSchema" />
+                </SettingsPanel>
+              </div>
+            ) : null}
+
+            {activeTab === "diagnostics" ? (
+              <div className="grid gap-4">
+                <SettingsPanel icon={<Bug className="h-4 w-4" />} title="开发者模式">
           <div className="flex items-center justify-between gap-3 rounded-control px-3 py-2 hover:bg-surface-muted">
             <div className="min-w-0">
               <div className="text-xs font-semibold text-text">允许 F12 打开 DevTools</div>
@@ -201,6 +475,27 @@ export function SettingsView({ project, runtime, tools }: Props) {
               size="sm"
               variant="outline"
               className="gap-1.5"
+              onClick={() => void refreshServerLogs()}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              刷新日志
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              disabled={!visibleLogs.trim()}
+              onClick={handleExportLogs}
+            >
+              <Download className="h-3.5 w-3.5" />
+              导出日志
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
               onClick={() =>
                 void copyText(visibleLogs, {
                   successMessage: "诊断日志已复制",
@@ -222,18 +517,22 @@ export function SettingsView({ project, runtime, tools }: Props) {
               清空
             </Button>
           </div>
-        </SettingsPanel>
-      </div>
+                </SettingsPanel>
 
-      <RawViewer
-        title="前端诊断日志"
-        language="log"
-        value={visibleLogs}
-        emptyText="暂无前端错误、警告或请求失败日志。"
-        copyLabel="复制日志"
-        copySuccessMessage="诊断日志已复制"
-        height="260px"
-      />
+                <RawViewer
+                  title="前端诊断日志"
+                  language="log"
+                  value={visibleLogs}
+                  emptyText="暂无前端错误、警告或请求失败日志。"
+                  copyLabel="复制日志"
+                  copySuccessMessage="诊断日志已复制"
+                  height="320px"
+                />
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
 
       {runtime?.lastError ? (
         <div className="rounded-large border border-[#b03939]/25 bg-[#b03939]/5 p-4">
@@ -264,6 +563,33 @@ export function SettingsView({ project, runtime, tools }: Props) {
   );
 }
 
+function SettingsTabButton({
+  active,
+  icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex h-9 items-center gap-2 rounded-control px-3 text-left text-xs font-semibold transition-colors ${
+        active
+          ? "bg-brand/10 text-brand-strong"
+          : "text-text-muted hover:bg-surface-muted hover:text-text"
+      }`}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
+  );
+}
+
 function formatDiagnosticEntries(entries: FrontendDiagnosticEntry[]) {
   if (entries.length === 0) return "";
   return entries
@@ -274,6 +600,11 @@ function formatDiagnosticEntries(entries: FrontendDiagnosticEntry[]) {
       return entry.detail ? `${header}\n${entry.detail}` : header;
     })
     .join("\n\n");
+}
+
+function formatHealthValue(value?: boolean) {
+  if (value === undefined) return "-";
+  return value ? "yes" : "no";
 }
 
 function SettingsPanel({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
@@ -288,11 +619,11 @@ function SettingsPanel({ icon, title, children }: { icon: React.ReactNode; title
   );
 }
 
-function SettingRow({ label, value }: { label: string; value: string }) {
+function SettingRow({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "neutral" | "bad" }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-control px-3 py-2 hover:bg-surface-muted">
       <span className="shrink-0 text-xs font-semibold text-text-subtle">{label}</span>
-      <strong className="min-w-0 truncate text-right text-xs font-semibold text-text" title={value}>{value}</strong>
+      <strong className={`min-w-0 truncate text-right text-xs font-semibold ${tone === "bad" ? "text-[#b03939]" : "text-text"}`} title={value}>{value}</strong>
     </div>
   );
 }

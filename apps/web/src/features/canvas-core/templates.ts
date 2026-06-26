@@ -13,6 +13,33 @@ const defaultEdge = {
   style: { stroke: "#00D9C5", strokeWidth: 2 },
 };
 
+const neonRainChaseStoryboardColumns = [
+  "镜号",
+  "时长",
+  "画面",
+  "动作",
+  "镜头",
+  "角色/场景",
+  "声音/音乐",
+  "字幕/旁白",
+  "生成提示词备注",
+];
+
+const neonRainChaseStoryboardRows = [
+  ["01", "2s", "雨夜城市天桥，霓虹广告牌倒映在积水里。", "主角停在天桥边缘，回头看向远处追光。", "广角建立镜头，缓慢前推。", "黑色短夹克主角，赛博都市，湿润路面。", "低频合成器铺底，远处警笛。", "今晚，城市只剩下一条出口。", "冷色调，高反差，雨滴清晰，电影感。"],
+  ["02", "3s", "主角穿过拥挤夜市，摊位蒸汽和灯牌交错。", "主角快步穿行，身后无人机搜索灯扫过人群。", "手持跟拍，轻微晃动，穿过遮挡物。", "夜市小摊，蒸汽，红蓝霓虹，人群剪影。", "鼓点开始加速，人群嘈杂。", "别回头，灯光会记住你的脸。", "运动模糊适中，保持主角轮廓可辨。"],
+  ["03", "2s", "无人机从巷口上方俯冲，蓝色扫描线铺满墙面。", "主角贴墙闪避，扫描线擦过肩膀。", "无人机 POV，快速俯冲后急停。", "窄巷，金属管线，雨水从屋檐落下。", "电子扫描声，刹停音效。", "目标丢失：0.7 秒。", "强调蓝色扫描线和雨水颗粒。"],
+  ["04", "3s", "主角跃过屋顶广告牌支架，远处高架灯线拉开。", "脚踩湿滑金属架，身体失衡后重新抓住边缘。", "低角度仰拍，随后快速横移跟随。", "屋顶广告牌，远处高楼，风雨。", "音乐进入主旋律，金属碰撞声。", "有些路，只能跳过去。", "动作要连贯，避免夸张翻滚。"],
+];
+
+const neonRainChaseStoryboardText = neonRainChaseStoryboardRows
+  .map((row) =>
+    neonRainChaseStoryboardColumns
+      .map((column, index) => `${column}：${row[index] ?? ""}`)
+      .join("\n"),
+  )
+  .join("\n\n");
+
 export function createVideoReferenceTemplate(timestamp = Date.now()): CanvasTemplate {
   const imagePromptId = `image-prompt-${timestamp}`;
   const imageNameId = `image-name-${timestamp}`;
@@ -37,6 +64,7 @@ export function createVideoReferenceTemplate(timestamp = Date.now()): CanvasTemp
   const cameraPromptId = `camera-prompt-${timestamp}`;
   const motionPromptId = `motion-prompt-${timestamp}`;
   const stylePromptId = `style-prompt-${timestamp}`;
+  const storyboardPromptId = `storyboard-prompt-${timestamp}`;
   const promptComposerId = `prompt-composer-${timestamp}`;
   const modeId = `mode-${timestamp}`;
   const modelId = `model-${timestamp}`;
@@ -49,7 +77,7 @@ export function createVideoReferenceTemplate(timestamp = Date.now()): CanvasTemp
   const resultId = `result-${timestamp}`;
   return {
     id: "video-reference",
-    name: "清透二次元动画模板",
+    name: "雨夜霓虹追逐模板",
     nodes: [
       {
         id: imagePromptId,
@@ -59,11 +87,11 @@ export function createVideoReferenceTemplate(timestamp = Date.now()): CanvasTemp
         height: 260,
         data: {
           presetId: "MainPromptNode",
-          text: "可爱清透风格二次元动画首图：一位浅青色短发少女站在玻璃温室门口，白色连衣裙与透明雨披，柔和粉蓝配色，清晰线条，大色块，干净平涂，简洁光影，少量高光，背景元素克制，轻盈治愈，16:9 动画截图。",
+          text: "雨夜赛博都市追逐电影首图：黑色短夹克主角站在湿润天桥边缘，回头看向远处无人机搜索灯，霓虹广告牌倒映在积水里，蓝红冷色高反差，雨滴清晰，电影感，16:9 动画关键帧。",
           mentionTokens: [],
         },
       },
-      { id: imageNameId, type: "settingsNode", position: { x: 580, y: 40 }, data: { presetId: "ImageNameNode", value: "clear_anime_first_frame", type: "name" } },
+      { id: imageNameId, type: "settingsNode", position: { x: 580, y: 40 }, data: { presetId: "ImageNameNode", value: "neon_rain_chase_first_frame", type: "name" } },
       { id: imageRatioId, type: "settingsNode", position: { x: 580, y: 180 }, data: { presetId: "ImageAspectRatioNode", value: "16:9", type: "aspect_ratio" } },
       { id: imageSizeId, type: "settingsNode", position: { x: 580, y: 320 }, data: { presetId: "ImageTargetSizeNode", value: "1344x768", type: "target_size" } },
       { id: imageResolutionId, type: "settingsNode", position: { x: 860, y: 40 }, data: { presetId: "ImageResolutionNode", value: "1K", type: "resolution" } },
@@ -97,16 +125,16 @@ export function createVideoReferenceTemplate(timestamp = Date.now()): CanvasTemp
         height: 250,
         data: {
           presetId: "MainPromptNode",
-          text: "no vocals, cute transparent anime opening BGM, glockenspiel, soft synth bell, light future bass drums, airy pads, gentle 92 BPM, sparkling water-drop texture, clean loopable game background music.",
+          text: "no vocals, cyberpunk night chase soundtrack, dark synthwave bass, fast electronic drums, pulsing arpeggio, rain texture, distant siren, tense but stylish, 128 BPM, cinematic loopable background music.",
           mentionTokens: [],
         },
       },
       { id: musicCustomId, type: "settingsNode", position: { x: 580, y: 600 }, data: { presetId: "MusicCustomModeNode", value: "true", type: "customMode" } },
       { id: musicInstrumentalId, type: "settingsNode", position: { x: 580, y: 740 }, data: { presetId: "MusicInstrumentalNode", value: "true", type: "instrumental" } },
       { id: musicModelId, type: "settingsNode", position: { x: 580, y: 880 }, data: { presetId: "MusicModelNode", value: "V4_5", type: "model" } },
-      { id: musicTitleId, type: "settingsNode", position: { x: 860, y: 600 }, data: { presetId: "MusicTitleNode", value: "Glass Garden Opening", type: "title" } },
-      { id: musicStyleId, type: "settingsNode", position: { x: 860, y: 740 }, width: 360, height: 190, data: { presetId: "MusicStyleNode", value: "kawaii future bass, airy synth, glockenspiel, soft bell, clean loop, transparent anime opening", type: "style" } },
-      { id: musicNegativeId, type: "settingsNode", position: { x: 860, y: 960 }, width: 360, height: 190, data: { presetId: "MusicNegativeTagsNode", value: "vocals, vocal, singing, rap, dark, aggressive, distorted", type: "negativeTags" } },
+      { id: musicTitleId, type: "settingsNode", position: { x: 860, y: 600 }, data: { presetId: "MusicTitleNode", value: "Neon Rain Chase", type: "title" } },
+      { id: musicStyleId, type: "settingsNode", position: { x: 860, y: 740 }, width: 360, height: 190, data: { presetId: "MusicStyleNode", value: "dark synthwave, cinematic chase, electronic drums, pulsing bass, rain ambience, distant siren, neon cyberpunk", type: "style" } },
+      { id: musicNegativeId, type: "settingsNode", position: { x: 860, y: 960 }, width: 360, height: 190, data: { presetId: "MusicNegativeTagsNode", value: "vocals, vocal, singing, rap, cute, cheerful, acoustic, lo-fi", type: "negativeTags" } },
       {
         id: musicExecutorId,
         type: "executorNode",
@@ -136,7 +164,7 @@ export function createVideoReferenceTemplate(timestamp = Date.now()): CanvasTemp
         height: 260,
         data: {
           presetId: "MainPromptNode",
-          text: "少女在玻璃温室前回头微笑，发梢和雨披轻轻飘动，镜头从中景缓慢推进到近景。画面保持清晰线条、大色块、干净平涂、简洁光影，不要复杂光影和过多细节。",
+          text: "黑色短夹克主角在雨夜赛博都市中逃离无人机追踪，从天桥、夜市、窄巷、屋顶到高架飞驰，节奏紧张，动作连贯，主体轮廓清楚，雨滴、霓虹反射和蓝色扫描线清晰可见。",
           mentionTokens: [],
         },
       },
@@ -148,7 +176,7 @@ export function createVideoReferenceTemplate(timestamp = Date.now()): CanvasTemp
         height: 180,
         data: {
           presetId: "CameraPromptNode",
-          text: "轻微手持感，缓慢 dolly in，背景轻微景深，角色轮廓清楚，画面不要堆叠复杂反光。",
+          text: "开场广角建立城市雨夜环境，中段手持跟拍和低角度仰拍增强追逐感，高速段贴近车尾跟随，结尾远景拉开到城市天际线。",
           mentionTokens: [],
         },
       },
@@ -160,7 +188,7 @@ export function createVideoReferenceTemplate(timestamp = Date.now()): CanvasTemp
         height: 180,
         data: {
           presetId: "MotionPromptNode",
-          text: "角色先轻轻抬头，再转身回眸，裙摆和雨披小幅摆动，动作幅度克制，不要剧烈跳切。",
+          text: "主角回头、穿过夜市、贴墙闪避扫描线、跃过屋顶广告牌、冲刺上悬浮摩托、压低车身穿过窄缝，动作要连续，不要随机跳切。",
           mentionTokens: [],
         },
       },
@@ -172,8 +200,24 @@ export function createVideoReferenceTemplate(timestamp = Date.now()): CanvasTemp
         height: 180,
         data: {
           presetId: "StylePromptNode",
-          text: "清透、明亮、低对比、粉蓝绿色系，二次元动画感，清晰线条，大色块，简约背景，避免暗黑、厚重、复杂光影、过度锐化、真人写实脸。",
+          text: "赛博雨夜、霓虹反射、冷色高反差、电影感追逐镜头。保持主体轮廓清晰，避免画面糊成一片，避免过度复杂光污染。",
           mentionTokens: [],
+        },
+      },
+      {
+        id: storyboardPromptId,
+        type: "storyboardNode",
+        position: { x: 40, y: 2160 },
+        width: 720,
+        height: 420,
+        data: {
+          presetId: "StoryboardTableNode",
+          role: "storyboard_prompt",
+          sourceName: "雨夜霓虹追逐当前片段分镜表",
+          sourceType: "preset",
+          columns: neonRainChaseStoryboardColumns,
+          rows: neonRainChaseStoryboardRows,
+          text: neonRainChaseStoryboardText,
         },
       },
       {
@@ -265,6 +309,7 @@ export function createVideoReferenceTemplate(timestamp = Date.now()): CanvasTemp
       { id: `e-${cameraPromptId}-${promptComposerId}`, source: cameraPromptId, target: promptComposerId, ...defaultEdge },
       { id: `e-${motionPromptId}-${promptComposerId}`, source: motionPromptId, target: promptComposerId, ...defaultEdge },
       { id: `e-${stylePromptId}-${promptComposerId}`, source: stylePromptId, target: promptComposerId, ...defaultEdge },
+      { id: `e-${storyboardPromptId}-${promptComposerId}`, source: storyboardPromptId, target: promptComposerId, ...defaultEdge },
       { id: `e-${promptComposerId}-${payloadId}`, source: promptComposerId, target: payloadId, ...defaultEdge },
       { id: `e-${imageResultId}-${payloadId}`, source: imageResultId, target: payloadId, ...defaultEdge },
       { id: `e-${musicResultId}-${payloadId}`, source: musicResultId, target: payloadId, ...defaultEdge },

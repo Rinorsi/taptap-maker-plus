@@ -72,6 +72,7 @@ import { NodeLibraryDrawer } from "./NodeLibraryDrawer";
 import { ResizablePanelHandle, useResizablePanelWidth } from "./ResizablePanelWidth";
 import { getPresetById, getPresetGroupsForCanvas, type NodePreset, type NodePresetGroup } from "./nodeRegistry";
 import { readAssetDragPath } from "./dragData";
+import { parseStoryboardFile } from "./storyboardImport";
 import {
   createSharedCanvasModel,
   createVideoReferenceTemplate,
@@ -97,6 +98,7 @@ import {
 } from "../canvas-core";
 import {
   GenericTextNode,
+  StoryboardTableNode,
   GenericMediaNode,
   GenericSettingsNode,
   GenericCollectorNode,
@@ -155,6 +157,7 @@ function cleanFlowEdgeForStorage(edge: Edge): Edge {
 }
 const nodeTypes = {
   textNode: GenericTextNode,
+  storyboardNode: StoryboardTableNode,
   mediaNode: GenericMediaNode,
   settingsNode: GenericSettingsNode,
   collectorNode: GenericCollectorNode,
@@ -206,6 +209,10 @@ function getPromptNodeLabel(presetId: unknown) {
   return labels[String(presetId ?? "")] ?? "";
 }
 function formatPromptNodeText(node: Node, text: string) {
+  if (node.type === "storyboardNode") {
+    const sourceName = typeof node.data?.sourceName === "string" ? node.data.sourceName.trim() : "";
+    return sourceName ? `分镜表：${sourceName}\n${text}` : `分镜表：${text}`;
+  }
   const label = getPromptNodeLabel(node.data?.presetId);
   return label ? `${label}：${text}` : text;
 }
@@ -352,6 +359,29 @@ function settleExecutorsForReadyResults(nodes: Node[], edges: Edge[], updatedAt:
   });
   return changed ? settledNodes : nodes;
 }
+function replaceMentionAlias(text: string, previousAlias: string, nextAlias: string) {
+  if (!previousAlias || previousAlias === nextAlias) return text;
+  return text.replaceAll(`@${previousAlias}`, `@${nextAlias}`);
+}
+function getStoryboardImportPlacement(nodes: Node[]): StoryboardImportPlacement {
+  const payloadNode = nodes.find(
+    (node) => node.type === "collectorNode" && node.data?.presetId === "MultiModalPayloadNode",
+  );
+  if (payloadNode) {
+    return {
+      x: payloadNode.position.x - 360,
+      y: payloadNode.position.y + 320,
+      payloadNodeId: payloadNode.id,
+    };
+  }
+  if (nodes.length === 0) return { x: 80, y: 80 };
+  const minX = Math.min(...nodes.map((node) => node.position.x));
+  const maxY = Math.max(...nodes.map((node) => node.position.y));
+  return { x: minX, y: maxY + 260 };
+}
+function canImportStoryboardFile(file: File) {
+  return /\.(txt|md|markdown|csv|tsv|xlsx|xls|docx)$/i.test(file.name);
+}
 type CanvasMenuTarget =
   | { kind: "pane"; screenX: number; screenY: number }
   | { kind: "node"; nodeId: string; screenX: number; screenY: number }
@@ -379,6 +409,7 @@ const LONG_TEXT_SETTINGS_NODE_DIMENSIONS = { width: 360, height: 190, minWidth: 
 const RESULT_NODE_DIMENSIONS = { width: 320, height: 240, minWidth: 260, minHeight: 190, maxWidth: 430, maxHeight: 340 };
 const PAYLOAD_NODE_DIMENSIONS = { width: 340, height: 240, minWidth: 320, minHeight: 190, maxWidth: 420, maxHeight: 300 };
 const PROMPT_COMPOSER_NODE_DIMENSIONS = { width: 480, height: 460, minWidth: 360, minHeight: 260, maxWidth: 760, maxHeight: 900 };
+const STORYBOARD_NODE_DIMENSIONS = { width: 720, height: 420, minWidth: 420, minHeight: 300, maxWidth: 980, maxHeight: 720 };
 function normalizeNodeDimension(
   value: unknown,
   fallback: number,
@@ -389,6 +420,23 @@ function normalizeNodeDimension(
   return Math.min(Math.max(value, min), max);
 }
 function normalizeFlowNodeDimensions(node: Node): Node {
+  if (node.type === "storyboardNode") {
+    return {
+      ...node,
+      width: normalizeNodeDimension(
+        node.width,
+        STORYBOARD_NODE_DIMENSIONS.width,
+        STORYBOARD_NODE_DIMENSIONS.minWidth,
+        STORYBOARD_NODE_DIMENSIONS.maxWidth,
+      ),
+      height: normalizeNodeDimension(
+        node.height,
+        STORYBOARD_NODE_DIMENSIONS.height,
+        STORYBOARD_NODE_DIMENSIONS.minHeight,
+        STORYBOARD_NODE_DIMENSIONS.maxHeight,
+      ),
+    };
+  }
   if (node.type === "mediaNode") {
     return {
       ...node,
@@ -565,6 +613,11 @@ declare global {
     __taptapNodePresetDrag?: string;
   }
 }
+type StoryboardImportPlacement = {
+  x: number;
+  y: number;
+  payloadNodeId?: string;
+};
 export function VideoFlowCanvas(props: VideoFlowCanvasProps) {
   return (
     <ReactFlowProvider>
@@ -1241,6 +1294,43 @@ function VideoFlowCanvasInner({
     (id: string, key: string, value: unknown) => {
       setNodes((nds) =>
         nds.map((n) => {
+          if (key === "alias" && n.type === "textNode") {
+            const sourceNode = nds.find((item) => item.id === id);
+            const previousAlias =
+              typeof sourceNode?.data?.alias === "string"
+                ? sourceNode.data.alias.trim()
+                : "";
+            const nextAlias =
+              typeof value === "string" ? value.trim() : String(value ?? "").trim();
+            if (!previousAlias || !nextAlias || previousAlias === nextAlias) return n;
+            const mentionTokens = Array.isArray(n.data?.mentionTokens)
+              ? n.data.mentionTokens
+              : [];
+            const referencesRenamed = mentionTokens.some(
+              (token) =>
+                token &&
+                typeof token === "object" &&
+                (token as { nodeId?: unknown }).nodeId === id,
+            );
+            if (!referencesRenamed) return n;
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                text:
+                  typeof n.data?.text === "string"
+                    ? replaceMentionAlias(n.data.text, previousAlias, nextAlias)
+                    : n.data?.text,
+                mentionTokens: mentionTokens.map((token) =>
+                  token &&
+                  typeof token === "object" &&
+                  (token as { nodeId?: unknown }).nodeId === id
+                    ? { ...token, alias: nextAlias }
+                    : token,
+                ),
+              },
+            };
+          }
           if (n.id !== id) return n;
           const nextData = { ...n.data, [key]: value };
           if (key === "presetId" && typeof value === "string") {
@@ -1359,6 +1449,68 @@ function VideoFlowCanvasInner({
       );
     },
     [reactFlow, setNodes],
+  );
+  const importStoryboardFile = useCallback(
+    async (file: File, position?: { x: number; y: number }) => {
+      try {
+        const result = await parseStoryboardFile(file);
+        if (!result.text) {
+          setValidationError("导入的分镜文件没有可读取文本。");
+          setTimeout(() => setValidationError(null), 3000);
+          return;
+        }
+        const timestamp = Date.now();
+        const nodeId = `storyboard-${timestamp}`;
+        const fallbackPlacement = getStoryboardImportPlacement(nodes);
+        const placement = {
+          ...fallbackPlacement,
+          ...(position ? { x: position.x, y: position.y } : {}),
+        };
+        const importedNode: Node = normalizeFlowNodeDimensions({
+          id: nodeId,
+          type: "storyboardNode",
+          position: { x: placement.x, y: placement.y },
+          width: STORYBOARD_NODE_DIMENSIONS.width,
+          height: STORYBOARD_NODE_DIMENSIONS.height,
+          selected: true,
+          data: {
+            presetId: "StoryboardTableNode",
+            role: "storyboard_prompt",
+            sourceName: result.fileName,
+            sourceType: result.sourceType,
+            columns: result.columns,
+            rows: result.rows,
+            text: result.text,
+            importedAt: new Date().toISOString(),
+          },
+        });
+        pushCanvasHistorySnapshot();
+        setNodes((current) => [
+          ...current.map((node) => ({ ...node, selected: false })),
+          importedNode,
+        ]);
+        const payloadNodeId = placement.payloadNodeId;
+        if (payloadNodeId) {
+          setEdges((current) => [
+            ...current,
+            {
+              id: `e-${nodeId}-${payloadNodeId}`,
+              source: nodeId,
+              target: payloadNodeId,
+              ...defaultEdgeOptions,
+            },
+          ]);
+        }
+        setValidationError(null);
+        setTimeout(() => {
+          focusNodeById(nodeId);
+        }, 50);
+      } catch (error) {
+        setValidationError(error instanceof Error ? error.message : String(error));
+        setTimeout(() => setValidationError(null), 5000);
+      }
+    },
+    [focusNodeById, nodes, pushCanvasHistorySnapshot, setEdges, setNodes],
   );
   const returnToPreviousViewport = useCallback(() => {
     if (!previousViewport) return;
@@ -1808,7 +1960,7 @@ function VideoFlowCanvasInner({
         String(validationResult === sharedCanvasModel.compileResult),
         String(sharedCanvasModel.resultAssetsByNodeId.get(n.id)?.length ?? 0),
       ];
-      if (n.type === "collectorNode" || n.type === "textNode" || n.type === "mediaNode") {
+      if (n.type === "collectorNode" || n.type === "textNode" || n.type === "storyboardNode" || n.type === "mediaNode") {
         cacheSignatureParts.push(String(references.length));
         cacheSignatureParts.push(String(validationResult.promptReferences?.length ?? 0));
       }
@@ -1845,6 +1997,7 @@ function VideoFlowCanvasInner({
       let injectedData: Node["data"] = baseData;
       if (
         n.type === "textNode" ||
+        n.type === "storyboardNode" ||
         n.type === "mediaNode" ||
         n.type === "settingsNode" ||
         n.type === "resultNode"
@@ -1922,7 +2075,7 @@ function VideoFlowCanvasInner({
           const prevs = prevMap.get(nodeId) || [];
           for (const prevNode of prevs) {
             const preset = getPresetById(prevNode.data.presetId as string);
-            if (preset?.category === "prompt") {
+            if (preset?.category === "prompt" || prevNode.type === "storyboardNode") {
               const text = String(prevNode.data.text ?? "").trim();
               if (text)
                 promptParts.push({
@@ -1945,6 +2098,10 @@ function VideoFlowCanvasInner({
         n.type === "collectorNode" &&
         n.data.presetId === "MultiModalPayloadNode"
       ) {
+        const payloadExecutorId = findNearestDownstreamExecutorId(nodes, edges, n.id);
+        const payloadValidationResult = payloadExecutorId
+          ? createSharedCanvasModel(nodes, edges, payloadExecutorId).compileResult
+          : validationResult;
         // Collect stats
         let promptCount = 0;
         let imagesCount = 0;
@@ -1952,12 +2109,7 @@ function VideoFlowCanvasInner({
         let audiosCount = 0;
         let settingsCount = 0;
         let error = null;
-        const executor = nodes.find(
-          (node) =>
-            node.type === "executorNode" &&
-            node.data.presetId === "CreateVideoTaskNode",
-        );
-        const directPrevs = executor ? prevMap.get(executor.id) || [] : [n];
+        const directPrevs = prevMap.get(n.id) || [];
         const visited = new Set<string>();
         const traverse = (nodeId: string) => {
           if (visited.has(nodeId)) return;
@@ -1965,26 +2117,42 @@ function VideoFlowCanvasInner({
           const prevs = prevMap.get(nodeId) || [];
           for (const p of prevs) {
             const preset = getPresetById(p.data.presetId as string);
-            if (preset?.category === "prompt" && p.data.text) promptCount++;
+            if ((preset?.category === "prompt" || p.type === "storyboardNode") && p.data.text) promptCount++;
             if (preset?.category === "image") imagesCount++;
             if (preset?.category === "video") videosCount++;
             if (preset?.category === "audio") audiosCount++;
             if (preset?.category === "settings") settingsCount++;
+            if (p.type === "resultNode") {
+              const resultAssets = Array.isArray(p.data.resultAssets) ? p.data.resultAssets : [];
+              imagesCount += resultAssets.filter((asset: any) => asset?.kind === "image").length;
+              videosCount += resultAssets.filter((asset: any) => asset?.kind === "video").length;
+              audiosCount += resultAssets.filter((asset: any) => asset?.kind === "audio").length;
+              continue;
+            }
+            if (p.type === "executorNode") continue;
             traverse(p.id);
           }
         };
         for (const inputNode of directPrevs) {
           const preset = getPresetById(inputNode.data.presetId as string);
-          if (preset?.category === "prompt" && inputNode.data.text)
+          if ((preset?.category === "prompt" || inputNode.type === "storyboardNode") && inputNode.data.text)
             promptCount++;
           if (preset?.category === "image") imagesCount++;
           if (preset?.category === "video") videosCount++;
           if (preset?.category === "audio") audiosCount++;
           if (preset?.category === "settings") settingsCount++;
+          if (inputNode.type === "resultNode") {
+            const resultAssets = Array.isArray(inputNode.data.resultAssets) ? inputNode.data.resultAssets : [];
+            imagesCount += resultAssets.filter((asset: any) => asset?.kind === "image").length;
+            videosCount += resultAssets.filter((asset: any) => asset?.kind === "video").length;
+            audiosCount += resultAssets.filter((asset: any) => asset?.kind === "audio").length;
+            continue;
+          }
+          if (inputNode.type === "executorNode") continue;
           traverse(inputNode.id);
         }
-        if (!validationResult.ok) {
-          error = validationResult.issues.find((issue) => issue.severity === "error")?.message ?? null;
+        if (!payloadValidationResult.ok) {
+          error = payloadValidationResult.issues.find((issue) => issue.severity === "error")?.message ?? null;
         }
         injectedData = {
             ...baseData,
@@ -1994,9 +2162,9 @@ function VideoFlowCanvasInner({
             audiosCount,
             settingsCount,
             error,
-            payload: validationResult.payload,
-            fieldSources: validationResult.fieldSources,
-            issues: validationResult.issues,
+            payload: payloadValidationResult.payload,
+            fieldSources: payloadValidationResult.fieldSources,
+            issues: payloadValidationResult.issues,
             rawResult: nodes.find((node) => node.type === "resultNode" && node.data.rawResult !== undefined)?.data.rawResult,
             onChange: handleNodeDataChange,
             onFocusReference: focusNodeById,
@@ -2067,6 +2235,11 @@ function VideoFlowCanvasInner({
     (event: React.DragEvent) => {
       event.preventDefault();
       event.stopPropagation();
+      if (!wrapperRef.current) return;
+      const position = reactFlow.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
       // Check if dropped file is JSON
       if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
         const file = event.dataTransfer.files[0];
@@ -2091,12 +2264,11 @@ function VideoFlowCanvasInner({
           reader.readAsText(file);
           return;
         }
+        if (canImportStoryboardFile(file)) {
+          void importStoryboardFile(file, position);
+          return;
+        }
       }
-      if (!wrapperRef.current) return;
-      const position = reactFlow.screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY,
-      });
       // Check if dropped from Node Library
       const plainDragData = event.dataTransfer.getData("text/plain");
       const presetId =
@@ -2143,7 +2315,7 @@ function VideoFlowCanvasInner({
       };
       setNodes((nds) => nds.concat(normalizeFlowNodeDimensions(newNode)));
     },
-    [reactFlow, setNodes, project, allAssets, references],
+    [reactFlow, importStoryboardFile, setNodes, project, allAssets, references],
   );
   const onCanvasDropCapture = useCallback(
     (event: React.DragEvent) => {
@@ -2161,7 +2333,8 @@ function VideoFlowCanvasInner({
   const createNodeFromPreset = useCallback(
     (preset: NodePreset, position: { x: number; y: number }) => {
       let type = "";
-      if (preset.category === "prompt") type = "textNode";
+      if (preset.id === "StoryboardTableNode") type = "storyboardNode";
+      else if (preset.category === "prompt") type = "textNode";
       else if (["image", "video", "audio"].includes(preset.category))
         type = "mediaNode";
       else if (preset.category === "settings") type = "settingsNode";
@@ -2175,7 +2348,9 @@ function VideoFlowCanvasInner({
         type,
         position,
         width:
-          type === "mediaNode"
+          type === "storyboardNode"
+            ? STORYBOARD_NODE_DIMENSIONS.width
+            : type === "mediaNode"
             ? MEDIA_NODE_DIMENSIONS.width
             : type === "resultNode"
               ? RESULT_NODE_DIMENSIONS.width
@@ -2185,7 +2360,9 @@ function VideoFlowCanvasInner({
                 ? PROMPT_COMPOSER_NODE_DIMENSIONS.width
               : undefined,
         height:
-          type === "mediaNode"
+          type === "storyboardNode"
+            ? STORYBOARD_NODE_DIMENSIONS.height
+            : type === "mediaNode"
             ? MEDIA_NODE_DIMENSIONS.height
             : type === "resultNode"
               ? RESULT_NODE_DIMENSIONS.height
@@ -2619,13 +2796,22 @@ function VideoFlowCanvasInner({
       ? categoryGroups.find((group) => group.id === submenuState.categoryKey)
       : null;
   const selectedNode = nodes.find((node) => node.selected);
+  const selectedNodePrefersDownstreamExecutor =
+    selectedNode?.type === "collectorNode" ||
+    selectedNode?.type === "settingsNode" ||
+    selectedNode?.type === "textNode" ||
+    selectedNode?.type === "storyboardNode" ||
+    selectedNode?.type === "mediaNode";
   const payloadContextExecutorId = selectedNode
     ? selectedNode.type === "executorNode"
       ? selectedNode.id
       : selectedNode.type === "resultNode"
         ? findNearestUpstreamExecutorId(nodes, edges, selectedNode.id)
-        : findNearestDownstreamExecutorId(nodes, edges, selectedNode.id) ??
-          findNearestUpstreamExecutorId(nodes, edges, selectedNode.id)
+        : selectedNodePrefersDownstreamExecutor
+          ? findNearestDownstreamExecutorId(nodes, edges, selectedNode.id) ??
+            findNearestUpstreamExecutorId(nodes, edges, selectedNode.id)
+          : findNearestUpstreamExecutorId(nodes, edges, selectedNode.id) ??
+            findNearestDownstreamExecutorId(nodes, edges, selectedNode.id)
     : undefined;
   const payloadContextResult = useMemo(
     () =>

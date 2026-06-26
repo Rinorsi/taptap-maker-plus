@@ -9,6 +9,7 @@ import {
   ImageIcon,
   Film,
   CornerDownRight,
+  Table2,
 } from "lucide-react";
 import { getPresetById, NODE_PRESETS } from "./nodeRegistry";
 import { cn } from "../../lib/utils";
@@ -173,6 +174,92 @@ export function GenericTextNode({ data, id, selected }: any) {
                 ))}
               </div>
             )}
+          </div>
+        )}
+      </div>
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!w-4 !h-4 !bg-surface-app !border-2 !border-brand transition-transform group-hover:scale-125 z-50 !-right-2"
+      />
+      <DeleteButton onDelete={data.onDelete} id={id} selected={selected} />
+    </div>
+  );
+}
+
+export function StoryboardTableNode({ data, id, selected }: any) {
+  const columns = Array.isArray(data.columns) && data.columns.length > 0 ? data.columns.map(String) : ["内容"];
+  const rows = Array.isArray(data.rows)
+    ? data.rows.map((row: unknown) => (Array.isArray(row) ? row.map(String) : [String(row ?? "")]))
+    : [];
+  const sourceName = typeof data.sourceName === "string" ? data.sourceName : "当前片段分镜表";
+  const collapsed = Boolean(data.collapsed);
+
+  return (
+    <div className="group w-full h-full min-w-[420px] min-h-[300px] relative flex">
+      <NodeResizer
+        isVisible={selected}
+        minWidth={420}
+        minHeight={300}
+        color="var(--color-brand)"
+        handleStyle={{ width: 8, height: 8, borderRadius: 4 }}
+      />
+      <div className="flex-1 flex flex-col bg-surface-panel/85 backdrop-blur-xl border border-white/20 dark:border-white/10 rounded-3xl shadow-popover overflow-hidden transition-all duration-300 group-hover:shadow-[0_16px_48px_rgba(0,217,197,0.15)] group-hover:border-brand/40">
+        <div className="bg-gradient-to-r from-brand/10 to-transparent p-3 flex items-center justify-between gap-3 border-b border-border-soft shrink-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <Table2 className="w-4 h-4 shrink-0 text-brand" />
+            <span className="truncate text-xs font-bold text-text">当前片段分镜表</span>
+          </div>
+          <span className="shrink-0 rounded-full bg-surface-app px-2 py-0.5 text-[10px] font-bold text-text-subtle">
+            {rows.length} 镜
+          </span>
+        </div>
+        {!collapsed && (
+          <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
+            <div className="flex shrink-0 items-center justify-between gap-3">
+              <input
+                className="nodrag min-w-0 flex-1 rounded-lg border border-border-soft bg-surface-app px-2 py-1.5 text-xs font-bold text-text outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+                value={sourceName}
+                onPointerDown={(event) => event.stopPropagation()}
+                onChange={(event) => data.onChange?.(id, "sourceName", event.target.value)}
+                title={sourceName}
+              />
+              <span className="shrink-0 text-[10px] font-bold text-text-subtle">
+                {columns.length} 列
+              </span>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border-soft bg-surface-app scrollbar-thin">
+              <table className="min-w-full border-separate border-spacing-0 text-left text-[11px]">
+                <thead className="sticky top-0 z-10 bg-surface-muted">
+                  <tr>
+                    {columns.map((column: string, index: number) => (
+                      <th
+                        key={`${column}-${index}`}
+                        className="border-b border-border-soft px-2 py-1.5 font-black text-text-subtle whitespace-nowrap"
+                      >
+                        {column}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row: string[], rowIndex: number) => (
+                    <tr key={rowIndex} className="odd:bg-surface-panel/30">
+                      {columns.map((_: string, columnIndex: number) => (
+                        <td
+                          key={`${rowIndex}-${columnIndex}`}
+                          className="max-w-[240px] border-b border-border-soft/60 px-2 py-1.5 align-top text-text"
+                        >
+                          <span className="line-clamp-3 break-words">
+                            {row[columnIndex] || "-"}
+                          </span>
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>
@@ -1299,64 +1386,51 @@ export function GenericResultNode({ data, id, selected }: any) {
                 </div>
               </div>
             )}
-            {(taskId || lastFrame) && (
-              <div className="flex shrink-0 flex-col gap-1.5 rounded-lg border border-border-soft bg-surface-app p-2">
+            {(taskId || lastFrame || canCreateReference) && (
+              <div className="flex shrink-0 gap-1.5">
                 {taskId && (
-                  <div className="flex items-center justify-between gap-2 text-[10px]">
-                    <span className="text-text-subtle">task_id</span>
-                    <span className="min-w-0 truncate font-mono text-text" title={taskId}>{taskId}</span>
-                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 flex-1 px-2 text-[10px]"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      data.onQueryVideoTask?.(id);
+                    }}
+                  >
+                    查询任务
+                  </Button>
                 )}
-                <div className="flex gap-1.5">
-                  {taskId && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 flex-1 px-2 text-[10px]"
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        data.onQueryVideoTask?.(id);
-                      }}
-                    >
-                      查询任务
-                    </Button>
-                  )}
-                  {lastFrame && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 flex-1 px-2 text-[10px]"
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        data.onContinueFromLastFrame?.(id);
-                      }}
-                    >
-                      尾帧继续
-                    </Button>
-                  )}
-                </div>
-                {taskId && (
-                  <span className="text-[9px] leading-tight text-text-muted">
-                    query_video_task 需间隔至少 120 秒。
-                  </span>
+                {lastFrame && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 flex-1 px-2 text-[10px]"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      data.onContinueFromLastFrame?.(id);
+                    }}
+                  >
+                    尾帧继续
+                  </Button>
+                )}
+                {canCreateReference && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 flex-1 px-2 text-[10px]"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      data.onCreateReferenceFromResult?.(id);
+                    }}
+                  >
+                    创建参考节点
+                  </Button>
                 )}
               </div>
-            )}
-            {canCreateReference && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 shrink-0 px-2 text-[10px]"
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  data.onCreateReferenceFromResult?.(id);
-                }}
-              >
-                创建参考节点
-              </Button>
             )}
           </div>
         )}

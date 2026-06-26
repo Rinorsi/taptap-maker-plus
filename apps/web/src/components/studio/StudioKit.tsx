@@ -119,7 +119,7 @@ export function StudioSearchInput({
   className?: string;
 }) {
   return (
-    <div className={cn("relative w-[140px] md:w-[180px] lg:w-[220px]", className)}>
+    <div className={cn("relative w-[120px] md:w-[150px] lg:w-[180px]", className)}>
       <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-subtle" />
       <Input
         value={value}

@@ -62,8 +62,9 @@ type Props = {
   statusText: string;
   busy: boolean;
   onStartRuntime: () => void;
+  onStopRuntime: () => void;
+  onRefreshTools: () => void;
   onScanAssets: () => void;
-  onRefreshProject?: () => void | Promise<void>;
   onRemoveProjectRecord: (projectId: string) => void;
   onDeleteProjectLocalFolder: (projectId: string) => void;
   onDeleteAssets: (relativePaths: string[]) => Promise<void>;
@@ -80,6 +81,7 @@ type Props = {
   onConfirmReferenceMutation: (relativePaths: string[], actionLabel: string, allowUpdateReferences: boolean) => Promise<"update" | "skip" | "cancel">;
   onAssetMutationResult: (prefix: string, result: AssetMutationResponse) => void;
   onScanAssetReferences: (relativePaths: string[]) => Promise<void>;
+  onRefreshProject?: () => void | Promise<void>;
   onNotice: (notice: string) => void;
   onCallStatusLite: () => void;
   onCallTool: (toolName: string, args: Record<string, unknown>) => Promise<unknown>;
@@ -263,6 +265,11 @@ export function WorkbenchViewport(props: Props) {
           project={props.project}
           runtime={props.runtime}
           tools={props.tools}
+          busy={props.busy}
+          onStartRuntime={props.onStartRuntime}
+          onStopRuntime={props.onStopRuntime}
+          onRefreshTools={props.onRefreshTools}
+          onStatusLite={props.onCallStatusLite}
         />
       ) : null}
     </>

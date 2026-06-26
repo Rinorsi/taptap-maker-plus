@@ -1,4 +1,4 @@
-import { Image as ImageIcon, Film, Music, Settings2, WandSparkles, AlertCircle, Boxes, MessageSquare, Frame, FileVideo, Clapperboard, AudioLines, Drum, FileAudio, Ratio, LayoutList, Fingerprint, Layers, Type, LayoutTemplate, Activity, Route, Search, Timer, FileImage, Paintbrush, SlidersHorizontal } from "lucide-react";
+import { Image as ImageIcon, Film, Music, Settings2, WandSparkles, AlertCircle, Boxes, MessageSquare, Frame, FileVideo, Clapperboard, AudioLines, Drum, FileAudio, Ratio, LayoutList, Fingerprint, Layers, Type, LayoutTemplate, Activity, Route, Search, Timer, FileImage, Paintbrush, SlidersHorizontal, Table2 } from "lucide-react";
 import { CANVAS_TOOL_DEFINITIONS, type CanvasToolName } from "../canvas-core";
 
 export type NodeCategory = "prompt" | "image" | "video" | "audio" | "settings" | "collector" | "executor" | "utility";
@@ -30,6 +30,17 @@ export const NODE_PRESETS: NodePreset[] = [
     inputHandles: [],
     outputHandles: ["right"],
     defaultData: { text: "", role: "director_prompt" },
+    mcpMapping: { target: "prompt" }
+  },
+  {
+    id: "StoryboardTableNode",
+    label: "当前片段分镜表",
+    category: "prompt",
+    icon: Table2,
+    description: "承载当前 10s 左右视频片段的镜号、画面、动作、镜头、声音等结构化信息",
+    inputHandles: [],
+    outputHandles: ["right"],
+    defaultData: { sourceName: "当前片段分镜表", sourceType: "manual", columns: [], rows: [], text: "", role: "storyboard_prompt" },
     mcpMapping: { target: "prompt" }
   },
   {
@@ -501,6 +512,7 @@ const VIDEO_CANVAS_GROUPS: Array<{ id: string; label: string; presetIds: string[
     label: "视频提示词",
     presetIds: [
       "MainPromptNode",
+      "StoryboardTableNode",
       "CameraPromptNode",
       "MotionPromptNode",
       "StylePromptNode",

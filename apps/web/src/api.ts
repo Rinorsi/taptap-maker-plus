@@ -332,7 +332,7 @@ export type ProjectBuildLogsSummary = {
   buildLogs: ProjectBuildLogEntry[];
 };
 
-export type AgentRightPanelTab = "status" | "tools" | "logs" | "errors";
+export type AgentRightPanelTab = "status" | "tools" | "gameLogs" | "logs" | "errors";
 
 export type AgentSelectionReference =
   | { type: "project"; projectId: string }
@@ -374,6 +374,31 @@ export type AgentContextSnapshot = {
   };
 };
 
+export type DesktopReadinessPaths = {
+  dataDir?: string;
+  databasePath?: string;
+  workspaceRoot?: string;
+  webDistDir?: string;
+  makerNpmCacheDir?: string;
+  mcpLogDir?: string;
+  makerProjectsRoot?: string;
+};
+
+export type DesktopReadinessEnv = {
+  TAPTAP_DATA_DIR?: string;
+  TAPTAP_WORKSPACE_ROOT?: string;
+  TAPTAP_WEB_DIST_DIR?: string;
+  TAPTAP_MAKER_PROJECTS_ROOT?: string;
+  TAPTAP_DESKTOP_PARENT_PID?: string;
+  TAPTAP_MAKER_NPM_CACHE_DIR?: string;
+  TAPTAP_MCP_LOG_DIR?: string;
+  TAPTAP_SERVER_PORT?: string;
+  TAPTAP_SERVER_HOST?: string;
+  TAPTAP_DESKTOP_INSTANCE_TOKEN?: string;
+  TAPTAP_MCP_ENV?: string;
+  TAPTAP_MAKER_PACKAGE?: string;
+};
+
 export type DesktopReadiness = {
   ok: boolean;
   mode: string;
@@ -381,8 +406,24 @@ export type DesktopReadiness = {
     host: string;
     port: number;
   };
-  paths: Record<string, string | undefined>;
-  env: Record<string, string | undefined>;
+  paths: DesktopReadinessPaths;
+  env: DesktopReadinessEnv;
+};
+
+export type ProjectHealthSummary = {
+  projectId: string;
+  rootPath: string;
+  configPath: string;
+  rootExists: boolean;
+  configExists: boolean;
+  configProjectId?: string;
+  makerProjectId: string;
+  projectIdMatches: boolean;
+  configParseError?: string;
+  runtime?: RuntimeSummary;
+  toolsListUpdatedAt?: string;
+  makerPackage: string;
+  makerEnv: string;
 };
 
 export type FrontendDiagnosticEntry = {
@@ -467,6 +508,12 @@ export async function stopRuntime(projectId: string) {
 export async function getRuntimeStatus(projectId: string) {
   return json<{ project: ProjectSummary; runtime?: RuntimeSummary; toolsListSnapshot?: ToolsListSnapshot }>(
     await fetch(`/api/projects/${encodeURIComponent(projectId)}/mcp/status`)
+  );
+}
+
+export async function getProjectHealth(projectId: string) {
+  return json<{ health: ProjectHealthSummary }>(
+    await fetch(`/api/projects/${encodeURIComponent(projectId)}/health`)
   );
 }
 

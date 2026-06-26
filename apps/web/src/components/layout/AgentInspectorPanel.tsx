@@ -3,9 +3,9 @@ import {
   ArrowLeft,
   Info, Cpu, Terminal, Play, RefreshCw, Activity, 
   Search, Loader2,
-  FileJson, PanelRightClose, Copy, CircleAlert, Trash2, AlertCircle, Download
+  FileJson, PanelRightClose, Copy, Trash2, AlertCircle, AlertTriangle, ListChecks, Download
 } from "lucide-react";
-import { assetPreviewUrl, getAgentContext, getDesktopReadiness, type AgentContextSnapshot, type AssetSummary, type DesktopReadiness, type ProjectSummary, type TaskRecord, type ToolSummary } from "../../api";
+import { assetPreviewUrl, getAgentContext, getBuildLogs, getDesktopReadiness, openLocalAssetPath, type AgentContextSnapshot, type AssetSummary, type DesktopReadiness, type ProjectBuildLogsSummary, type ProjectLogFileSummary, type ProjectSummary, type TaskRecord, type ToolSummary } from "../../api";
 import type { AssetReferenceScanResult } from "../../api";
 import { RawViewer } from "../developer";
 import { Button } from "../ui/Button";
@@ -38,8 +38,8 @@ type Props = {
   busy: boolean;
   notice: string;
   minimized: boolean;
-  activeTab: "status" | "tools" | "logs" | "errors";
-  onTabChange: (tab: "status" | "tools" | "logs" | "errors") => void;
+  activeTab: "status" | "tools" | "gameLogs" | "logs" | "errors";
+  onTabChange: (tab: "status" | "tools" | "gameLogs" | "logs" | "errors") => void;
   onToggleMinimized: () => void;
   onStartRuntime: () => void;
   onRefreshTools: () => void;
@@ -187,7 +187,6 @@ export function AgentInspectorPanel({
         title: "返回任务日志",
         onBack: () => {
           setSelectedLogTask(undefined);
-          onSelectSelection(undefined);
         }
       };
     }
@@ -197,14 +196,13 @@ export function AgentInspectorPanel({
         title: "返回错误列表",
         onBack: () => {
           setSelectedErrorTask(undefined);
-          onSelectSelection(undefined);
         }
       };
     }
     return undefined;
   }, [activeTab, currentErrorTask, currentLogTask, currentStatusSelection, onSelectSelection, selectedReferenceReport, selectedTool]);
 
-  const handleTabClick = (tab: "status" | "tools" | "logs" | "errors") => {
+  const handleTabClick = (tab: "status" | "tools" | "gameLogs" | "logs" | "errors") => {
     if (minimized) {
       onTabChange(tab);
       onToggleMinimized();
@@ -222,26 +220,32 @@ export function AgentInspectorPanel({
         <TabIconButton 
           active={activeTab === "status" && !minimized} 
           onClick={() => handleTabClick("status")} 
-          icon={<Info className="w-5 h-5" />} 
+          icon={<Activity className="w-5 h-5" />}
           label="MCP 状态"
         />
         <TabIconButton 
           active={activeTab === "tools" && !minimized} 
           onClick={() => handleTabClick("tools")} 
-          icon={<Cpu className="w-5 h-5" />} 
+          icon={<Cpu className="w-5 h-5" />}
           label="MCP 工具箱 (MCP Tools)"
         />
         <TabIconButton 
+          active={activeTab === "gameLogs" && !minimized}
+          onClick={() => handleTabClick("gameLogs")}
+          icon={<Terminal className="w-5 h-5" />}
+          label="游戏运行日志"
+        />
+        <TabIconButton
           active={activeTab === "logs" && !minimized} 
           onClick={() => handleTabClick("logs")} 
-          icon={<Terminal className="w-5 h-5" />} 
-          label="任务日志"
+          icon={<ListChecks className="w-5 h-5" />}
+          label="任务记录"
           badgeCount={tasks.filter(t => t.status === "running").length}
         />
         <TabIconButton 
           active={activeTab === "errors" && !minimized} 
           onClick={() => handleTabClick("errors")} 
-          icon={<CircleAlert className="w-5 h-5" />} 
+          icon={<AlertTriangle className="w-5 h-5" />}
           label="错误详情"
           badgeCount={tasks.filter(t => t.status === "failed").length}
         />
@@ -266,44 +270,17 @@ export function AgentInspectorPanel({
                   <h2 className="text-sm font-bold text-text truncate m-0 leading-tight">
                     {activeTab === "status" && "MCP 状态 / 上下文"}
                     {activeTab === "tools" && "MCP 工具箱"}
-                    {activeTab === "logs" && "任务日志"}
+                    {activeTab === "gameLogs" && "游戏运行日志"}
+                    {activeTab === "logs" && "任务记录"}
                     {activeTab === "errors" && "错误详情"}
                   </h2>
                 </div>
-                {headerDetail ? (
+                {headerDetail && !((activeTab === "tools" && selectedTool) || (activeTab === "logs" && currentLogTask)) ? (
                   <span className="max-w-[180px] truncate rounded-pill bg-surface-muted px-2 py-0.5 text-[10px] text-text-subtle" title={headerDetail.label}>
                     {headerDetail.label}
                   </span>
                 ) : null}
               </div>
-              {activeTab === "logs" && (
-                <div className="flex items-center gap-1.5 ml-auto shrink-0 mt-1">
-                  {tasks.filter(t => t.status === "running").length > 0 && (
-                    <span className="text-[9px] font-semibold text-[#0a7f72] bg-[#0a7f72]/15 px-1.5 py-0.5 rounded-pill flex items-center gap-1 animate-pulse shrink-0 whitespace-nowrap">
-                      <Loader2 className="w-2.5 h-2.5 animate-spin shrink-0" />
-                      <span>{tasks.filter(t => t.status === "running").length} 正在运行</span>
-                    </span>
-                  )}
-                  <button onClick={onRefreshTasks} className="p-1 rounded hover:bg-surface-muted text-text-muted hover:text-text transition-colors shrink-0" title="刷新日志">
-                    <RefreshCw className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (currentLogTask) {
-                        onDeleteTask(currentLogTask.taskId);
-                        setSelectedLogTask(undefined);
-                        onSelectSelection(undefined);
-                        return;
-                      }
-                      onClearTasks();
-                    }}
-                    className="p-1 rounded hover:bg-surface-muted text-text-muted hover:text-red-400 transition-colors shrink-0"
-                    title={currentLogTask ? "清空当前日志" : "清空全部日志"}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              )}
             </div>
             <Button variant="ghost" size="icon" className="w-7 h-7 shrink-0 rounded-control mt-1" onClick={onToggleMinimized} title="收起面板">
               <PanelRightClose className="w-4 h-4" />
@@ -339,12 +316,19 @@ export function AgentInspectorPanel({
               <ToolsTab tools={tools} selectedTool={selectedTool} onSelectTool={setSelectedTool} />
             )}
 
+            {activeTab === "gameLogs" && (
+              <GameRuntimeLogsTab
+                project={project}
+              />
+            )}
+
             {activeTab === "logs" && (
               <ConsoleTab
                 tasks={tasks}
                 selectedTask={currentLogTask}
                 onSelectTask={(task) => setSelectedLogTask(task)}
                 onDeleteTask={onDeleteTask}
+                onRefreshTasks={onRefreshTasks}
                 onRecoverVideoTask={onRecoverVideoTask}
                 recoveringVideoTaskId={recoveringVideoTaskId}
                 videoRecoveryCooldowns={videoRecoveryCooldowns}
@@ -499,7 +483,7 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
       <div className="grid gap-2 mt-2">
         <Button onClick={onStartRuntime} disabled={!project || starting || busy} className="w-full gap-2 text-xs h-9 shadow-sm">
           {starting || busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-current" />}
-          {starting ? "MCP 启动中..." : busy ? "正在执行..." : ready ? "重启 / 刷新 MCP" : "启动 MCP"}
+          {starting ? "MCP 启动中..." : busy ? "正在执行..." : ready ? "重启 MCP" : "启动 MCP"}
         </Button>
         <div className="grid grid-cols-2 gap-2">
           <Button variant="outline" onClick={onRefreshTools} disabled={!project || busy} className="gap-1.5 text-xs h-8 shadow-sm">
@@ -524,7 +508,7 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
           <InfoRowCompact label="桌面模式" value={desktopReadiness?.mode ?? "-"} />
           <InfoRowCompact label="SQLite" value={desktopReadiness?.paths.databasePath ?? "-"} />
           <InfoRowCompact label="MCP 日志目录" value={desktopReadiness?.paths.mcpLogDir ?? "-"} />
-          <InfoRowCompact label="npm cache" value={desktopReadiness?.paths.npmCacheDir ?? "-"} />
+          <InfoRowCompact label="npm cache" value={desktopReadiness?.paths.makerNpmCacheDir ?? "-"} />
           <InfoRowCompact label="启动接口" value={project ? `/api/projects/${project.id}/mcp/start` : "-"} />
           <InfoRowCompact label="最近任务" value={recent ? `${recent.toolName} / ${recent.status}` : "-"} />
 
@@ -555,14 +539,197 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
           </details>
         ) : null}
       </details>
+
     </div>
   );
+}
+
+function RuntimeLogSnapshot({
+  projectId,
+  buildLogs,
+  rawValue,
+  loading = false,
+  errorMessage = "",
+}: {
+  projectId?: string;
+  buildLogs?: ProjectBuildLogsSummary;
+  rawValue: string;
+  loading?: boolean;
+  errorMessage?: string;
+}) {
+  if (loading) {
+    return (
+      <section className="p-3 text-[11px] text-text-muted">
+        正在读取 runtime / build 日志摘要...
+      </section>
+    );
+  }
+
+  if (errorMessage) {
+    return (
+      <section className="border border-[#b03939]/20 bg-[#b03939]/5 p-3 text-[11px] text-[#b03939]">
+        {errorMessage}
+      </section>
+    );
+  }
+
+  if (!buildLogs) return null;
+
+  const runtime = buildLogs.runtime;
+  const latestBuildLog = buildLogs.buildLogs[0];
+  const levelSummary = formatLevelCounts(runtime.levelCounts);
+  const runtimeTailLines = runtime.runtimeLog?.tailLines ?? [];
+  const runtimeLogJson = formatRuntimeLogTailJson(runtimeTailLines, runtime.stateParseError);
+
+  return (
+    <section className="flex min-h-0 flex-1 flex-col overflow-hidden border border-border-soft bg-surface-raised">
+      <div className="shrink-0 border-b border-border-soft bg-surface-muted/20 px-3 py-2">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+          <strong className="min-w-0 truncate text-[11px] text-text-muted">Runtime / build 日志摘要</strong>
+          <span className="min-w-0 truncate text-right font-mono text-[10px] text-text-subtle" title={buildLogs.generatedAt}>
+            {formatDateTime(buildLogs.generatedAt)}
+          </span>
+        </div>
+      </div>
+      <div className="shrink-0 divide-y divide-border-soft border-b border-border-soft">
+        <RuntimeLogFileRow projectId={projectId} label="state.json" file={runtime.stateFile} />
+        <RuntimeLogFileRow projectId={projectId} label="runtime.log" file={runtime.runtimeLog} />
+        <RuntimeLogFileRow projectId={projectId} label="watcher.out.log" file={runtime.watcherOut} />
+        <RuntimeLogFileRow projectId={projectId} label="watcher.err.log" file={runtime.watcherErr} />
+        <InfoRowCompact label="runtime level" value={levelSummary || "-"} />
+        <InfoRowCompact label="build logs" value={`${buildLogs.buildLogs.length} 个`} />
+      </div>
+
+      {latestBuildLog ? (
+        <div className="shrink-0 border-b border-border-soft px-3 py-2">
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+            <button
+              type="button"
+              disabled={!projectId || !latestBuildLog.file.exists}
+              onClick={() => projectId ? void openLocalAssetPath(projectId, latestBuildLog.file.relativePath, "file") : undefined}
+              className="min-w-0 truncate text-left font-mono text-[10px] font-bold text-text transition-colors enabled:hover:text-brand-strong disabled:cursor-default"
+              title={projectId ? `打开 ${latestBuildLog.file.relativePath}` : latestBuildLog.file.relativePath}
+            >
+              {latestBuildLog.file.relativePath}
+            </button>
+            <span className="max-w-[120px] shrink-0 truncate rounded-pill bg-surface-muted px-1.5 py-0.5 text-right text-[9px] font-bold text-text-subtle" title={formatDateTime(latestBuildLog.file.updatedAt)}>
+              {formatDateTime(latestBuildLog.file.updatedAt)}
+            </span>
+          </div>
+          {latestBuildLog.flags.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {latestBuildLog.flags.map((flag) => (
+                <span key={flag} className="rounded-pill bg-brand/10 px-1.5 py-0.5 text-[9px] font-bold text-brand-strong">
+                  {flag}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          <p className="m-0 mt-2 line-clamp-2 text-[10px] leading-relaxed text-text-muted">
+            {latestBuildLog.heading || latestBuildLog.file.tailLines.at(-1) || "暂无 build 日志内容"}
+          </p>
+        </div>
+      ) : (
+        <p className="m-0 shrink-0 border-b border-border-soft p-3 text-[11px] text-text-muted">
+          当前项目没有发现 build 日志。
+        </p>
+      )}
+
+      {runtimeLogJson ? (
+        <RawViewer
+          title="runtime.log tailLines"
+          language="json"
+          value={runtimeLogJson}
+          height="100%"
+          copyLabel="复制 tail"
+          copySuccessMessage="runtime.log tail 已复制"
+          className="min-h-[360px] flex-1 rounded-none border-0"
+        />
+      ) : null}
+
+      <div className="shrink-0 border-t border-border-soft p-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void copyText(rawValue, { successMessage: "Runtime 日志摘要已复制" })}
+          className="w-full gap-1.5 text-xs"
+        >
+          <Copy className="h-3.5 w-3.5" />
+          复制 runtime 摘要
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function RuntimeLogFileRow({
+  projectId,
+  label,
+  file,
+}: {
+  projectId?: string;
+  label: string;
+  file?: ProjectLogFileSummary;
+}) {
+  const canOpen = Boolean(projectId && file?.relativePath && file.exists);
+  const title = file ? file.relativePath : "-";
+
+  async function handleOpen() {
+    if (!projectId || !file?.relativePath || !file.exists) return;
+    await openLocalAssetPath(projectId, file.relativePath, "file");
+  }
+
+  return (
+    <div
+      className="grid min-w-0 grid-cols-[64px_minmax(0,1fr)] items-center gap-2 px-2 py-1.5 text-[10px] transition-colors hover:bg-surface-muted/30"
+      onDoubleClick={() => void handleOpen()}
+      title={canOpen ? `${title} (双击打开)` : title}
+    >
+      <span className="shrink-0 text-text-subtle">{label}</span>
+      <button
+        type="button"
+        disabled={!canOpen}
+        onClick={() => void handleOpen()}
+        className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-left font-mono font-semibold text-text-muted transition-colors enabled:hover:bg-surface-raised enabled:hover:text-text disabled:cursor-default disabled:opacity-70"
+        title={canOpen ? `打开 ${file?.relativePath}` : title}
+      >
+        <FileJson className="h-3.5 w-3.5 shrink-0 text-brand-strong" />
+        <span className="min-w-0 truncate">{file?.relativePath ?? "-"}</span>
+      </button>
+    </div>
+  );
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
+function formatRuntimeLogTailJson(lines: string[], stateParseError?: string) {
+  const entries: unknown[] = [];
+  if (stateParseError) entries.push({ stateParseError });
+  for (const line of lines) {
+    try {
+      entries.push(JSON.parse(line));
+    } catch {
+      entries.push({ raw: line });
+    }
+  }
+  return entries.length ? JSON.stringify(entries, null, 2) : "";
+}
+
+function formatLevelCounts(levelCounts: Record<string, number>) {
+  return Object.entries(levelCounts)
+    .map(([level, count]) => `${level}:${count}`)
+    .join(", ");
 }
 
 function InfoRowCompact({ label, value }: { label: string; value: string }) {
   return (
     <div
-      className="flex items-center justify-between gap-2 text-[10px] min-w-0 group/row cursor-pointer rounded px-1 -mx-1 hover:bg-surface-muted/30 transition-colors"
+      className="grid min-w-0 cursor-pointer grid-cols-[78px_minmax(0,1fr)] items-center gap-2 rounded px-1 py-0.5 text-[10px] transition-colors hover:bg-surface-muted/30"
       onDoubleClick={() => void copyText(value, { successMessage: "已复制" })}
       title={`${value} (双击复制)`}
     >
@@ -1000,7 +1167,7 @@ function ToolsTab({ tools, selectedTool, onSelectTool }: { tools: ToolSummary[];
 
   return (
     <div className="flex-1 flex flex-col min-h-0 gap-3">
-      <div className="relative shrink-0">
+      <div className="relative w-full max-w-[220px] shrink-0">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-text-subtle" />
         <Input
           value={query}
@@ -1039,11 +1206,70 @@ function ToolsTab({ tools, selectedTool, onSelectTool }: { tools: ToolSummary[];
 }
 
 // Sub Tab component: Console Task logs
+function GameRuntimeLogsTab({
+  project,
+}: {
+  project?: ProjectSummary;
+}) {
+  const [buildLogs, setBuildLogs] = useState<ProjectBuildLogsSummary>();
+  const [buildLogsLoading, setBuildLogsLoading] = useState(false);
+  const [buildLogsError, setBuildLogsError] = useState("");
+  const runtimeLogSummaryRaw = useMemo(
+    () => (buildLogs ? JSON.stringify(buildLogs.runtime, null, 2) : ""),
+    [buildLogs],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadBuildLogs() {
+      if (!project?.id) {
+        setBuildLogs(undefined);
+        setBuildLogsError("");
+        setBuildLogsLoading(false);
+        return;
+      }
+
+      setBuildLogsLoading(true);
+      setBuildLogsError("");
+      try {
+        const result = await getBuildLogs(project.id);
+        if (!cancelled) setBuildLogs(result);
+      } catch (error) {
+        if (!cancelled) {
+          setBuildLogs(undefined);
+          setBuildLogsError(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        if (!cancelled) setBuildLogsLoading(false);
+      }
+    }
+
+    void loadBuildLogs();
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.id]);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <RuntimeLogSnapshot
+        projectId={project?.id}
+        buildLogs={buildLogs}
+        rawValue={runtimeLogSummaryRaw}
+        loading={buildLogsLoading}
+        errorMessage={buildLogsError}
+      />
+    </div>
+  );
+}
+
 function ConsoleTab({
   tasks,
   selectedTask,
   onSelectTask,
   onDeleteTask,
+  onRefreshTasks,
   onRecoverVideoTask,
   recoveringVideoTaskId,
   videoRecoveryCooldowns = {}
@@ -1052,6 +1278,7 @@ function ConsoleTab({
   selectedTask?: TaskRecord;
   onSelectTask: (task: TaskRecord) => void;
   onDeleteTask: (taskId: string) => void;
+  onRefreshTasks: () => void;
   onRecoverVideoTask?: (taskId: string) => void;
   recoveringVideoTaskId?: string;
   videoRecoveryCooldowns?: Record<string, number>;
@@ -1079,7 +1306,7 @@ function ConsoleTab({
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 gap-3">
+    <div className="flex-1 min-h-0 overflow-y-auto pr-1 flex flex-col gap-3 scrollbar-thin">
       <div className="flex shrink-0 gap-1 overflow-x-auto rounded-control border border-border-soft bg-surface-muted p-1 scrollbar-thin">
         {taskStatusFilterOptions.map((option) => {
           const count = option.value === "all" ? tasks.length : tasks.filter((task) => task.status === option.value).length;
@@ -1101,8 +1328,11 @@ function ConsoleTab({
             </button>
           );
         })}
+        <button onClick={onRefreshTasks} className="ml-auto shrink-0 rounded p-1 text-text-muted transition-colors hover:bg-surface-panel hover:text-text" title="刷新任务记录">
+          <RefreshCw className="w-3.5 h-3.5" />
+        </button>
       </div>
-      <div className="flex-1 flex flex-col min-h-0 overflow-y-auto pr-1 gap-2 scrollbar-thin">
+      <div className="flex flex-1 flex-col gap-2 overflow-y-auto pr-1 scrollbar-thin">
           {filteredTasks.length === 0 ? (
             <div className="text-center py-8 text-xs text-text-muted">
               {tasks.length === 0 ? "暂无任务" : "没有匹配当前状态的任务"}
@@ -1160,7 +1390,7 @@ function ConsoleTab({
               );
             })
           )}
-        </div>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { Button } from "./Button";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 export type ConfirmConfig = {
   isOpen: boolean;
@@ -10,12 +10,21 @@ export type ConfirmConfig = {
   secondaryLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
+  requiredText?: string;
+  requiredTextLabel?: string;
   onConfirm: () => void;
   onSecondary?: () => void;
   onCancel: () => void;
 };
 
 export function ConfirmDialog({ config }: { config: ConfirmConfig }) {
+  const [requiredTextInput, setRequiredTextInput] = useState("");
+  const canConfirm = !config.requiredText || requiredTextInput === config.requiredText;
+
+  useEffect(() => {
+    if (config.isOpen) setRequiredTextInput("");
+  }, [config.isOpen, config.requiredText]);
+
   return (
     <Dialog.Root
       open={config.isOpen}
@@ -34,6 +43,18 @@ export function ConfirmDialog({ config }: { config: ConfirmConfig }) {
               {config.body}
             </Dialog.Description>
           ) : null}
+          {config.requiredText ? (
+            <label className="mt-4 flex flex-col gap-2 text-xs font-semibold text-text-subtle">
+              <span>{config.requiredTextLabel ?? "输入确认文本"}</span>
+              <input
+                value={requiredTextInput}
+                onChange={(event) => setRequiredTextInput(event.currentTarget.value)}
+                className="h-9 rounded-control border border-border bg-surface-muted px-3 font-mono text-xs text-text outline-none focus:border-brand"
+                spellCheck={false}
+                autoComplete="off"
+              />
+            </label>
+          ) : null}
           <div className="mt-5 flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={config.onCancel}>
               {config.cancelLabel ?? "取消"}
@@ -51,6 +72,7 @@ export function ConfirmDialog({ config }: { config: ConfirmConfig }) {
                   ? "bg-red-500 text-white hover:bg-red-600"
                   : undefined
               }
+              disabled={!canConfirm}
               onClick={config.onConfirm}
             >
               {config.confirmLabel ?? "确认"}

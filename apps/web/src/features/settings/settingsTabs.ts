@@ -1,10 +1,50 @@
-import { Bug, Cpu, FileJson, FolderCog, type LucideIcon } from "lucide-react";
+import {
+  Bell,
+  Box,
+  Bot,
+  Bug,
+  Cpu,
+  FolderCog,
+  Grid3X3,
+  Images,
+  Keyboard,
+  MonitorCog,
+  Palette,
+  Settings,
+  Shield,
+  Workflow,
+  type LucideIcon,
+} from "lucide-react";
 
-export type SettingsTab = "project" | "runtime" | "schema" | "diagnostics";
+export type SettingsTab =
+  | "general"
+  | "appearance"
+  | "personalization"
+  | "shortcuts"
+  | "browser"
+  | "permissions"
+  | "project"
+  | "workspaces"
+  | "canvas"
+  | "assets"
+  | "tasks"
+  | "runtime"
+  | "logs"
+  | "developer";
 
 export const settingsTabs: Array<{ id: SettingsTab; label: string; icon: LucideIcon }> = [
-  { id: "project", label: "项目绑定", icon: FolderCog },
+  { id: "general", label: "通用", icon: Settings },
+  { id: "appearance", label: "外观", icon: Palette },
+  { id: "personalization", label: "个性化", icon: Bot },
+  { id: "shortcuts", label: "快捷键", icon: Keyboard },
+  { id: "browser", label: "浏览器", icon: MonitorCog },
+  { id: "permissions", label: "权限", icon: Shield },
+  { id: "project", label: "项目", icon: FolderCog },
+  { id: "workspaces", label: "工作区", icon: Box },
+  { id: "canvas", label: "画布", icon: Workflow },
+  { id: "assets", label: "资产", icon: Images },
+  { id: "tasks", label: "任务", icon: Grid3X3 },
   { id: "runtime", label: "Runtime", icon: Cpu },
-  { id: "schema", label: "MCP Schema", icon: FileJson },
-  { id: "diagnostics", label: "诊断日志", icon: Bug },
+  { id: "logs", label: "日志与通知", icon: Bell },
+  { id: "developer", label: "Developer", icon: Bug },
 ];

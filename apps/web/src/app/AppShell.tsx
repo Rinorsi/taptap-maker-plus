@@ -80,12 +80,50 @@ import { ContextMenuStyles } from "../components/ui/ContextMenuStyles";
 import { PromptDialog, type PromptConfig } from "../components/ui/PromptDialog";
 import { ConfirmDialog, type ConfirmConfig } from "../components/ui/ConfirmDialog";
 import { ASSET_DRAG_MIME, clearAssetDragData } from "../components/interaction/assetDragData";
+import {
+  SETTINGS_PREFERENCES_CHANGED_EVENT,
+  defaultWorkspaceToModule,
+  readStoredPreference,
+  settingsPreferenceKeys,
+  type AutoRuntimePreference,
+  type ConfirmationPreference,
+  type DefaultWorkspace,
+  type DensityPreference,
+  type PanelPreference,
+  type StartupPreference,
+  type TaskCompletionRefreshPreference,
+  type TaskPanelPreference,
+  type ThemePreference,
+} from "../features/settings/preferences";
 
-const DEFAULT_PROJECT_MODULE: WorkbenchModule = "assets";
+const DEFAULT_PROJECT_MODULE: WorkbenchModule = defaultWorkspaceToModule("assets");
 const NODE_PRESET_DRAG_MIME = "application/reactflow";
 const NODE_PRESET_TEXT_PREFIX = "taptap-node-preset:";
 const BOOTSTRAP_RETRY_DELAYS_MS = [800, 1200, 1800, 2600, 3600];
 const ASSET_REFERENCE_CACHE_TTL_MS = 30_000;
+
+function resolveThemePreference(preference: ThemePreference): "light" | "dark" {
+  if (preference === "light" || preference === "dark") return preference;
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function resolveInitialModule(hasProject: boolean) {
+  const startupPreference = readStoredPreference("startupPreference") as StartupPreference;
+  const defaultWorkspace = readStoredPreference("defaultWorkspace") as DefaultWorkspace;
+  if (!hasProject) return "home";
+  if (startupPreference === "home" || startupPreference === "home-picker") return "home";
+  return defaultWorkspaceToModule(defaultWorkspace);
+}
+
+function resolveDefaultProjectModule() {
+  return defaultWorkspaceToModule(readStoredPreference("defaultWorkspace") as DefaultWorkspace);
+}
+
+function resolvePanelCollapsed(preference: PanelPreference, storageKey: string) {
+  if (preference === "expanded") return false;
+  if (preference === "collapsed") return true;
+  return localStorage.getItem(storageKey) === "true";
+}
 
 type ResizeEdge = "n" | "e" | "s" | "w" | "ne" | "nw" | "se" | "sw";
 type TauriResizeDirection =
@@ -125,16 +163,16 @@ function isWorkbenchDrag(event: DragEvent) {
 
 export function AppShell() {
   const [theme, setTheme] = useState<"light" | "dark">(() =>
-    localStorage.getItem("taptap.theme") === "dark" ? "dark" : "light",
+    resolveThemePreference(readStoredPreference("themePreference") as ThemePreference),
   );
   const [cinemaThemeState, setCinemaThemeState] = useState<{ active: boolean, toTheme: "light" | "dark" }>({ active: false, toTheme: "light" });
   const [activeModule, setActiveModule] = useState<WorkbenchModule>(() => {
     const hasProject = localStorage.getItem("taptap.selectedProjectId");
-    return hasProject ? DEFAULT_PROJECT_MODULE : "home";
+    return resolveInitialModule(Boolean(hasProject));
   });
   const [lastNonSettingsModule, setLastNonSettingsModule] = useState<WorkbenchModule>(() => {
     const hasProject = localStorage.getItem("taptap.selectedProjectId");
-    return hasProject ? DEFAULT_PROJECT_MODULE : "home";
+    return resolveInitialModule(Boolean(hasProject));
   });
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("project");
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -150,17 +188,23 @@ export function AppShell() {
   const [busy, setBusy] = useState(false);
   const [selection, setSelection] = useState<InspectorSelection>();
   const [notice, setNotice] = useState("准备就绪");
+  const [settingsPreferenceVersion, setSettingsPreferenceVersion] = useState(0);
+  const autoRuntimeStartedProjectRef = useRef<string | undefined>(undefined);
   const assetReferenceScanCacheRef = useRef(
     new Map<string, { expiresAt: number; results: AssetReferenceScanResult[] }>(),
   );
   const activeReferenceScanRef = useRef<
     { key: string; controller: AbortController } | undefined
   >(undefined);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
+    resolvePanelCollapsed(readStoredPreference("sidebarPreference") as PanelPreference, "taptap.sidebarCollapsed"),
+  );
   const [sidebarWidth, setSidebarWidth] = useState(() =>
     Number(localStorage.getItem("taptap.sidebarWidth") ?? 240),
   );
-  const [inspectorMinimized, setInspectorMinimized] = useState(false);
+  const [inspectorMinimized, setInspectorMinimized] = useState(() =>
+    resolvePanelCollapsed(readStoredPreference("inspectorPreference") as PanelPreference, "taptap.inspectorMinimized"),
+  );
   const [inspectorWidth, setInspectorWidth] = useState(() =>
     Number(localStorage.getItem("taptap.inspectorWidth") ?? 280),
   );
@@ -212,7 +256,11 @@ export function AppShell() {
     }
     previousFailedTasksRef.current = currentFailedIds;
 
-    if (hasNewFailed) {
+    if (
+      hasNewFailed &&
+      readStoredPreference("failureNotifications") &&
+      readStoredPreference("autoOpenErrors")
+    ) {
       setInspectorMinimized(false);
       setRightPanelTab("errors");
     }
@@ -245,7 +293,12 @@ export function AppShell() {
         );
         
         // 生成任务完成时刷新资产列表和资产树，画布结果节点依赖 assets 回填。
-        if (currentStatus === "succeeded" && GENERATION_TOOLS.includes(task.toolName) && selectedProject) {
+        if (
+          currentStatus === "succeeded" &&
+          GENERATION_TOOLS.includes(task.toolName) &&
+          selectedProject &&
+          (readStoredPreference("taskCompletionRefresh") as TaskCompletionRefreshPreference) === "on"
+        ) {
           void refreshProjectAssets(selectedProject.id);
         }
       }
@@ -266,6 +319,43 @@ export function AppShell() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("taptap.theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    document.documentElement.dataset.density = readStoredPreference("density") as DensityPreference;
+    const handlePreferenceChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ key?: string; value?: unknown }>).detail;
+      const key = detail?.key;
+      if (!key) return;
+      setSettingsPreferenceVersion((version) => version + 1);
+      if (key === settingsPreferenceKeys.themePreference) {
+        setTheme(resolveThemePreference(detail.value as ThemePreference));
+      } else if (key === settingsPreferenceKeys.density) {
+        document.documentElement.dataset.density = detail.value as DensityPreference;
+      } else if (key === settingsPreferenceKeys.sidebarPreference) {
+        const preference = detail.value as PanelPreference;
+        if (preference !== "remember") {
+          setSidebarCollapsed(preference === "collapsed");
+        }
+      } else if (key === settingsPreferenceKeys.inspectorPreference) {
+        const preference = detail.value as PanelPreference;
+        if (preference !== "remember") {
+          setInspectorMinimized(preference === "collapsed");
+        }
+      }
+    };
+    window.addEventListener(SETTINGS_PREFERENCES_CHANGED_EVENT, handlePreferenceChange);
+    return () => {
+      window.removeEventListener(SETTINGS_PREFERENCES_CHANGED_EVENT, handlePreferenceChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("taptap.sidebarCollapsed", String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    localStorage.setItem("taptap.inspectorMinimized", String(inspectorMinimized));
+  }, [inspectorMinimized]);
 
   useEffect(() => {
     localStorage.setItem("taptap.sidebarWidth", String(sidebarWidth));
@@ -307,7 +397,9 @@ export function AppShell() {
       if (nextSelected) {
         setSelectedProjectId(nextSelected);
         setActiveModule((current) =>
-          current === "home" ? DEFAULT_PROJECT_MODULE : current,
+          current === "home" && (readStoredPreference("startupPreference") as StartupPreference) === "last-project"
+            ? resolveDefaultProjectModule()
+            : current,
         );
       } else {
         setActiveModule("home");
@@ -401,7 +493,10 @@ export function AppShell() {
               (previous?.status === "running" || previous?.status === "queued")
             );
           });
-          if (hasGenerationWork || hasCompletedGeneration)
+          if (
+            (hasGenerationWork || hasCompletedGeneration) &&
+            (readStoredPreference("taskCompletionRefresh") as TaskCompletionRefreshPreference) === "on"
+          )
             void refreshProjectAssets(selectedProjectId);
         })
         .catch(() => undefined);
@@ -427,11 +522,21 @@ export function AppShell() {
     }
     setSelectedProjectId(projectId);
     setSelection(undefined);
-    setActiveModule(DEFAULT_PROJECT_MODULE);
+    setActiveModule(resolveDefaultProjectModule());
     await selectProject(projectId).catch((error) =>
       setNotice(error instanceof Error ? error.message : String(error)),
     );
   }
+
+  useEffect(() => {
+    if (!selectedProject) return;
+    if ((readStoredPreference("autoRuntime") as AutoRuntimePreference) !== "selected-project") return;
+    const currentRuntime = runtime ?? selectedProject.runtime;
+    if (currentRuntime?.status && currentRuntime.status !== "idle" && currentRuntime.status !== "disconnected") return;
+    if (autoRuntimeStartedProjectRef.current === selectedProject.id) return;
+    autoRuntimeStartedProjectRef.current = selectedProject.id;
+    void handleStartRuntime({ skipConfirm: true });
+  }, [selectedProject?.id, runtime?.status, settingsPreferenceVersion]);
 
   function handleClearProject() {
     localStorage.removeItem("taptap.selectedProjectId");
@@ -463,11 +568,11 @@ export function AppShell() {
     }
   }
 
-  async function handleStartRuntime() {
+  async function handleStartRuntime(options: { skipConfirm?: boolean } = {}) {
     if (!selectedProject) return;
     const currentRuntime = runtime ?? selectedProject.runtime;
     const isRestart = currentRuntime?.status === "ready";
-    const confirmed = await requestConfirm({
+    const confirmed = options.skipConfirm ? true : await requestConfirm({
       title: isRestart ? "重启 MCP Runtime" : "启动 MCP Runtime",
       body: (
         <div className="flex flex-col gap-4 mt-1">
@@ -1329,9 +1434,11 @@ export function AppShell() {
       const hasErrorResult =
         sel.item.rawResultJson?.includes('"isError": true') ||
         sel.item.rawResultJson?.includes('"isError":true');
-      setRightPanelTab(
-        sel.item.status === "failed" || hasErrorResult ? "errors" : "logs",
-      );
+      if (sel.item.status === "failed" || hasErrorResult) {
+        setRightPanelTab("errors");
+      } else {
+        setRightPanelTab(readStoredPreference("taskDefaultPanel") as TaskPanelPreference);
+      }
     } else {
       setRightPanelTab("status");
     }
@@ -1454,7 +1561,7 @@ export function AppShell() {
   }
 
   function exitSettings() {
-    const fallbackModule = selectedProject ? DEFAULT_PROJECT_MODULE : "home";
+    const fallbackModule = selectedProject ? resolveDefaultProjectModule() : "home";
     const nextModule = lastNonSettingsModule === "settings" ? fallbackModule : lastNonSettingsModule;
     setActiveModule(nextModule);
   }
@@ -1548,6 +1655,11 @@ export function AppShell() {
       confirmLabel: "删除本地文件夹",
       cancelLabel: "取消",
       danger: true,
+      requiredText:
+        (readStoredPreference("confirmationPreference") as ConfirmationPreference) === "strict"
+          ? project.rootPath
+          : undefined,
+      requiredTextLabel: "严格确认：输入完整项目路径",
       onCancel: () => setConfirmConfig((current) => ({ ...current, isOpen: false })),
       onConfirm: async () => {
         setConfirmConfig((current) => ({ ...current, isOpen: false }));
@@ -3523,6 +3635,9 @@ export function AppShell() {
   }
 
   const runtimeView = runtime ?? selectedProject?.runtime;
+  const isSettingsModule = activeModule === "settings";
+  const effectiveSidebarCollapsed = isSettingsModule ? false : sidebarCollapsed;
+  const effectiveSidebarWidth = isSettingsModule ? sidebarWidth : sidebarCollapsed ? 56 : sidebarWidth;
   const agentPage: AgentPageState = useMemo(
     () => ({
       activeTab: rightPanelTab,
@@ -3635,7 +3750,7 @@ export function AppShell() {
         >
           <div
             className="relative shrink-0 h-full"
-            style={{ width: sidebarCollapsed ? 56 : sidebarWidth }}
+            style={{ width: effectiveSidebarWidth }}
           >
             <ProjectSidebar
               projects={projects}
@@ -3643,8 +3758,8 @@ export function AppShell() {
               activeModule={activeModule}
               activeSettingsTab={activeSettingsTab}
               tasks={tasks}
-              collapsed={sidebarCollapsed}
-              width={sidebarWidth}
+              collapsed={effectiveSidebarCollapsed}
+              width={effectiveSidebarWidth}
               onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
               onClearProject={handleClearProject}
               onSelectModule={selectModule}
@@ -3652,7 +3767,7 @@ export function AppShell() {
               onExitSettings={exitSettings}
               onScanProjects={handleScanProjects}
             />
-            {!sidebarCollapsed && (
+            {!effectiveSidebarCollapsed && !isSettingsModule && (
               <div
                 className="absolute -right-[5px] top-0 bottom-0 w-[10px] z-10 cursor-col-resize hover:bg-brand/20 transition-colors"
                 role="separator"
@@ -3714,7 +3829,7 @@ export function AppShell() {
               onScanProjects={handleScanProjects}
               onOpenModule={selectModule}
               activeSettingsTab={activeSettingsTab}
-              sidebarCollapsed={sidebarCollapsed}
+              sidebarCollapsed={effectiveSidebarCollapsed}
               onActiveSettingsTabChange={setActiveSettingsTab}
               onExitSettings={exitSettings}
               onCollapseSidebar={() => {

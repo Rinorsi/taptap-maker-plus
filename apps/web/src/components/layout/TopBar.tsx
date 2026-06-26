@@ -186,38 +186,45 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
       </div>
 
       <div className="flex items-center gap-2 justify-end shrink-0" data-no-window-drag>
-        <button
-          className={cn(
-            "hidden sm:flex items-center justify-center p-1.5 rounded-full border transition-all cursor-pointer",
-            runtimeStatus === "READY"
-              ? "bg-brand/10 border-brand/20 text-brand hover:bg-brand/20 shadow-[0_0_8px_rgba(0,217,197,0.1)]"
-              : "bg-surface-muted border-border-soft text-text-muted hover:bg-surface-raised"
-          )}
-          onClick={() => {
-            if (runtimeStatus === "READY") {
-              onStopRuntime?.();
-            } else {
-              onStartRuntime?.();
-            }
-          }}
-          title={runtimeStatus === "READY" ? "停止 MCP 服务" : "启动 MCP 服务"}
-        >
-          <Power className="w-[18px] h-[18px]" />
-        </button>
+        <div className="flex items-center gap-4 mr-4">
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn(
+              "h-7 px-2.5 text-[11px] font-medium border-border-soft transition-colors",
+              runtimeStatus === "READY"
+                ? "bg-surface-panel hover:bg-red-500/10 text-red-400 hover:text-red-300 hover:border-red-500/30"
+                : "bg-surface-panel hover:bg-brand/10 text-text hover:text-brand hover:border-brand/30"
+            )}
+            onClick={() => {
+              if (runtimeStatus === "READY") {
+                onStopRuntime?.();
+              } else {
+                onStartRuntime?.();
+              }
+            }}
+            title={runtimeStatus === "READY" ? "停止 MCP 服务" : "启动 MCP 服务"}
+          >
+            <Power className="w-3.5 h-3.5 mr-1.5" />
+            {runtimeStatus === "READY" ? "停止服务" : "启动 MCP"}
+          </Button>
 
-        <button
-          className={cn(
-            "hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-pill border text-xs whitespace-nowrap font-medium mr-2 transition-all cursor-pointer",
-            runtimeStatus === "READY"
-              ? "bg-brand/10 border-brand/20 text-brand hover:bg-brand/20 shadow-[0_0_8px_rgba(0,217,197,0.1)]"
-              : "bg-surface-muted border-border-soft text-text-subtle hover:bg-surface-raised"
-          )}
-          onClick={() => onOpenTools?.()}
-          title="MCP 工具箱"
-        >
-          <Boxes className="w-3.5 h-3.5" />
-          <span>Tools {toolCount}</span>
-        </button>
+          <button
+            onClick={() => onOpenTools?.()}
+            className="group flex flex-col items-center justify-center gap-1 cursor-pointer mt-0.5"
+            title="MCP 工具箱"
+          >
+            <div className={cn(
+              "w-2.5 h-2.5 rounded-full border transition-all duration-500",
+              runtimeStatus === "READY"
+                ? "bg-[#00d9c5] border-[#00ffeb] shadow-[0_0_8px_rgba(0,217,197,0.8)]"
+                : "bg-gray-500 border-gray-400 opacity-40"
+            )} />
+            <span className="text-[9px] text-text-subtle font-medium leading-none">
+              {runtimeStatus === "READY" ? `${toolCount} Tools` : "服务未启动"}
+            </span>
+          </button>
+        </div>
         
         <Button variant="ghost" size="icon" onClick={onThemeToggle} title="切换主题">
           <ThemeToggleIcon theme={theme} />

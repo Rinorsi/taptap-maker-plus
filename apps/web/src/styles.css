@@ -70,6 +70,9 @@
   }
 
   html, body, #root { height: 100%; margin: 0; background: transparent; }
+  :root[data-density="comfortable"] { font-size: 16px; }
+  :root[data-density="standard"] { font-size: 15px; }
+  :root[data-density="compact"] { font-size: 14px; }
   body { 
     background-color: transparent;
     color: var(--color-text); 

@@ -192,6 +192,9 @@ const frontendDiagnosticSchema = z.object({
     detail: z.string().max(50000).optional()
   })).min(1).max(50)
 });
+const frontendDiagnosticDeleteQuerySchema = z.object({
+  retention: z.enum(["all", "14d", "30d", "100mb"]).optional()
+});
 
 const workflowGraphSchema = z.object({
   nodes: z.array(z.unknown()),
@@ -269,6 +272,38 @@ function readRecentFrontendDiagnostics(limit = 200) {
     }
   });
   return { logPath, entries };
+}
+
+function applyFrontendDiagnosticsRetention(retention: "all" | "14d" | "30d" | "100mb") {
+  const logPath = frontendDiagnosticsPath();
+  if (!fs.existsSync(logPath)) return { logPath, removed: 0 };
+  if (retention === "all") {
+    fs.writeFileSync(logPath, "", "utf8");
+    return { logPath, removed: undefined };
+  }
+  const text = fs.readFileSync(logPath, "utf8");
+  if (retention === "100mb") {
+    const maxBytes = 100 * 1024 * 1024;
+    const buffer = Buffer.from(text, "utf8");
+    if (buffer.byteLength <= maxBytes) return { logPath, removed: 0 };
+    fs.writeFileSync(logPath, buffer.subarray(buffer.byteLength - maxBytes).toString("utf8"), "utf8");
+    return { logPath, removed: undefined };
+  }
+  const days = retention === "14d" ? 14 : 30;
+  const cutoffMs = Date.now() - days * 24 * 60 * 60 * 1000;
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  const kept = lines.filter((line) => {
+    try {
+      const parsed = JSON.parse(line) as { timestamp?: unknown };
+      if (typeof parsed.timestamp !== "string") return true;
+      const timestampMs = Date.parse(parsed.timestamp);
+      return Number.isNaN(timestampMs) || timestampMs >= cutoffMs;
+    } catch {
+      return true;
+    }
+  });
+  fs.writeFileSync(logPath, `${kept.join("\n")}${kept.length ? "\n" : ""}`, "utf8");
+  return { logPath, removed: lines.length - kept.length };
 }
 
 function requireProject(projectId: string): ProjectSummary {
@@ -580,10 +615,11 @@ export async function registerApiRoutes(app: FastifyInstance) {
     return { ok: true, logPath };
   });
 
-  app.delete("/api/developer/frontend-diagnostics", async () => {
-    const logPath = frontendDiagnosticsPath();
-    if (fs.existsSync(logPath)) fs.writeFileSync(logPath, "", "utf8");
-    return { ok: true, logPath };
+  app.delete<{ Querystring: unknown }>("/api/developer/frontend-diagnostics", async (request, reply) => {
+    const parsed = frontendDiagnosticDeleteQuerySchema.safeParse(request.query ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const result = applyFrontendDiagnosticsRetention(parsed.data.retention ?? "all");
+    return { ok: true, ...result };
   });
 
   app.get("/api/desktop/readiness", async () => ({

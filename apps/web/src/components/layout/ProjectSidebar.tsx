@@ -55,38 +55,17 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
         className="relative flex h-full shrink-0 select-none flex-col overflow-hidden border-r border-border bg-surface-panel"
       >
         <div className="flex h-[52px] shrink-0 items-center gap-2 overflow-hidden border-b border-border-soft bg-surface-app px-3">
-          {collapsed ? (
-            <button
-              onClick={onToggleCollapsed}
-              className="mx-auto inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-text transition-colors hover:bg-surface-muted focus-visible:outline-none"
-              title="展开侧栏"
-              type="button"
-            >
-              <Menu className="h-4 w-4" />
-            </button>
-          ) : (
-            <>
-              <button
-                onClick={onExitSettings}
-                className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-muted hover:text-text focus-visible:outline-none"
-                title="返回工作台"
-                type="button"
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </button>
-              <div className="min-w-0 flex-1">
-                <span className="block truncate text-[14px] font-bold text-text">设置</span>
-              </div>
-              <button
-                onClick={onToggleCollapsed}
-                className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-muted hover:text-text focus-visible:outline-none"
-                title="收起侧栏"
-                type="button"
-              >
-                <Menu className="h-4 w-4" />
-              </button>
-            </>
-          )}
+          <button
+            onClick={onExitSettings}
+            className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-muted hover:text-text focus-visible:outline-none"
+            title="返回工作台"
+            type="button"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <span className="block truncate text-[14px] font-bold text-text">设置</span>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto scrollbar-thin">

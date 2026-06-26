@@ -908,8 +908,9 @@ export async function appendFrontendDiagnostics(entries: FrontendDiagnosticEntry
   }
 }
 
-export async function clearFrontendDiagnostics() {
-  const res = await fetch("/api/developer/frontend-diagnostics", {
+export async function clearFrontendDiagnostics(retention: "all" | "14d" | "30d" | "100mb" = "all") {
+  const query = retention === "all" ? "" : `?retention=${encodeURIComponent(retention)}`;
+  const res = await fetch(`/api/developer/frontend-diagnostics${query}`, {
     method: "DELETE",
   });
   if (!res.ok) {

@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Bug,
+  CheckCircle2,
   Cpu,
   Download,
   FolderCog,
   RefreshCw,
+  RotateCcw,
+  Save,
   Settings,
   Square,
   Trash2,
@@ -24,11 +27,13 @@ import {
   Monitor,
   Terminal,
   Globe,
-  Code
+  Code,
+  Folder
 } from "lucide-react";
 import type { MakerProjectsRootSettings, ProjectSummary, RuntimeSummary, ToolSummary } from "../../api";
 import {
   clearFrontendDiagnostics,
+  confirmMakerProjectsRootSettings,
   getMakerProjectsRootSettings,
   listFrontendDiagnostics,
   saveMakerProjectsRootSettings,
@@ -48,15 +53,16 @@ import {
   subscribeDeveloperLogs,
   subscribeDeveloperMode,
 } from "../../lib/developerMode";
-import type { SettingsTab } from "./settingsTabs";
+import { settingsTabs, type SettingsTab } from "./settingsTabs";
 import { cn } from "../../lib/utils";
 import React from "react";
-import { McpPackageManager } from "./McpPackageManager";
 import {
   defaultSettingsPreferences,
+  flushSettingsPreferencesSave,
   readStoredPreference,
   settingsPreferenceKeys,
   SETTINGS_PREFERENCES_CHANGED_EVENT,
+  subscribeSettingsPreferencesSaved,
   subscribeSettingsRemoteSync,
   writeLocalPreference,
   type SettingsPreferences
@@ -137,8 +143,18 @@ export function SettingsView({
   commands,
 }: Props) {
   const [prefs, setPref] = useSettingsPreferences();
+  const isDark = prefs.themePreference === "dark" || (prefs.themePreference === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const [developerMode, setDeveloperMode] = useState(isDeveloperModeEnabled());
   const [developerLogVersion, setDeveloperLogVersion] = useState(0);
+  const [settingsSaveState, setSettingsSaveState] = useState<{
+    status: "saved" | "saving" | "error";
+    savedAt?: string;
+    message?: string;
+  }>({ status: "saved" });
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const activeTabChangeSourceRef = useRef<"scroll" | null>(null);
+  const programmaticScrollRef = useRef(false);
+  const programmaticScrollTimerRef = useRef<number | undefined>(undefined);
 
   const [serverLogPath, setServerLogPath] = useState("");
   const [serverLogEntries, setServerLogEntries] = useState<
@@ -151,6 +167,14 @@ export function SettingsView({
   const developerLogs = formatDeveloperLogsForDisplay();
   const serverLogs = formatDiagnosticEntries(serverLogEntries);
   const visibleLogs = serverLogs || developerLogs;
+  const saveStatusText =
+    settingsSaveState.status === "saving"
+      ? "正在保存"
+      : settingsSaveState.status === "error"
+        ? "保存失败"
+        : settingsSaveState.savedAt
+          ? `上次保存 ${formatLocalTime(settingsSaveState.savedAt)}`
+          : "修改后自动保存";
   const developerLogCount = Math.max(
     getDeveloperLogEntries().length,
     serverLogEntries.length,
@@ -166,6 +190,57 @@ export function SettingsView({
       unsubscribeLogs();
     };
   }, []);
+
+  useEffect(() => {
+    const unsubscribeSaved = subscribeSettingsPreferencesSaved(({ savedAt }) => {
+      setSettingsSaveState({ status: "saved", savedAt });
+    });
+    const unsubscribeRemote = subscribeSettingsRemoteSync(() => {
+      setSettingsSaveState((prev) => ({ status: "saved", savedAt: prev.savedAt }));
+    });
+    return () => {
+      unsubscribeSaved();
+      unsubscribeRemote();
+    };
+  }, []);
+
+  useEffect(() => {
+    const handlePreferenceChange = () => {
+      setSettingsSaveState((prev) => ({ ...prev, status: "saving", message: undefined }));
+    };
+    window.addEventListener(SETTINGS_PREFERENCES_CHANGED_EVENT, handlePreferenceChange);
+    return () => window.removeEventListener(SETTINGS_PREFERENCES_CHANGED_EVENT, handlePreferenceChange);
+  }, []);
+
+  const handleSaveSettingsNow = async () => {
+    setSettingsSaveState((prev) => ({ ...prev, status: "saving", message: undefined }));
+    try {
+      await flushSettingsPreferencesSave("manual");
+    } catch (error) {
+      setSettingsSaveState({
+        status: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  const handleResetSettingsDefaults = async () => {
+    const confirmed = window.confirm("确定要把已接入的设置项恢复为默认值吗？");
+    if (!confirmed) return;
+
+    setSettingsSaveState({ status: "saving", message: undefined });
+    for (const key of Object.keys(defaultSettingsPreferences) as Array<keyof SettingsPreferences>) {
+      writeLocalPreference(settingsPreferenceKeys[key], defaultSettingsPreferences[key]);
+    }
+    try {
+      await flushSettingsPreferencesSave("manual");
+    } catch (error) {
+      setSettingsSaveState({
+        status: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -193,6 +268,18 @@ export function SettingsView({
       setMakerRootDraft(response.settings.rootPath);
       if (response.projects) onProjectsRootChanged?.(response.projects, response.selectedProjectId);
       setMakerRootNotice(`已更新 Maker 项目根目录：${response.settings.rootPath}`);
+    } catch (error) {
+      setMakerRootNotice(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const handleConfirmMakerRoot = async () => {
+    setMakerRootNotice("正在确认 Maker 项目根目录...");
+    try {
+      const response = await confirmMakerProjectsRootSettings();
+      setMakerRootSettings(response.settings);
+      setMakerRootDraft(response.settings.rootPath);
+      setMakerRootNotice(`已确认 Maker 项目根目录：${response.settings.rootPath}`);
     } catch (error) {
       setMakerRootNotice(error instanceof Error ? error.message : String(error));
     }
@@ -284,17 +371,151 @@ export function SettingsView({
   void developerLogVersion;
 
   useEffect(() => {
+    if (activeTabChangeSourceRef.current === "scroll") {
+      activeTabChangeSourceRef.current = null;
+      return;
+    }
+
+    const container = scrollContainerRef.current;
     const el = document.getElementById(`settings-${activeTab}`);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (container && el) {
+      const containerRect = container.getBoundingClientRect();
+      const sectionRect = el.getBoundingClientRect();
+      programmaticScrollRef.current = true;
+      window.clearTimeout(programmaticScrollTimerRef.current);
+      container.scrollTo({
+        top: container.scrollTop + sectionRect.top - containerRect.top - 48,
+        behavior: "smooth",
+      });
+      programmaticScrollTimerRef.current = window.setTimeout(() => {
+        programmaticScrollRef.current = false;
+      }, 700);
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    let animationFrame = 0;
+
+    const readActiveTabFromScroll = () => {
+      const containerRect = container.getBoundingClientRect();
+      const anchorY = containerRect.top + Math.min(160, containerRect.height * 0.28);
+      let nearestTab = settingsTabs[0]?.id;
+      let nearestDistance = Number.POSITIVE_INFINITY;
+
+      for (const tab of settingsTabs) {
+        const section = document.getElementById(`settings-${tab.id}`);
+        if (!section) continue;
+
+        const sectionRect = section.getBoundingClientRect();
+        if (sectionRect.top <= anchorY && sectionRect.bottom > anchorY) {
+          return tab.id;
+        }
+
+        if (sectionRect.bottom < containerRect.top || sectionRect.top > containerRect.bottom) {
+          continue;
+        }
+
+        const distance = Math.abs(sectionRect.top - anchorY);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestTab = tab.id;
+        }
+      }
+
+      return nearestTab;
+    };
+
+    const updateActiveTab = () => {
+      animationFrame = 0;
+      if (programmaticScrollRef.current) return;
+
+      const nextTab = readActiveTabFromScroll();
+      if (nextTab && nextTab !== activeTab) {
+        activeTabChangeSourceRef.current = "scroll";
+        onActiveTabChange(nextTab);
+      }
+    };
+
+    const handleScroll = () => {
+      if (animationFrame) return;
+      animationFrame = window.requestAnimationFrame(updateActiveTab);
+    };
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    updateActiveTab();
+
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+      if (animationFrame) {
+        window.cancelAnimationFrame(animationFrame);
+      }
+    };
+  }, [activeTab, onActiveTabChange]);
+
+  useEffect(() => {
+    return () => {
+      window.clearTimeout(programmaticScrollTimerRef.current);
+    };
+  }, []);
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden bg-surface-app">
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto px-12 pb-32 scrollbar-thin flex flex-col gap-12 max-w-4xl mx-auto w-full pt-12">
+          <div className="flex min-h-[52px] shrink-0 items-center justify-between gap-4 border-b border-border-soft bg-surface-app px-8">
+            <div className="flex min-w-0 items-center gap-3">
+              <div
+                className={cn(
+                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border",
+                  settingsSaveState.status === "error"
+                    ? "border-red-500/30 bg-red-500/10 text-red-500"
+                    : settingsSaveState.status === "saving"
+                      ? "border-brand/30 bg-brand/10 text-brand"
+                      : "border-emerald-500/30 bg-emerald-500/10 text-emerald-500",
+                )}
+              >
+                {settingsSaveState.status === "saving" ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-[13px] font-semibold text-text">设置偏好</div>
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className={cn(
+                      "truncate text-[11px]",
+                      settingsSaveState.status === "error" ? "text-red-500" : "text-text-subtle",
+                    )}
+                    title={settingsSaveState.message ?? "设置修改后会自动保存；保存按钮用于立即保存当前设置。"}
+                  >
+                    {settingsSaveState.message ?? saveStatusText}
+                  </span>
+                  <span
+                    className="inline-flex h-5 shrink-0 items-center rounded-full border border-border-soft bg-surface-muted px-2 text-[10px] font-medium text-text-subtle"
+                    title="设置修改后会自动保存；点保存会立即落盘。"
+                  >
+                    自动保存开启
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void handleResetSettingsDefaults()}>
+                <RotateCcw className="h-3.5 w-3.5" />
+                重置默认
+              </Button>
+              <Button size="sm" className="gap-1.5" onClick={() => void handleSaveSettingsNow()} disabled={settingsSaveState.status === "saving"}>
+                <Save className="h-3.5 w-3.5" />
+                保存
+              </Button>
+            </div>
+          </div>
+          <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto px-12 pb-32 scrollbar-thin flex flex-col gap-12 max-w-4xl mx-auto w-full pt-12">
 
             {/* General */}
             <div id="settings-general" className="scroll-mt-12 flex flex-col gap-6 order-3">
@@ -344,7 +565,7 @@ export function SettingsView({
             </div>
 
             {/* Appearance */}
-            <div id="settings-appearance" className="scroll-mt-12 flex flex-col gap-6 order-1">
+            <div id="settings-appearance" className="scroll-mt-12 flex flex-col gap-6 order-4">
               <SectionHeader title="外观" icon={<Palette />} description="软件界面及代码编辑器样式主题。" />
               <SettingsGroup preview={<WorkbenchPreview prefs={prefs} />}>
                 <ThemeSelectorPreview
@@ -407,7 +628,7 @@ export function SettingsView({
             </div>
 
             {/* Browser (Prototype) */}
-            <div id="settings-browser" className="scroll-mt-12 flex flex-col gap-6 opacity-60 grayscale pointer-events-none order-7">
+            <div id="settings-browser" className="scroll-mt-12 flex flex-col gap-6 opacity-60 grayscale pointer-events-none order-11">
               <SectionHeader title="浏览器" icon={<MonitorCog />} badge="未接入" description="内置 Chromium 浏览器设置。" />
               <SettingsGroup>
                 <PreferenceNote text="当前没有可用配置入口；下面的开关不会生效。" />
@@ -417,7 +638,7 @@ export function SettingsView({
             </div>
 
             {/* Permissions (Prototype) */}
-            <div id="settings-permissions" className="scroll-mt-12 flex flex-col gap-6 opacity-60 grayscale pointer-events-none order-8">
+            <div id="settings-permissions" className="scroll-mt-12 flex flex-col gap-6 opacity-60 grayscale pointer-events-none order-12">
               <SectionHeader title="权限" icon={<Shield />} badge="未接入" description="管理 MCP 工具的自动审批与访问策略。" />
               <SettingsGroup>
                 <PreferenceNote text="当前没有接入权限策略保存与执行链路；下面的控件不会生效。" />
@@ -437,81 +658,61 @@ export function SettingsView({
                   description={
                     <div className="flex flex-col gap-1">
                       <span>扫描项目和删除本地项目文件夹时都会使用该根目录作为边界。</span>
-                      <span className="font-mono text-[11px] text-text-subtle">
-                        来源：{makerRootSettings?.source ?? "-"} · 当前状态：{makerRootSettings?.exists ? "目录存在" : "目录不存在"}
-                      </span>
-                      {makerRootSettings?.envRootPath ? (
-                        <span className="font-mono text-[11px] text-text-subtle">TAPTAP_MAKER_PROJECTS_ROOT={makerRootSettings.envRootPath}</span>
-                      ) : null}
                       {makerRootNotice ? <span className="text-[11px] text-text-subtle">{makerRootNotice}</span> : null}
                     </div>
                   }
                 >
-                  <div className="flex min-w-[320px] max-w-[520px] items-center gap-2">
-                    <input
-                      value={makerRootDraft}
-                      onChange={(event) => setMakerRootDraft(event.target.value)}
-                      className="h-9 min-w-0 flex-1 rounded-control border border-border bg-surface-app px-3 font-mono text-[11px] text-text outline-none focus:border-brand"
-                      placeholder={makerRootSettings?.defaultRootPath ?? "Maker projects root"}
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void handleSaveMakerRoot()}
-                      disabled={!makerRootDraft.trim() || makerRootDraft.trim() === makerRootSettings?.rootPath}
-                    >
-                      保存
-                    </Button>
+                  <div className="flex min-w-[280px] max-w-[420px] flex-wrap md:flex-nowrap items-center gap-2">
+                    <div className="flex-1 flex items-center h-9 rounded-control border border-border bg-surface-app overflow-hidden focus-within:border-brand transition-colors relative min-w-[200px]">
+                       <input
+                         readOnly
+                         value={makerRootDraft}
+                         className="flex-1 min-w-0 bg-transparent px-3 font-mono text-[11px] text-text outline-none cursor-default"
+                         placeholder={makerRootSettings?.defaultRootPath ?? "未选择项目根目录"}
+                       />
+                       <label className="h-full px-3 text-[11px] font-medium border-l border-border hover:bg-surface-muted cursor-pointer transition-colors flex items-center gap-1 shrink-0">
+                          <Folder className="w-3.5 h-3.5" /> 浏览...
+                          <input
+                            type="file"
+                            className="hidden"
+                            // @ts-ignore
+                            webkitdirectory="true"
+                            directory="true"
+                            onChange={(e) => {
+                              if (e.target.files && e.target.files.length > 0) {
+                                 const path = e.target.files[0].webkitRelativePath.split('/')[0];
+                                 setMakerRootDraft(path ? `C:\\Projects\\${path}` : "C:\\Projects\\Selected");
+                              }
+                            }}
+                          />
+                       </label>
+                    </div>
+                    {makerRootDraft.trim() !== makerRootSettings?.rootPath && (
+                       <Button
+                         variant="outline"
+                         size="sm"
+                         onClick={() => void handleSaveMakerRoot()}
+                         disabled={!makerRootDraft.trim()}
+                         className="shrink-0"
+                       >
+                         保存
+                       </Button>
+                    )}
                   </div>
                 </SettingContainer>
               </SettingsGroup>
             </div>
 
             {/* Workspaces */}
-            <div id="settings-workspaces" className="scroll-mt-12 flex flex-col gap-6 order-10">
+            <div id="settings-workspaces" className="scroll-mt-12 flex flex-col gap-6 order-1">
               <SectionHeader title="工作区默认值" icon={<Box />} description="所有新项目的全局初始化规则与默认模型设置。" />
               <SettingsGroup>
-                <WorkspaceDefaultsPreview prefs={prefs} />
-              </SettingsGroup>
-
-              <SettingsGroup>
-                <SettingContainer label={<span className="font-bold">图像生成默认值</span>} note>
-                  <Palette className="w-4 h-4 text-brand" />
-                </SettingContainer>
-                <SegmentedSetting label="默认模型" value={prefs.imageModel} options={[{label: "自动", value: "auto"}, {label: "NanoBanana", value: "nanobanana"}, {label: "GPT", value: "gpt"}]} onChange={(v) => setPref("imageModel", v as any)} />
-                <SegmentedSetting label="清晰度" value={prefs.imageResolution} options={[{label: "0.5K", value: "0.5K"}, {label: "1K", value: "1K"}, {label: "2K", value: "2K"}, {label: "4K", value: "4K"}]} onChange={(v) => setPref("imageResolution", v as any)} />
-                <SegmentedSetting label="推理深度" value={prefs.imageThinkingLevel} options={[{label: "极速", value: "minimal"}, {label: "深度", value: "high"}]} onChange={(v) => setPref("imageThinkingLevel", v as any)} />
-              </SettingsGroup>
-
-              <SettingsGroup>
-                <SettingContainer label={<span className="font-bold">视频生成默认值</span>} note>
-                  <PlaySquare className="w-4 h-4 text-brand" />
-                </SettingContainer>
-                <SegmentedSetting label="默认模型" value={prefs.videoModel} options={[{label: "默认", value: "default"}, {label: "极速模式", value: "fast"}]} onChange={(v) => setPref("videoModel", v as any)} />
-                <SegmentedSetting label="视频分辨率" value={prefs.videoResolution} options={[{label: "480p", value: "480p"}, {label: "720p", value: "720p"}]} onChange={(v) => setPref("videoResolution", v as any)} />
-                <SwitchSetting label="生成配套音效" checked={prefs.videoGenerateAudio} onChange={(v) => setPref("videoGenerateAudio", v)} />
-                <SwitchSetting label="启用联网搜索补充上下文" checked={prefs.videoEnableWebSearch} onChange={(v) => setPref("videoEnableWebSearch", v)} />
-              </SettingsGroup>
-
-              <SettingsGroup>
-                <SettingContainer label={<span className="font-bold">音乐生成默认值</span>} note>
-                  <Globe className="w-4 h-4 text-brand" />
-                </SettingContainer>
-                <SegmentedSetting label="引擎版本" value={prefs.musicModel} options={[{label: "V3.5", value: "V3_5"}, {label: "V4", value: "V4"}, {label: "V4.5", value: "V4_5"}, {label: "V5", value: "V5"}]} onChange={(v) => setPref("musicModel", v as any)} />
-                <SwitchSetting label="纯音乐 (Instrumental)" checked={prefs.musicInstrumental} onChange={(v) => setPref("musicInstrumental", v)} />
-              </SettingsGroup>
-
-              <SettingsGroup>
-                <SettingContainer label={<span className="font-bold">3D 生成默认值</span>} note>
-                  <Box className="w-4 h-4 text-brand" />
-                </SettingContainer>
-                <SegmentedSetting label="贴图质量" value={prefs.model3dTextureQuality} options={[{label: "标准", value: "standard"}, {label: "精细", value: "detailed"}]} onChange={(v) => setPref("model3dTextureQuality", v as any)} />
-                <SwitchSetting label="自动生成骨骼绑定 (Rig)" checked={prefs.model3dRig} onChange={(v) => setPref("model3dRig", v)} />
+                <WorkspaceDefaultsPreview prefs={prefs} setPref={setPref} />
               </SettingsGroup>
             </div>
 
             {/* Canvas */}
-            <div id="settings-canvas" className="scroll-mt-12 flex flex-col gap-6 order-11">
+            <div id="settings-canvas" className="scroll-mt-12 flex flex-col gap-6 order-7">
               <SectionHeader title="画布" icon={<Workflow />} description="节点编辑器行为偏好。" />
               <SettingsGroup preview={<CanvasPreview prefs={prefs} />}>
                 <SwitchSetting label="显示网格背景" checked={prefs.canvasGrid === "visible"} onChange={(v) => setPref("canvasGrid", v ? "visible" : "hidden")} />
@@ -551,7 +752,7 @@ export function SettingsView({
             </div>
 
             {/* Tasks */}
-            <div id="settings-tasks" className="scroll-mt-12 flex flex-col gap-6 order-12">
+            <div id="settings-tasks" className="scroll-mt-12 flex flex-col gap-6 order-8">
               <SectionHeader title="任务" icon={<Grid3X3 />} description="任务面板展现与通知策略。" />
               <SettingsGroup preview={<TaskInspectorPreview prefs={prefs} />}>
                 <SegmentedSetting
@@ -567,7 +768,7 @@ export function SettingsView({
             </div>
 
             {/* Runtime */}
-            <div id="settings-runtime" className="scroll-mt-12 flex flex-col gap-6 order-4">
+            <div id="settings-runtime" className="scroll-mt-12 flex flex-col gap-6 order-10">
               <SectionHeader title="运行时" icon={<Cpu />} description="MCP 运行时控制。" />
               <SettingsGroup>
                 <SegmentedSetting
@@ -592,7 +793,6 @@ export function SettingsView({
                      </Button>
                    </div>
                 </SettingContainer>
-                <McpPackageManager busy={busy} />
               </SettingsGroup>
             </div>
 
@@ -789,6 +989,12 @@ function formatDiagnosticEntries(entries: FrontendDiagnosticEntry[]) {
   return entries.map(e => `[${new Date(e.timestamp).toISOString()}] [${e.level.toUpperCase()}] ${e.message}`).join("\n");
 }
 
+function formatLocalTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
 // ---------------------------------------------------------
 // Previews
 // ---------------------------------------------------------
@@ -917,6 +1123,7 @@ function CodeEditorPreview({ prefs }: { prefs: SettingsPreferences }) {
           </div>
         </div>
       </div>
+
     </div>
   );
 }
@@ -1219,7 +1426,7 @@ function TaskInspectorPreview({ prefs }: { prefs: SettingsPreferences }) {
   );
 }
 
-function WorkspaceDefaultsPreview({ prefs }: { prefs: SettingsPreferences }) {
+function WorkspaceDefaultsPreview({ prefs, setPref }: { prefs: SettingsPreferences, setPref: (key: any, val: any) => void }) {
   const isDark = prefs.themePreference === "dark" || (prefs.themePreference === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const cardBg = isDark ? "bg-[#1e1e1e] border-[#333]" : "bg-white border-gray-200";
   const hoverBg = isDark ? "hover:bg-[#252526] hover:border-brand/50" : "hover:bg-gray-50 hover:border-brand/40";
@@ -1228,7 +1435,7 @@ function WorkspaceDefaultsPreview({ prefs }: { prefs: SettingsPreferences }) {
   return (
     <div className="grid grid-cols-2 gap-4 p-5 border-b border-border-soft bg-surface-muted/10">
 
-       <div className={cn("flex flex-col p-4 rounded-xl border shadow-sm transition-all cursor-default relative overflow-hidden", cardBg, hoverBg)}>
+       <div className={cn("flex flex-col p-4 rounded-xl border shadow-sm transition-all cursor-default relative overflow-hidden max-h-[210px]", cardBg, hoverBg)}>
           <div className="absolute right-[-10px] top-[-10px] w-24 h-24 opacity-10 flex items-center justify-center rotate-12 pointer-events-none">
              <div className="w-12 h-16 border-[3px] border-current rounded absolute"></div>
              <div className="w-16 h-12 border-[3px] border-current rounded absolute rotate-12"></div>
@@ -1237,19 +1444,41 @@ function WorkspaceDefaultsPreview({ prefs }: { prefs: SettingsPreferences }) {
           <div className="flex items-center gap-2 text-[13px] font-bold text-text mb-3 z-10">
             <div className="p-1.5 rounded-md bg-blue-500/10 text-blue-500"><Images className="w-4 h-4" /></div> 图像生成
           </div>
-          <div className="flex flex-col gap-1.5 z-10">
-            <div className={cn("flex justify-between items-center text-[11px] p-1.5 px-2 rounded", artBg)}>
-               <span className="text-text-subtle">默认模型</span>
-               <span className="text-text font-medium truncate max-w-[80px]">{prefs.imageModel}</span>
+          <div className="flex-1 flex flex-col gap-2 z-10 overflow-y-auto custom-scrollbar pr-1">
+            <div className={cn("flex justify-between items-center text-[11px] py-1.5 px-2 rounded shrink-0", artBg)}>
+               <span className="text-text-subtle font-medium">默认模型</span>
+               <SelectField
+                 id="imageModel"
+                 value={prefs.imageModel}
+                 onChange={(v) => setPref("imageModel", v)}
+                 options={[{label: "自动", value: "auto"}, {label: "NanoBanana", value: "nanobanana"}, {label: "GPT", value: "gpt"}]}
+                 className="w-auto min-w-[120px] h-auto min-h-0 text-[11px] px-1 py-0 gap-1 border-none bg-transparent shadow-none focus:ring-0 focus:border-transparent hover:border-transparent hover:bg-black/5 dark:hover:bg-white/5 text-right justify-end"
+               />
             </div>
-            <div className={cn("flex justify-between items-center text-[11px] p-1.5 px-2 rounded", artBg)}>
-               <span className="text-text-subtle">清晰度</span>
-               <span className="text-text font-medium">{prefs.imageResolution}</span>
+            <div className={cn("flex justify-between items-center text-[11px] py-1.5 px-2 rounded shrink-0", artBg)}>
+               <span className="text-text-subtle font-medium">清晰度</span>
+               <SelectField
+                 id="imageResolution"
+                 value={prefs.imageResolution}
+                 onChange={(v) => setPref("imageResolution", v)}
+                 options={[{label: "0.5K", value: "0.5K"}, {label: "1K", value: "1K"}, {label: "2K", value: "2K"}, {label: "4K", value: "4K"}]}
+                 className="w-auto min-w-[120px] h-auto min-h-0 text-[11px] px-1 py-0 gap-1 border-none bg-transparent shadow-none focus:ring-0 focus:border-transparent hover:border-transparent hover:bg-black/5 dark:hover:bg-white/5 text-right justify-end"
+               />
+            </div>
+            <div className={cn("flex justify-between items-center text-[11px] py-1.5 px-2 rounded shrink-0", artBg)}>
+               <span className="text-text-subtle font-medium">推理深度</span>
+               <SelectField
+                 id="imageThinkingLevel"
+                 value={prefs.imageThinkingLevel}
+                 onChange={(v) => setPref("imageThinkingLevel", v)}
+                 options={[{label: "极速", value: "minimal"}, {label: "深度", value: "high"}]}
+                 className="w-auto min-w-[120px] h-auto min-h-0 text-[11px] px-1 py-0 gap-1 border-none bg-transparent shadow-none focus:ring-0 focus:border-transparent hover:border-transparent hover:bg-black/5 dark:hover:bg-white/5 text-right justify-end"
+               />
             </div>
           </div>
        </div>
 
-       <div className={cn("flex flex-col p-4 rounded-xl border shadow-sm transition-all cursor-default relative overflow-hidden", cardBg, hoverBg)}>
+       <div className={cn("flex flex-col p-4 rounded-xl border shadow-sm transition-all cursor-default relative overflow-hidden max-h-[210px]", cardBg, hoverBg)}>
           <div className="absolute right-2 top-2 w-20 h-16 opacity-10 flex flex-col gap-2 items-end justify-center pointer-events-none">
              <div className="w-full h-2 rounded-full bg-current"></div>
              <div className="w-3/4 h-2 rounded-full bg-current"></div>
@@ -1259,19 +1488,51 @@ function WorkspaceDefaultsPreview({ prefs }: { prefs: SettingsPreferences }) {
           <div className="flex items-center gap-2 text-[13px] font-bold text-text mb-3 z-10">
             <div className="p-1.5 rounded-md bg-purple-500/10 text-purple-500"><PlaySquare className="w-4 h-4" /></div> 视频生成
           </div>
-          <div className="flex flex-col gap-1.5 z-10">
-            <div className={cn("flex justify-between items-center text-[11px] p-1.5 px-2 rounded", artBg)}>
-               <span className="text-text-subtle">默认模型</span>
-               <span className="text-text font-medium">{prefs.videoModel}</span>
+          <div className="flex-1 flex flex-col gap-2 z-10 overflow-y-auto custom-scrollbar pr-1">
+            <div className={cn("flex justify-between items-center text-[11px] py-1.5 px-2 rounded shrink-0", artBg)}>
+               <span className="text-text-subtle font-medium">默认模型</span>
+               <SelectField
+                 id="videoModel"
+                 value={prefs.videoModel}
+                 onChange={(v) => setPref("videoModel", v)}
+                 options={[{label: "默认", value: "default"}, {label: "极速模式", value: "fast"}]}
+                 className="w-auto min-w-[120px] h-auto min-h-0 text-[11px] px-1 py-0 gap-1 border-none bg-transparent shadow-none focus:ring-0 focus:border-transparent hover:border-transparent hover:bg-black/5 dark:hover:bg-white/5 text-right justify-end"
+               />
             </div>
-            <div className={cn("flex justify-between items-center text-[11px] p-1.5 px-2 rounded", artBg)}>
-               <span className="text-text-subtle">分辨率</span>
-               <span className="text-text font-medium">{prefs.videoResolution}</span>
+            <div className={cn("flex justify-between items-center text-[11px] py-1.5 px-2 rounded shrink-0", artBg)}>
+               <span className="text-text-subtle font-medium">分辨率</span>
+               <SelectField
+                 id="videoResolution"
+                 value={prefs.videoResolution}
+                 onChange={(v) => setPref("videoResolution", v)}
+                 options={[{label: "480p", value: "480p"}, {label: "720p", value: "720p"}]}
+                 className="w-auto min-w-[120px] h-auto min-h-0 text-[11px] px-1 py-0 gap-1 border-none bg-transparent shadow-none focus:ring-0 focus:border-transparent hover:border-transparent hover:bg-black/5 dark:hover:bg-white/5 text-right justify-end"
+               />
+            </div>
+            <div className={cn("flex justify-between items-center text-[11px] py-1.5 px-2 rounded shrink-0", artBg)}>
+               <span className="text-text-subtle font-medium">生成配套音效</span>
+               <SelectField
+                 id="videoGenerateAudio"
+                 value={prefs.videoGenerateAudio ? "true" : "false"}
+                 onChange={(v) => setPref("videoGenerateAudio", v === "true")}
+                 options={[{label: "是", value: "true"}, {label: "否", value: "false"}]}
+                 className="w-auto min-w-[120px] h-auto min-h-0 text-[11px] px-1 py-0 gap-1 border-none bg-transparent shadow-none focus:ring-0 focus:border-transparent hover:border-transparent hover:bg-black/5 dark:hover:bg-white/5 text-right justify-end"
+               />
+            </div>
+            <div className={cn("flex justify-between items-center text-[11px] py-1.5 px-2 rounded shrink-0", artBg)}>
+               <span className="text-text-subtle font-medium flex-1 mr-2">启用联网搜索补充上下文</span>
+               <SelectField
+                 id="videoEnableWebSearch"
+                 value={prefs.videoEnableWebSearch ? "true" : "false"}
+                 onChange={(v) => setPref("videoEnableWebSearch", v === "true")}
+                 options={[{label: "是", value: "true"}, {label: "否", value: "false"}]}
+                 className="w-auto shrink-0 min-w-[120px] h-auto min-h-0 text-[11px] px-1 py-0 gap-1 border-none bg-transparent shadow-none focus:ring-0 focus:border-transparent hover:border-transparent hover:bg-black/5 dark:hover:bg-white/5 text-right justify-end"
+               />
             </div>
           </div>
        </div>
 
-       <div className={cn("flex flex-col p-4 rounded-xl border shadow-sm transition-all cursor-default relative overflow-hidden", cardBg, hoverBg)}>
+       <div className={cn("flex flex-col p-4 rounded-xl border shadow-sm transition-all cursor-default relative overflow-hidden max-h-[210px]", cardBg, hoverBg)}>
           <div className="absolute right-2 top-4 w-20 h-12 opacity-10 flex items-center justify-end gap-1.5 pointer-events-none">
              <div className="w-1.5 h-6 bg-current rounded-full"></div>
              <div className="w-1.5 h-10 bg-current rounded-full"></div>
@@ -1283,32 +1544,56 @@ function WorkspaceDefaultsPreview({ prefs }: { prefs: SettingsPreferences }) {
           <div className="flex items-center gap-2 text-[13px] font-bold text-text mb-3 z-10">
             <div className="p-1.5 rounded-md bg-green-500/10 text-green-500"><Globe className="w-4 h-4" /></div> 音乐与音效
           </div>
-          <div className="flex flex-col gap-1.5 z-10">
-            <div className={cn("flex justify-between items-center text-[11px] p-1.5 px-2 rounded", artBg)}>
-               <span className="text-text-subtle">引擎版本</span>
-               <span className="text-text font-medium">{prefs.musicModel}</span>
+          <div className="flex-1 flex flex-col gap-2 z-10 overflow-y-auto custom-scrollbar pr-1">
+            <div className={cn("flex justify-between items-center text-[11px] py-1.5 px-2 rounded shrink-0", artBg)}>
+               <span className="text-text-subtle font-medium">引擎版本</span>
+               <SelectField
+                 id="musicModel"
+                 value={prefs.musicModel}
+                 onChange={(v) => setPref("musicModel", v)}
+                 options={[{label: "V3.5", value: "V3_5"}, {label: "V4", value: "V4"}, {label: "V4.5", value: "V4_5"}, {label: "V5", value: "V5"}]}
+                 className="w-auto min-w-[120px] h-auto min-h-0 text-[11px] px-1 py-0 gap-1 border-none bg-transparent shadow-none focus:ring-0 focus:border-transparent hover:border-transparent hover:bg-black/5 dark:hover:bg-white/5 text-right justify-end"
+               />
             </div>
-            <div className={cn("flex justify-between items-center text-[11px] p-1.5 px-2 rounded", artBg)}>
-               <span className="text-text-subtle">纯音乐</span>
-               <span className="text-text font-medium">{prefs.musicInstrumental ? "是" : "否"}</span>
+            <div className={cn("flex justify-between items-center text-[11px] py-1.5 px-2 rounded shrink-0", artBg)}>
+               <span className="text-text-subtle font-medium">纯音乐</span>
+               <SelectField
+                 id="musicInstrumental"
+                 value={prefs.musicInstrumental ? "true" : "false"}
+                 onChange={(v) => setPref("musicInstrumental", v === "true")}
+                 options={[{label: "是", value: "true"}, {label: "否", value: "false"}]}
+                 className="w-auto min-w-[120px] h-auto min-h-0 text-[11px] px-1 py-0 gap-1 border-none bg-transparent shadow-none focus:ring-0 focus:border-transparent hover:border-transparent hover:bg-black/5 dark:hover:bg-white/5 text-right justify-end"
+               />
             </div>
           </div>
        </div>
 
-       <div className={cn("flex flex-col p-4 rounded-xl border shadow-sm transition-all cursor-default relative overflow-hidden", cardBg, hoverBg)}>
+       <div className={cn("flex flex-col p-4 rounded-xl border shadow-sm transition-all cursor-default relative overflow-hidden max-h-[210px]", cardBg, hoverBg)}>
           <div className="absolute right-0 top-0 w-24 h-24 opacity-10 pointer-events-none" style={{ backgroundImage: "linear-gradient(currentcolor 1px, transparent 1px), linear-gradient(90deg, currentcolor 1px, transparent 1px)", backgroundSize: "8px 8px", transform: "perspective(100px) rotateX(60deg) rotateZ(45deg)" }}></div>
 
           <div className="flex items-center gap-2 text-[13px] font-bold text-text mb-3 z-10">
             <div className="p-1.5 rounded-md bg-orange-500/10 text-orange-500"><Box className="w-4 h-4" /></div> 3D 模型
           </div>
-          <div className="flex flex-col gap-1.5 z-10">
-            <div className={cn("flex justify-between items-center text-[11px] p-1.5 px-2 rounded", artBg)}>
-               <span className="text-text-subtle">贴图质量</span>
-               <span className="text-text font-medium">{prefs.model3dTextureQuality}</span>
+          <div className="flex-1 flex flex-col gap-2 z-10 overflow-y-auto custom-scrollbar pr-1">
+            <div className={cn("flex justify-between items-center text-[11px] py-1.5 px-2 rounded shrink-0", artBg)}>
+               <span className="text-text-subtle font-medium">贴图质量</span>
+               <SelectField
+                 id="model3dTextureQuality"
+                 value={prefs.model3dTextureQuality}
+                 onChange={(v) => setPref("model3dTextureQuality", v)}
+                 options={[{label: "标准", value: "standard"}, {label: "精细", value: "detailed"}]}
+                 className="w-auto min-w-[120px] h-auto min-h-0 text-[11px] px-1 py-0 gap-1 border-none bg-transparent shadow-none focus:ring-0 focus:border-transparent hover:border-transparent hover:bg-black/5 dark:hover:bg-white/5 text-right justify-end"
+               />
             </div>
-            <div className={cn("flex justify-between items-center text-[11px] p-1.5 px-2 rounded", artBg)}>
-               <span className="text-text-subtle">骨骼绑定</span>
-               <span className="text-text font-medium">{prefs.model3dRig ? "是" : "否"}</span>
+            <div className={cn("flex justify-between items-center text-[11px] py-1.5 px-2 rounded shrink-0", artBg)}>
+               <span className="text-text-subtle font-medium">骨骼绑定</span>
+               <SelectField
+                 id="model3dRig"
+                 value={prefs.model3dRig ? "true" : "false"}
+                 onChange={(v) => setPref("model3dRig", v === "true")}
+                 options={[{label: "是", value: "true"}, {label: "否", value: "false"}]}
+                 className="w-auto min-w-[120px] h-auto min-h-0 text-[11px] px-1 py-0 gap-1 border-none bg-transparent shadow-none focus:ring-0 focus:border-transparent hover:border-transparent hover:bg-black/5 dark:hover:bg-white/5 text-right justify-end"
+               />
             </div>
           </div>
        </div>

@@ -1,10 +1,12 @@
 import { execa } from "execa";
+import fs from "node:fs";
+import path from "node:path";
 import { config, setMakerPackage } from "../lib/config.js";
 import { getAppSetting, setAppSetting } from "../lib/db.js";
 
 const MAKER_PACKAGE_SETTING_KEY = "maker_package_spec";
-const MCP_RELEASE_NOTES_SETTING_KEY = "mcp_release_notes";
 const DEFAULT_CHANGELOG_TEXT = "暂无更新日志";
+const RELEASE_NOTES_FILE_NAME = "mcp-release-notes.md";
 
 export type McpPackageUpdateStatus = {
   packageName: string;
@@ -16,6 +18,8 @@ export type McpPackageUpdateStatus = {
   lastCheckedAt?: string;
   lastInstalledAt?: string;
   releaseNotes: string;
+  releaseNotesPath: string;
+  availableVersions: string[];
   registryError?: string;
 };
 
@@ -30,44 +34,55 @@ export function loadStoredMakerPackage() {
 }
 
 export function getMcpReleaseNotes() {
-  return getAppSetting(MCP_RELEASE_NOTES_SETTING_KEY) ?? DEFAULT_CHANGELOG_TEXT;
+  const releaseNotesPath = getMcpReleaseNotesPath();
+  if (!fs.existsSync(releaseNotesPath)) return DEFAULT_CHANGELOG_TEXT;
+  const text = fs.readFileSync(releaseNotesPath, "utf8").trim();
+  return text || DEFAULT_CHANGELOG_TEXT;
 }
 
-export function saveMcpReleaseNotes(releaseNotes: string) {
-  const nextValue = releaseNotes.trim() || DEFAULT_CHANGELOG_TEXT;
-  setAppSetting(MCP_RELEASE_NOTES_SETTING_KEY, nextValue);
-  return nextValue;
+export function getMcpReleaseNotesPath() {
+  return path.join(config.workspaceRoot, "docs", RELEASE_NOTES_FILE_NAME);
 }
 
 export async function getMcpPackageUpdateStatus(options: { checkRegistry?: boolean } = {}): Promise<McpPackageUpdateStatus> {
   const packageSpec = config.makerPackage;
   const packageName = extractPackageName(packageSpec);
   const currentVersion = getAppSetting("maker_package_resolved_version") ?? extractFixedPackageVersion(packageSpec);
+  let resolvedCurrentVersion = currentVersion;
   let latestVersion: string | undefined;
+  let availableVersions: string[] = [];
   let registryError: string | undefined;
 
   if (options.checkRegistry) {
     try {
-      latestVersion = await readLatestVersion(packageName);
+      resolvedCurrentVersion = await readPackageVersion(packageSpec);
+      setAppSetting("maker_package_resolved_version", resolvedCurrentVersion);
+      availableVersions = await readPackageVersions(packageName);
+      latestVersion = availableVersions[availableVersions.length - 1];
+      if (!latestVersion) latestVersion = await readLatestVersion(packageName);
       setAppSetting("maker_package_latest_version", latestVersion);
       setAppSetting("maker_package_last_checked_at", new Date().toISOString());
+      setAppSetting("maker_package_versions", JSON.stringify(availableVersions));
     } catch (error) {
       registryError = error instanceof Error ? error.message : String(error);
     }
   } else {
     latestVersion = getAppSetting("maker_package_latest_version");
+    availableVersions = parseStoredVersions(getAppSetting("maker_package_versions"));
   }
 
   return {
     packageName,
     packageSpec,
     installedSpec: config.makerPackage,
-    currentVersion,
+    currentVersion: resolvedCurrentVersion,
     latestVersion,
-    updateAvailable: Boolean(currentVersion && latestVersion && currentVersion !== latestVersion),
+    updateAvailable: Boolean(resolvedCurrentVersion && latestVersion && resolvedCurrentVersion !== latestVersion),
     lastCheckedAt: getAppSetting("maker_package_last_checked_at"),
     lastInstalledAt: getAppSetting("maker_package_last_installed_at"),
     releaseNotes: getMcpReleaseNotes(),
+    releaseNotesPath: getMcpReleaseNotesPath(),
+    availableVersions,
     registryError
   };
 }
@@ -135,6 +150,27 @@ function extractFixedPackageVersion(packageSpec: string) {
 
 async function readLatestVersion(packageName: string) {
   return readPackageVersion(packageName);
+}
+
+async function readPackageVersions(packageName: string) {
+  const result = await execa("npm.cmd", ["view", packageName, "versions", "--json"], {
+    env: process.env,
+    timeout: 30_000
+  });
+  const parsed = JSON.parse(result.stdout.trim()) as unknown;
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function parseStoredVersions(value?: string) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  } catch {
+    return [];
+  }
 }
 
 async function readPackageVersion(packageSpec: string) {

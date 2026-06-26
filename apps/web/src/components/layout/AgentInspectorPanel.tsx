@@ -17,6 +17,7 @@ import { copyText } from "../../lib/clipboard";
 import { cn } from "../../lib/utils";
 import { classifyTaskError, getTaskCopyPayload, getTaskPayloadDisplay, getVideoConcurrencyTaskId, isTaskError, isTaskSuccess, isVideoConcurrencyError, taskHasMcpErrorResult } from "../../lib/taskResult";
 import { getToolCategoryLabel, getToolDisplay } from "../../features/tools/toolDisplay";
+import { McpPackageManager } from "../../features/settings/McpPackageManager";
 
 export type InspectorSelection =
   | { type: "project"; item: ProjectSummary }
@@ -495,6 +496,8 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
           </Button>
         </div>
       </div>
+
+      <McpPackageManager busy={busy} compact />
 
       <details className="mt-2 shrink-0 rounded-panel border border-border-soft bg-surface-raised overflow-hidden">
         <summary className="cursor-pointer px-3 py-2 text-[11px] font-bold text-text-muted hover:text-text bg-surface-muted/30">

@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
-import { ArrowLeft, Menu, FolderSync, LayoutDashboard, Home, Image as ImageIcon, Video, Music, Box, Hammer, Settings2, GitBranch, Activity, Bot } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ArrowLeft, Menu, FolderSync, LayoutDashboard, Home, Image as ImageIcon, Video, Music, Box, Hammer, Settings2, GitBranch, Activity, Bot, Search, ChevronDown } from "lucide-react";
 import type { ProjectSummary, TaskRecord } from "../../api";
 import { workbenchRoutes, type WorkbenchModule } from "../../app/routes";
 import { AppContextMenu } from "../../commands";
@@ -14,6 +15,7 @@ type Props = {
   tasks: TaskRecord[];
   collapsed: boolean;
   width: number;
+  developerMode: boolean;
   onToggleCollapsed: () => void;
   onClearProject: () => void;
   onSelectModule: (module: WorkbenchModule) => void;
@@ -38,13 +40,21 @@ const moduleIcons: Record<string, React.ElementType> = {
   "settings": Settings2,
 };
 
-export function ProjectSidebar({ projects, selectedProjectId, activeModule, activeSettingsTab, collapsed, width, onToggleCollapsed, onClearProject, onSelectModule, onSelectSettingsTab, onExitSettings }: Props) {
+export function ProjectSidebar({ projects, selectedProjectId, activeModule, activeSettingsTab, collapsed, width, developerMode, onToggleCollapsed, onClearProject, onSelectModule, onSelectSettingsTab, onExitSettings }: Props) {
+  const [settingsSearch, setSettingsSearch] = useState("");
+  const [disabledPagesOpen, setDisabledPagesOpen] = useState(false);
   
   const activeProject = projects.find(p => p.id === selectedProjectId);
 
   // 核心逻辑：是否处于“已打开项目”状态
   const isProjectOpened = !!activeProject;
   const isSettingsMode = activeModule === "settings";
+  const disabledRoutes = workbenchRoutes.filter((route) => route.developerOnly);
+  const visibleSettingsTabs = useMemo(() => {
+    const query = settingsSearch.trim().toLowerCase();
+    if (!query) return settingsTabs;
+    return settingsTabs.filter((tab) => tab.label.toLowerCase().includes(query) || tab.id.toLowerCase().includes(query));
+  }, [settingsSearch]);
 
   if (isSettingsMode) {
     return (
@@ -68,10 +78,24 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
           </div>
         </div>
 
+        {!collapsed ? (
+          <div className="border-b border-border-soft bg-surface-app px-3 py-3">
+            <label className="flex h-9 items-center gap-2 rounded-lg border border-border bg-surface-panel px-3 text-text-muted focus-within:border-brand focus-within:text-text">
+              <Search className="h-4 w-4 shrink-0" />
+              <input
+                value={settingsSearch}
+                onChange={(event) => setSettingsSearch(event.currentTarget.value)}
+                className="min-w-0 flex-1 bg-transparent text-[13px] text-text outline-none placeholder:text-text-subtle"
+                placeholder="搜索设置"
+              />
+            </label>
+          </div>
+        ) : null}
+
         <div className="flex-1 overflow-y-auto scrollbar-thin">
           <div className={cn("p-3", collapsed ? "px-2" : "px-3")}>
             <ul className="space-y-1">
-              {settingsTabs.map((tab) => {
+              {visibleSettingsTabs.map((tab) => {
                 const Icon = tab.icon;
                 const active = activeSettingsTab === tab.id;
                 return (
@@ -94,6 +118,9 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
                   </li>
                 );
               })}
+              {!visibleSettingsTabs.length ? (
+                <li className="px-3 py-2 text-[12px] text-text-subtle">无匹配设置</li>
+              ) : null}
             </ul>
           </div>
         </div>
@@ -177,6 +204,7 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
             <ul className="space-y-1">
               {workbenchRoutes.map((route) => {
                 if (route.id === "settings") return null;
+                if (route.developerOnly) return null;
                 const isHomeOrSettings = route.id === "home";
                 
                 // 双状态逻辑核心：
@@ -205,7 +233,17 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
                     >
                       <Icon className={cn("shrink-0", collapsed ? "w-[20px] h-[20px]" : "w-[20px] h-[20px]")} strokeWidth={isActive ? 2.5 : 2} />
                       {!collapsed && (
-                        <span className="text-[14px] truncate">{route.label}</span>
+                        <>
+                          <span className="min-w-0 flex-1 truncate text-[14px]">{route.label}</span>
+                          {route.developerOnly ? (
+                            <span
+                              className="shrink-0 rounded-full border border-border-soft bg-surface-app px-1.5 py-0.5 text-[9px] font-semibold text-text-subtle"
+                              title={route.hiddenPageNote}
+                            >
+                              禁用
+                            </span>
+                          ) : null}
+                        </>
                       )}
                     </button>
                   </li>
@@ -228,6 +266,73 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
           <Settings2 className="h-[20px] w-[20px] shrink-0" />
           {!collapsed ? <span className="truncate text-[14px]">设置</span> : null}
         </button>
+
+        {developerMode && isProjectOpened && disabledRoutes.length ? (
+          <div className={cn("mt-2", collapsed ? "flex flex-col items-center" : "")}>
+            {collapsed ? (
+              <button
+                type="button"
+                title="禁用页面"
+                className={cn(
+                  "flex h-[44px] w-full cursor-pointer select-none items-center justify-center rounded-lg text-text-muted outline-none transition-colors hover:bg-surface-muted hover:text-text",
+                  disabledRoutes.some((route) => route.id === activeModule) ? "bg-surface-muted text-text" : "",
+                )}
+                onClick={() => setDisabledPagesOpen((value) => !value)}
+              >
+                <ChevronDown
+                  className={cn("h-[18px] w-[18px] transition-transform", disabledPagesOpen ? "rotate-180" : "")}
+                />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="flex w-full cursor-pointer select-none items-center rounded-lg px-3 py-2 text-[12px] font-semibold text-text-subtle outline-none transition-colors hover:bg-surface-muted hover:text-text"
+                onClick={() => setDisabledPagesOpen((value) => !value)}
+              >
+                <span className="min-w-0 flex-1 truncate text-left">禁用页面</span>
+                <ChevronDown
+                  className={cn("h-4 w-4 shrink-0 transition-transform", disabledPagesOpen ? "rotate-180" : "")}
+                />
+              </button>
+            )}
+
+            {disabledPagesOpen ? (
+              <ul className={cn("mt-1 space-y-1", collapsed ? "w-full" : "")}>
+                {disabledRoutes.map((route) => {
+                  const isActive = activeModule === route.id;
+                  const Icon = moduleIcons[route.id] || LayoutDashboard;
+                  return (
+                    <li key={route.id}>
+                      <button
+                        type="button"
+                        title={route.hiddenPageNote ? `${route.label}：${route.hiddenPageNote}` : route.label}
+                        className={cn(
+                          "flex w-full cursor-pointer select-none items-center rounded-lg text-text-muted outline-none transition-colors hover:bg-surface-muted hover:text-text",
+                          collapsed ? "h-[40px] justify-center p-0" : "gap-3 px-3 py-2",
+                          isActive ? "bg-surface-muted font-semibold text-text" : "",
+                        )}
+                        onClick={() => onSelectModule(route.id)}
+                      >
+                        <Icon className="h-[18px] w-[18px] shrink-0" strokeWidth={isActive ? 2.5 : 2} />
+                        {!collapsed ? (
+                          <>
+                            <span className="min-w-0 flex-1 truncate text-[13px]">{route.label}</span>
+                            <span
+                              className="shrink-0 rounded-full border border-border-soft bg-surface-app px-1.5 py-0.5 text-[9px] font-semibold text-text-subtle"
+                              title={route.hiddenPageNote}
+                            >
+                              禁用
+                            </span>
+                          </>
+                        ) : null}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </motion.aside>
   );

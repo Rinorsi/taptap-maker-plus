@@ -139,6 +139,7 @@ export const settingsPreferenceKeys = {
 } as const;
 
 export const SETTINGS_PREFERENCES_CHANGED_EVENT = "taptap:settings-preferences-changed";
+export const SETTINGS_PREFERENCES_SAVED_EVENT = "taptap:settings-preferences-saved";
 
 const SETTINGS_REMOTE_SYNCED_EVENT = "taptap:settings-preferences-remote-synced";
 let saveTimer: number | undefined;
@@ -241,6 +242,14 @@ export function subscribeSettingsRemoteSync(listener: () => void) {
   return () => window.removeEventListener(SETTINGS_REMOTE_SYNCED_EVENT, listener);
 }
 
+export function subscribeSettingsPreferencesSaved(listener: (detail: { savedAt: string; updatedAt?: string; source: "auto" | "manual" }) => void) {
+  const handle = (event: Event) => {
+    listener((event as CustomEvent<{ savedAt: string; updatedAt?: string; source: "auto" | "manual" }>).detail);
+  };
+  window.addEventListener(SETTINGS_PREFERENCES_SAVED_EVENT, handle);
+  return () => window.removeEventListener(SETTINGS_PREFERENCES_SAVED_EVENT, handle);
+}
+
 export function readAllStoredSettingsPreferences(): Record<string, unknown> {
   const preferences: Record<string, unknown> = {};
   for (const key of Object.values(settingsPreferenceKeys)) {
@@ -253,6 +262,25 @@ export function readAllStoredSettingsPreferences(): Record<string, unknown> {
     }
   }
   return preferences;
+}
+
+export async function flushSettingsPreferencesSave(source: "auto" | "manual" = "manual") {
+  if (saveTimer !== undefined) {
+    window.clearTimeout(saveTimer);
+    saveTimer = undefined;
+  }
+
+  const response = await saveSettingsPreferences(readAllStoredSettingsPreferences());
+  window.dispatchEvent(
+    new CustomEvent(SETTINGS_PREFERENCES_SAVED_EVENT, {
+      detail: {
+        savedAt: new Date().toISOString(),
+        updatedAt: response.updatedAt,
+        source,
+      },
+    }),
+  );
+  return response;
 }
 
 export function loadRemoteSettingsPreferences() {
@@ -282,7 +310,7 @@ function scheduleRemotePreferencesSave() {
   if (saveTimer !== undefined) window.clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
     saveTimer = undefined;
-    void saveSettingsPreferences(readAllStoredSettingsPreferences()).catch(() => undefined);
+    void flushSettingsPreferencesSave("auto").catch(() => undefined);
   }, 250);
 }
 

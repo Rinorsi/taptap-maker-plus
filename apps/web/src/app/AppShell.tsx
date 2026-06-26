@@ -31,6 +31,10 @@ import {
   stopRuntime,
   clearTasks,
   deleteProjectLocalFolder,
+  confirmMakerProjectsRootSettings,
+  getMakerProjectsRootSettings,
+  getMcpPackageStatus,
+  installMcpPackage,
   type AgentPageState,
   type AssetDirectoryNode,
   type AssetMutationResponse,
@@ -41,6 +45,7 @@ import {
   type RuntimeSummary,
   type TaskRecord,
   type ToolSummary,
+  type McpPackageUpdateStatus,
 } from "../api";
 import { filterAssetsForDirectory } from "../features/assets/assetTree";
 import { type WorkbenchModule } from "./routes";
@@ -97,6 +102,10 @@ import {
   type TaskPanelPreference,
   type ThemePreference,
 } from "../features/settings/preferences";
+import {
+  isDeveloperModeEnabled,
+  subscribeDeveloperMode,
+} from "../lib/developerMode";
 
 const DEFAULT_PROJECT_MODULE: WorkbenchModule = defaultWorkspaceToModule("assets");
 const NODE_PRESET_DRAG_MIME = "application/reactflow";
@@ -119,6 +128,10 @@ function resolveInitialModule(hasProject: boolean) {
 
 function resolveDefaultProjectModule() {
   return defaultWorkspaceToModule(readStoredPreference("defaultWorkspace") as DefaultWorkspace);
+}
+
+function isDeveloperOnlyModule(module: WorkbenchModule) {
+  return module === "studio-canvas" || module === "runs" || module === "build" || module === "agent";
 }
 
 function resolvePanelCollapsed(preference: PanelPreference, storageKey: string) {
@@ -191,7 +204,9 @@ export function AppShell() {
   const [selection, setSelection] = useState<InspectorSelection>();
   const [notice, setNotice] = useState("准备就绪");
   const [settingsPreferenceVersion, setSettingsPreferenceVersion] = useState(0);
+  const [developerModeEnabled, setDeveloperModeEnabledState] = useState(() => isDeveloperModeEnabled());
   const themeCinemaTargetRef = useRef<"light" | "dark" | undefined>(undefined);
+  const startupPromptedRef = useRef(false);
   const autoRuntimeStartedProjectRef = useRef<string | undefined>(undefined);
   const assetReferenceScanCacheRef = useRef(
     new Map<string, { expiresAt: number; results: AssetReferenceScanResult[] }>(),
@@ -426,10 +441,79 @@ export function AppShell() {
       setNotice(`发现 ${nextProjects.length} 个项目`);
       const allTasks = await listTasks().catch(() => []);
       setTasks(allTasks);
+      void runStartupChecks();
     } catch (error) {
       setNotice(
         `本地 API 仍未就绪，请确认 Fastify 服务已启动：${error instanceof Error ? error.message : String(error)}`,
       );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runStartupChecks() {
+    if (startupPromptedRef.current) return;
+    startupPromptedRef.current = true;
+
+    await promptForMakerProjectsRoot();
+    await promptForMcpPackageUpdate();
+  }
+
+  async function promptForMakerProjectsRoot() {
+    const response = await getMakerProjectsRootSettings().catch(() => undefined);
+    const settings = response?.settings;
+    if (!settings || settings.confirmed) return;
+    const confirmed = await requestConfirm({
+      title: "确认 Maker 项目根目录",
+      body: (
+        <div className="flex flex-col gap-4 mt-1">
+          <p className="text-sm text-text-subtle">
+            当前将使用下面的目录扫描 Maker 项目，并作为删除本地项目文件夹时的边界。
+          </p>
+          <div className="rounded-xl border border-border-soft bg-surface-panel/50 p-4">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted">当前目录</div>
+            <div className="mt-1 break-all font-mono text-xs text-text">{settings.rootPath}</div>
+            <div className="mt-2 text-[11px] text-text-subtle">
+              来源：{settings.source} · 当前状态：{settings.exists ? "目录存在" : "目录不存在"}
+            </div>
+          </div>
+        </div>
+      ),
+      confirmLabel: "确认使用",
+      cancelLabel: "稍后再说",
+    });
+    if (!confirmed) return;
+    await confirmMakerProjectsRootSettings()
+      .then((next) => setNotice(`已确认 Maker 项目根目录：${next.settings.rootPath}`))
+      .catch((error) => setNotice(error instanceof Error ? error.message : String(error)));
+  }
+
+  async function promptForMcpPackageUpdate() {
+    const response = await getMcpPackageStatus(true).catch(() => undefined);
+    const status = response?.status;
+    if (!status) return;
+    if (status.registryError) {
+      setNotice(`MCP 版本检查失败：${status.registryError}`);
+      return;
+    }
+    if (!status.updateAvailable) return;
+    const confirmed = await requestConfirm({
+      title: "检测到 MCP 更新",
+      body: <McpUpdateConfirmBody status={status} />,
+      confirmLabel: "更新到最新版",
+      cancelLabel: "稍后再说",
+    });
+    if (!confirmed) return;
+    setBusy(true);
+    setNotice(`正在更新 MCP：${status.packageName}@${status.latestVersion}`);
+    try {
+      const nextSpec = `${status.packageName}@${status.latestVersion}`;
+      const result = await installMcpPackage(nextSpec);
+      setRuntime(undefined);
+      setProjects((current) => current.map((project) => project.runtime ? { ...project, runtime: undefined } : project));
+      setNotice(`MCP 已更新到 ${result.status.currentVersion ?? result.status.packageSpec}，重新启动 MCP 后生效`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
     }
@@ -533,6 +617,14 @@ export function AppShell() {
     }, 1000);
     return () => clearInterval(interval);
   }, [videoRecoveryCooldowns]);
+
+  useEffect(() => subscribeDeveloperMode(setDeveloperModeEnabledState), []);
+
+  useEffect(() => {
+    if (developerModeEnabled || !isDeveloperOnlyModule(activeModule)) return;
+    setActiveModule(selectedProject ? resolveDefaultProjectModule() : "home");
+    setNotice("隐藏页面仅在开发者模式下显示，已返回当前工作区");
+  }, [activeModule, developerModeEnabled, selectedProject]);
 
   async function handleSelectProject(projectId: string) {
     if (!projectId) {
@@ -1607,16 +1699,14 @@ export function AppShell() {
   }
 
   function selectModule(module: WorkbenchModule) {
-    if (module === "workflow" || module === "studio-canvas") {
+    if (module === "workflow") {
       setActiveModule(selectedProject ? "studio-video" : "home");
-      setNotice("全能画布暂时隐藏，已切换到视频工作室");
+      setNotice("旧节点流不再作为页面入口，已切换到视频工作室");
       return;
     }
-    if (module === "runs") {
-      setRightPanelTab("logs");
-      setInspectorMinimized(false);
-      setActiveModule(selectedProject ? "assets" : "home");
-      setNotice("运行记录已合并到右侧任务日志");
+    if (isDeveloperOnlyModule(module) && !developerModeEnabled) {
+      setActiveModule(selectedProject ? resolveDefaultProjectModule() : "home");
+      setNotice("构建中心和助手上下文是未开发完的隐藏页面；开启开发者模式后可见");
       return;
     }
     if (module === "settings") {
@@ -2035,6 +2125,7 @@ export function AppShell() {
         icon: <Code className="h-4 w-4" />,
         description: "查看当前项目、工具、任务和 runtime 上下文",
         scope: "global",
+        when: () => developerModeEnabled,
         run: () => selectModule("agent"),
       },
       {
@@ -3069,7 +3160,8 @@ export function AppShell() {
           const tool = tools.find((item) => item.name === context.toolName);
           if (!tool) return;
           handleSelectSelection({ type: "tool", item: tool });
-          selectModule("agent");
+          setRightPanelTab("tools");
+          setInspectorMinimized(false);
         },
       },
       {
@@ -3832,6 +3924,7 @@ export function AppShell() {
               tasks={tasks}
               collapsed={effectiveSidebarCollapsed}
               width={effectiveSidebarWidth}
+              developerMode={developerModeEnabled}
               onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
               onClearProject={handleClearProject}
               onSelectModule={selectModule}
@@ -4061,6 +4154,34 @@ function sleep(ms: number) {
 function getTaskCopyPayload(task: TaskRecord) {
   return (
     task.rawResultJson || task.errorMessage || JSON.stringify(task, null, 2)
+  );
+}
+
+function McpUpdateConfirmBody({ status }: { status: McpPackageUpdateStatus }) {
+  return (
+    <div className="flex flex-col gap-4 mt-1">
+      <p className="text-sm text-text-subtle">
+        当前 MCP 包不是最新版。更新后会停止当前 MCP 会话，重新启动 MCP 后使用新版本。
+      </p>
+      <div className="grid gap-2 rounded-xl border border-border-soft bg-surface-panel/50 p-4 text-xs">
+        <InfoRow label="包名" value={status.packageName} />
+        <InfoRow label="当前版本" value={status.currentVersion ?? "未检查"} />
+        <InfoRow label="最新版本" value={status.latestVersion ?? "未检查"} />
+        <InfoRow label="日志文件" value={status.releaseNotesPath} />
+      </div>
+      <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-xl border border-border-soft bg-surface-app p-3 text-xs leading-relaxed text-text">
+        {status.releaseNotes || "暂无更新日志"}
+      </pre>
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[72px_1fr] gap-2">
+      <span className="text-text-subtle">{label}</span>
+      <span className="break-all font-mono text-text">{value}</span>
+    </div>
   );
 }
 

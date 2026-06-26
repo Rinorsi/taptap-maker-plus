@@ -1,10 +1,13 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { AgentPageState, AssetDirectoryNode, AssetMutationResponse, AssetSummary, ProjectSummary, RuntimeSummary, TaskRecord, ToolSummary } from "../../api";
 import type { InspectorSelection } from "./AgentInspectorPanel";
-import type { WorkbenchModule } from "../../app/routes";
+import { workbenchRoutes, type WorkbenchModule } from "../../app/routes";
 import type { AppCommandContext, Command } from "../../commands";
 import type { SettingsTab } from "../../features/settings/settingsTabs";
+import { AlertTriangle, X } from "lucide-react";
+
+const DISMISSED_UNFINISHED_MODULES_STORAGE_KEY = "taptap.dismissedUnfinishedModules";
 
 const WelcomeView = lazy(() =>
   import("../../features/projects/WelcomeView").then((module) => ({
@@ -44,6 +47,11 @@ const BuildCenter = lazy(() =>
 const AgentContextView = lazy(() =>
   import("../../features/agent/AgentContextView").then((module) => ({
     default: module.AgentContextView,
+  })),
+);
+const RunsView = lazy(() =>
+  import("../../features/runs/RunsView").then((module) => ({
+    default: module.RunsView,
   })),
 );
 const SettingsView = lazy(() =>
@@ -105,6 +113,22 @@ type Props = {
 };
 
 export function WorkbenchViewport(props: Props) {
+  const activeRoute = workbenchRoutes.find((route) => route.id === props.activeModule);
+  const unfinishedRouteNote = activeRoute?.developerOnly ? activeRoute.hiddenPageNote : undefined;
+  const [dismissedUnfinishedModules, setDismissedUnfinishedModules] = useState<WorkbenchModule[]>(() =>
+    readDismissedUnfinishedModules(),
+  );
+  const showUnfinishedCard = Boolean(
+    unfinishedRouteNote && !dismissedUnfinishedModules.includes(props.activeModule),
+  );
+  const dismissUnfinishedModule = () => {
+    setDismissedUnfinishedModules((current) => {
+      if (current.includes(props.activeModule)) return current;
+      const next = [...current, props.activeModule];
+      writeDismissedUnfinishedModules(next);
+      return next;
+    });
+  };
   const moduleView = (
     <>
       {props.activeModule === "home" ? (
@@ -268,6 +292,12 @@ export function WorkbenchViewport(props: Props) {
       {props.activeModule === "agent" ? (
         <AgentContextView project={props.project} page={props.agentPage} />
       ) : null}
+      {props.activeModule === "runs" ? (
+        <RunsView
+          tasks={props.tasks}
+          onSelectTask={(task) => props.onSelect({ type: "task", item: task })}
+        />
+      ) : null}
       {props.activeModule === "settings" ? (
         <SettingsView
           project={props.project}
@@ -304,9 +334,107 @@ export function WorkbenchViewport(props: Props) {
           <Suspense fallback={<WorkbenchModuleFallback />}>
             {moduleView}
           </Suspense>
+          {unfinishedRouteNote ? (
+            <UnfinishedModuleOverlay
+              title={activeRoute?.label ?? "隐藏页面"}
+              note={unfinishedRouteNote}
+              showCard={showUnfinishedCard}
+              onDismiss={dismissUnfinishedModule}
+              onReturn={() => props.onOpenModule(props.project ? "assets" : "home")}
+            />
+          ) : null}
         </motion.div>
       </AnimatePresence>
     </main>
+  );
+}
+
+function readDismissedUnfinishedModules(): WorkbenchModule[] {
+  try {
+    const text = localStorage.getItem(DISMISSED_UNFINISHED_MODULES_STORAGE_KEY);
+    if (!text) return [];
+    const parsed = JSON.parse(text) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const routeIds = new Set(workbenchRoutes.map((route) => route.id));
+    return parsed.filter((item): item is WorkbenchModule => typeof item === "string" && routeIds.has(item as WorkbenchModule));
+  } catch {
+    return [];
+  }
+}
+
+function writeDismissedUnfinishedModules(modules: WorkbenchModule[]) {
+  try {
+    localStorage.setItem(DISMISSED_UNFINISHED_MODULES_STORAGE_KEY, JSON.stringify(modules));
+  } catch {
+    // Ignore storage failures; the current session still keeps the dismissed state.
+  }
+}
+
+function UnfinishedModuleOverlay({
+  title,
+  note,
+  showCard,
+  onDismiss,
+  onReturn,
+}: {
+  title: string;
+  note: string;
+  showCard: boolean;
+  onDismiss: () => void;
+  onReturn: () => void;
+}) {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-30 flex flex-col">
+      <div className="flex min-h-[44px] shrink-0 items-center justify-between gap-3 border-b border-[#b03939]/25 bg-[#b03939]/10 px-5 text-[#b03939]">
+        <div className="flex min-w-0 items-center gap-2 text-[12px] font-bold">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span className="truncate">{title} 是未完成隐藏页面，禁止在正式工作流中使用。</span>
+        </div>
+        <button
+          type="button"
+          onClick={onReturn}
+          className="pointer-events-auto inline-flex h-7 shrink-0 items-center justify-center rounded-control px-2 text-[11px] font-semibold text-[#b03939] hover:bg-[#b03939]/10"
+          title="关闭并返回工作区"
+        >
+          返回工作区
+        </button>
+      </div>
+      {showCard ? (
+        <div className="pointer-events-auto flex flex-1 items-start justify-center bg-surface-app/82 px-6 py-10 backdrop-blur-sm">
+          <div className="relative w-full max-w-xl rounded-large border border-[#b03939]/30 bg-surface-panel p-5 shadow-xl">
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-control text-text-muted hover:bg-surface-muted hover:text-text"
+              title="关闭提示"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#b03939]/10 text-[#b03939]">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 pr-8">
+                <div className="text-[11px] font-bold uppercase tracking-wide text-[#b03939]">未完成隐藏页面</div>
+                <h2 className="m-0 mt-1 text-lg font-bold text-text">{title} 禁止使用</h2>
+                <p className="m-0 mt-2 text-sm leading-relaxed text-text-muted">
+                  {note}。当前仅在开发者模式下暴露，用于后续开发定位；不要在正式工作流里使用这个页面。
+                </p>
+                <div className="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={onDismiss}
+                    className="inline-flex h-9 items-center justify-center rounded-control bg-[#b03939] px-4 text-sm font-bold text-white hover:bg-[#943030]"
+                  >
+                    我知道了，关闭提示
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

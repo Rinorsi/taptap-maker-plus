@@ -51,7 +51,7 @@ import {
 import { buildAssetDirectoryTree, listProjectAssetDirectories } from "../services/assetTree.js";
 import { rebuildAssetProvenance } from "../services/assetProvenance.js";
 import { runtimeManager } from "../services/mcpRuntime.js";
-import { getMcpPackageUpdateStatus, installMcpPackage, saveMcpReleaseNotes } from "../services/mcpPackageManager.js";
+import { getMcpPackageUpdateStatus, installMcpPackage } from "../services/mcpPackageManager.js";
 import { executeToolCall, syncCreditRecordsFromTasks } from "../services/toolExecution.js";
 import { buildAgentContext } from "../agent/contextBuilder.js";
 import { getProjectBuildLogs } from "../services/projectLogs.js";
@@ -77,10 +77,6 @@ const makerProjectsRootSchema = z.object({
 
 const mcpPackageInstallSchema = z.object({
   packageSpec: z.string().min(1)
-});
-
-const mcpPackageReleaseNotesSchema = z.object({
-  releaseNotes: z.string()
 });
 
 const assetPathsSchema = z.object({
@@ -364,11 +360,13 @@ function withRuntime(project: ProjectSummary) {
 function getMakerProjectsRootSettings() {
   const storedRoot = getAppSetting("maker_projects_root");
   const rootPath = config.makerProjectsRoot;
+  const confirmedRoot = getAppSetting("maker_projects_root_confirmed");
   return {
     rootPath,
     defaultRootPath: defaultMakerProjectsRoot,
     storedRootPath: storedRoot,
     envRootPath: process.env.TAPTAP_MAKER_PROJECTS_ROOT,
+    confirmed: confirmedRoot === rootPath,
     exists: fs.existsSync(rootPath),
     source: storedRoot ? "app_settings" : process.env.TAPTAP_MAKER_PROJECTS_ROOT ? "env" : "default"
   };
@@ -650,6 +648,11 @@ export async function registerApiRoutes(app: FastifyInstance) {
     return { settings: getMakerProjectsRootSettings() };
   });
 
+  app.post("/api/settings/maker-projects-root/confirm", async () => {
+    setAppSetting("maker_projects_root_confirmed", config.makerProjectsRoot);
+    return { settings: getMakerProjectsRootSettings() };
+  });
+
   app.put<{ Body: unknown }>("/api/settings/maker-projects-root", async (request, reply) => {
     const parsed = makerProjectsRootSchema.safeParse(request.body ?? {});
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
@@ -798,13 +801,6 @@ export async function registerApiRoutes(app: FastifyInstance) {
 
   app.get<{ Querystring: { check?: string } }>("/api/mcp/package", async (request) => {
     return { status: await getMcpPackageUpdateStatus({ checkRegistry: request.query?.check === "true" }) };
-  });
-
-  app.put<{ Body: unknown }>("/api/mcp/package/release-notes", async (request, reply) => {
-    const parsed = mcpPackageReleaseNotesSchema.safeParse(request.body ?? {});
-    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
-    const releaseNotes = saveMcpReleaseNotes(parsed.data.releaseNotes);
-    return { releaseNotes };
   });
 
   app.post<{ Body: unknown }>("/api/mcp/package/install", async (request, reply) => {

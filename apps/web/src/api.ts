@@ -415,6 +415,7 @@ export type MakerProjectsRootSettings = {
   defaultRootPath: string;
   storedRootPath?: string;
   envRootPath?: string;
+  confirmed: boolean;
   exists: boolean;
   source: "app_settings" | "env" | "default";
 };
@@ -435,6 +436,8 @@ export type McpPackageUpdateStatus = {
   lastCheckedAt?: string;
   lastInstalledAt?: string;
   releaseNotes: string;
+  releaseNotesPath: string;
+  availableVersions: string[];
   registryError?: string;
 };
 
@@ -957,18 +960,18 @@ export async function saveMakerProjectsRootSettings(rootPath: string): Promise<M
   );
 }
 
-export async function getMcpPackageStatus(check = false): Promise<{ status: McpPackageUpdateStatus }> {
-  return json<{ status: McpPackageUpdateStatus }>(await fetch(`/api/mcp/package${check ? "?check=true" : ""}`));
-}
-
-export async function saveMcpPackageReleaseNotes(releaseNotes: string): Promise<{ releaseNotes: string }> {
-  return json<{ releaseNotes: string }>(
-    await fetch("/api/mcp/package/release-notes", {
-      method: "PUT",
+export async function confirmMakerProjectsRootSettings(): Promise<MakerProjectsRootSettingsResponse> {
+  return json<MakerProjectsRootSettingsResponse>(
+    await fetch("/api/settings/maker-projects-root/confirm", {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ releaseNotes }),
+      body: "{}",
     }),
   );
+}
+
+export async function getMcpPackageStatus(check = false): Promise<{ status: McpPackageUpdateStatus }> {
+  return json<{ status: McpPackageUpdateStatus }>(await fetch(`/api/mcp/package${check ? "?check=true" : ""}`));
 }
 
 export async function installMcpPackage(packageSpec: string): Promise<McpPackageInstallResult> {

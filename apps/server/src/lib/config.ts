@@ -23,3 +23,7 @@ export const config = {
   makerEnv: process.env.TAPTAP_MCP_ENV ?? "production",
   desktopInstanceToken: process.env.TAPTAP_DESKTOP_INSTANCE_TOKEN
 };
+
+export function setMakerProjectsRoot(rootPath: string) {
+  config.makerProjectsRoot = rootPath;
+}

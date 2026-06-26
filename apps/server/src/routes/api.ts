@@ -3,8 +3,9 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
-import { config } from "../lib/config.js";
+import { config, defaultMakerProjectsRoot, setMakerProjectsRoot } from "../lib/config.js";
 import {
+  clearSelectedProject,
   createWorkflowRun,
   deleteWorkflowGraph,
   deleteWorkflowRun,
@@ -13,6 +14,7 @@ import {
   getAssetByRelativePath,
   getProject,
   getAppSettingsPreferences,
+  getAppSetting,
   getSelectedProjectId,
   getTask,
   getTool,
@@ -30,6 +32,7 @@ import {
   saveWorkflowGraph,
   saveAppSettingsPreferences,
   setSelectedProject,
+  setAppSetting,
   listCreditRecords
 } from "../lib/db.js";
 import { scanMakerProjects } from "../services/projectDiscovery.js";
@@ -65,6 +68,10 @@ const callToolSchema = z.object({
 const settingsPreferenceKeySchema = z.string().regex(/^taptap\.settings\./);
 const appSettingsPreferencesSchema = z.object({
   preferences: z.record(settingsPreferenceKeySchema, z.unknown())
+});
+
+const makerProjectsRootSchema = z.object({
+  rootPath: z.string().min(1)
 });
 
 const assetPathsSchema = z.object({
@@ -345,6 +352,19 @@ function withRuntime(project: ProjectSummary) {
   };
 }
 
+function getMakerProjectsRootSettings() {
+  const storedRoot = getAppSetting("maker_projects_root");
+  const rootPath = config.makerProjectsRoot;
+  return {
+    rootPath,
+    defaultRootPath: defaultMakerProjectsRoot,
+    storedRootPath: storedRoot,
+    envRootPath: process.env.TAPTAP_MAKER_PROJECTS_ROOT,
+    exists: fs.existsSync(rootPath),
+    source: storedRoot ? "app_settings" : process.env.TAPTAP_MAKER_PROJECTS_ROOT ? "env" : "default"
+  };
+}
+
 function readProjectConfigHealth(project: ProjectSummary) {
   const rootExists = fs.existsSync(project.rootPath);
   const configExists = fs.existsSync(project.configPath);
@@ -615,6 +635,29 @@ export async function registerApiRoutes(app: FastifyInstance) {
     const parsed = appSettingsPreferencesSchema.safeParse(request.body ?? {});
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
     return saveAppSettingsPreferences(parsed.data.preferences);
+  });
+
+  app.get("/api/settings/maker-projects-root", async () => {
+    return { settings: getMakerProjectsRootSettings() };
+  });
+
+  app.put<{ Body: unknown }>("/api/settings/maker-projects-root", async (request, reply) => {
+    const parsed = makerProjectsRootSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const nextRoot = path.resolve(parsed.data.rootPath);
+    if (!fs.existsSync(nextRoot) || !fs.statSync(nextRoot).isDirectory()) {
+      return reply.code(400).send({ error: `Maker projects root must be an existing directory: ${nextRoot}` });
+    }
+    setAppSetting("maker_projects_root", nextRoot);
+    setMakerProjectsRoot(nextRoot);
+    const projects = await scanMakerProjects(nextRoot);
+    const projectIds = new Set(projects.map((project) => project.id));
+    const storedSelectedProjectId = getSelectedProjectId();
+    const selectedProjectId = storedSelectedProjectId && projectIds.has(storedSelectedProjectId)
+      ? storedSelectedProjectId
+      : undefined;
+    if (storedSelectedProjectId && !selectedProjectId) clearSelectedProject();
+    return { settings: getMakerProjectsRootSettings(), selectedProjectId, projects: projects.map((project) => withRuntime(project)) };
   });
 
   app.get("/api/developer/frontend-diagnostics", async () => {

@@ -83,6 +83,7 @@ type Props = {
   onAssetMutationResult: (prefix: string, result: AssetMutationResponse) => void;
   onScanAssetReferences: (relativePaths: string[]) => Promise<void>;
   onRefreshProject?: () => void | Promise<void>;
+  onProjectsRootChanged?: (projects: ProjectSummary[], selectedProjectId?: string) => void;
   onNotice: (notice: string) => void;
   onCallStatusLite: () => void;
   onCallTool: (toolName: string, args: Record<string, unknown>) => Promise<unknown>;
@@ -280,6 +281,7 @@ export function WorkbenchViewport(props: Props) {
           onStopRuntime={props.onStopRuntime}
           onRefreshTools={props.onRefreshTools}
           onStatusLite={props.onCallStatusLite}
+          onProjectsRootChanged={props.onProjectsRootChanged}
           commands={props.commands}
         />
       ) : null}

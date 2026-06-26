@@ -288,9 +288,26 @@ export function setSelectedProject(projectId: string) {
   `).run(projectId, new Date().toISOString());
 }
 
+export function clearSelectedProject() {
+  sqlite.prepare("DELETE FROM app_settings WHERE key = 'selected_project_id'").run();
+}
+
 export function getSelectedProjectId(): string | undefined {
   const row = sqlite.prepare("SELECT value FROM app_settings WHERE key = 'selected_project_id'").get() as { value?: string } | undefined;
   return row?.value;
+}
+
+export function getAppSetting(key: string): string | undefined {
+  const row = sqlite.prepare("SELECT value FROM app_settings WHERE key = ?").get(key) as { value?: string } | undefined;
+  return row?.value;
+}
+
+export function setAppSetting(key: string, value: string) {
+  sqlite.prepare(`
+    INSERT INTO app_settings (key, value, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+  `).run(key, value, new Date().toISOString());
 }
 
 export function getAppSettingsPreferences(): { preferences: Record<string, unknown>; updatedAt?: string } {
@@ -334,7 +351,7 @@ export function removeProjectRecord(projectId: string) {
   sqlite.prepare("DELETE FROM projects WHERE id = ?").run(projectId);
   const selectedProjectId = getSelectedProjectId();
   if (selectedProjectId === projectId) {
-    sqlite.prepare("DELETE FROM app_settings WHERE key = 'selected_project_id'").run();
+    clearSelectedProject();
   }
 }
 

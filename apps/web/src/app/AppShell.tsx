@@ -574,6 +574,53 @@ export function AppShell() {
     }
   }
 
+  function handleProjectsRootChanged(
+    nextProjects: ProjectSummary[],
+    nextSelectedProjectId?: string,
+  ) {
+    const projectIds = new Set(nextProjects.map((project) => project.id));
+    const selectedFromResponse =
+      nextSelectedProjectId && projectIds.has(nextSelectedProjectId)
+        ? nextSelectedProjectId
+        : "";
+    const selectedFromCurrent =
+      selectedProjectId && projectIds.has(selectedProjectId)
+        ? selectedProjectId
+        : "";
+    const nextSelected = selectedFromResponse || selectedFromCurrent;
+
+    setProjects(nextProjects);
+    autoRuntimeStartedProjectRef.current = undefined;
+    assetReferenceScanCacheRef.current.clear();
+    activeReferenceScanRef.current?.controller.abort();
+    activeReferenceScanRef.current = undefined;
+
+    if (nextSelected) {
+      localStorage.setItem("taptap.selectedProjectId", nextSelected);
+      setSelectedProjectId(nextSelected);
+      setSelection(undefined);
+      void refreshProject(nextSelected);
+      if (nextSelected !== nextSelectedProjectId) {
+        void selectProject(nextSelected).catch((error) =>
+          setNotice(error instanceof Error ? error.message : String(error)),
+        );
+      }
+    } else {
+      localStorage.removeItem("taptap.selectedProjectId");
+      setSelectedProjectId("");
+      setTools([]);
+      setAssets([]);
+      setAssetTree(undefined);
+      setTasks([]);
+      setRuntime(undefined);
+      setStatusText("");
+      setSelection(undefined);
+      setRightPanelTab("status");
+    }
+
+    setNotice(`Maker 项目根目录已更新，扫描到 ${nextProjects.length} 个项目`);
+  }
+
   async function handleStartRuntime(options: { skipConfirm?: boolean } = {}) {
     if (!selectedProject) return;
     const currentRuntime = runtime ?? selectedProject.runtime;
@@ -3836,6 +3883,7 @@ export function AppShell() {
               agentPage={agentPage}
               onSelectProject={handleSelectProject}
               onScanProjects={handleScanProjects}
+              onProjectsRootChanged={handleProjectsRootChanged}
               onOpenModule={selectModule}
               activeSettingsTab={activeSettingsTab}
               sidebarCollapsed={effectiveSidebarCollapsed}

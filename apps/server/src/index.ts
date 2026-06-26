@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import { config } from "./lib/config.js";
+import { config, setMakerProjectsRoot } from "./lib/config.js";
+import { getAppSetting } from "./lib/db.js";
 import { scanMakerProjects } from "./services/projectDiscovery.js";
 import { registerApiRoutes } from "./routes/api.js";
 import { registerStaticWeb } from "./services/staticWeb.js";
@@ -37,6 +38,8 @@ await app.register(cors, { origin: true });
 await registerApiRoutes(app);
 await registerStaticWeb(app);
 
+const storedMakerProjectsRoot = getAppSetting("maker_projects_root");
+if (storedMakerProjectsRoot) setMakerProjectsRoot(storedMakerProjectsRoot);
 await scanMakerProjects();
 
 process.once("SIGINT", () => {

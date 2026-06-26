@@ -26,10 +26,12 @@ import {
   Globe,
   Code
 } from "lucide-react";
-import type { ProjectSummary, RuntimeSummary, ToolSummary } from "../../api";
+import type { MakerProjectsRootSettings, ProjectSummary, RuntimeSummary, ToolSummary } from "../../api";
 import {
   clearFrontendDiagnostics,
+  getMakerProjectsRootSettings,
   listFrontendDiagnostics,
+  saveMakerProjectsRootSettings,
   type FrontendDiagnosticEntry,
 } from "../../api";
 import { Button } from "../../components/ui/Button";
@@ -72,6 +74,7 @@ type Props = {
   onStopRuntime: () => void;
   onRefreshTools: () => void;
   onStatusLite: () => void;
+  onProjectsRootChanged?: (projects: ProjectSummary[], selectedProjectId?: string) => void;
   commands: Command[];
 };
 
@@ -127,6 +130,7 @@ export function SettingsView({
   onStopRuntime,
   onRefreshTools,
   onStatusLite,
+  onProjectsRootChanged,
   commands,
 }: Props) {
   const [prefs, setPref] = useSettingsPreferences();
@@ -137,6 +141,9 @@ export function SettingsView({
   const [serverLogEntries, setServerLogEntries] = useState<
     FrontendDiagnosticEntry[]
   >([]);
+  const [makerRootSettings, setMakerRootSettings] = useState<MakerProjectsRootSettings>();
+  const [makerRootDraft, setMakerRootDraft] = useState("");
+  const [makerRootNotice, setMakerRootNotice] = useState("");
 
   const developerLogs = formatDeveloperLogsForDisplay();
   const serverLogs = formatDiagnosticEntries(serverLogEntries);
@@ -156,6 +163,37 @@ export function SettingsView({
       unsubscribeLogs();
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getMakerProjectsRootSettings()
+      .then((response) => {
+        if (cancelled) return;
+        setMakerRootSettings(response.settings);
+        setMakerRootDraft(response.settings.rootPath);
+      })
+      .catch(() => {
+        if (!cancelled) setMakerRootNotice("无法读取 Maker 项目根目录设置");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleSaveMakerRoot = async () => {
+    const nextRoot = makerRootDraft.trim();
+    if (!nextRoot) return;
+    setMakerRootNotice("正在保存并重新扫描项目...");
+    try {
+      const response = await saveMakerProjectsRootSettings(nextRoot);
+      setMakerRootSettings(response.settings);
+      setMakerRootDraft(response.settings.rootPath);
+      if (response.projects) onProjectsRootChanged?.(response.projects, response.selectedProjectId);
+      setMakerRootNotice(`已更新 Maker 项目根目录：${response.settings.rootPath}`);
+    } catch (error) {
+      setMakerRootNotice(error instanceof Error ? error.message : String(error));
+    }
+  };
 
   const refreshServerLogs = async () => {
     try {
@@ -385,6 +423,38 @@ export function SettingsView({
               <SectionHeader title="项目偏好" icon={<FolderCog />} description="当前打开项目的相关行为。" />
               <SettingsGroup>
                 <SwitchSetting label="打开被隐藏的旧版工作区" checked={prefs.openHiddenLegacyWorkspaces} onChange={(v) => setPref("openHiddenLegacyWorkspaces", v)} />
+                <SettingContainer
+                  label="Maker 项目根目录"
+                  description={
+                    <div className="flex flex-col gap-1">
+                      <span>扫描项目和删除本地项目文件夹时都会使用该根目录作为边界。</span>
+                      <span className="font-mono text-[11px] text-text-subtle">
+                        来源：{makerRootSettings?.source ?? "-"} · 当前状态：{makerRootSettings?.exists ? "目录存在" : "目录不存在"}
+                      </span>
+                      {makerRootSettings?.envRootPath ? (
+                        <span className="font-mono text-[11px] text-text-subtle">TAPTAP_MAKER_PROJECTS_ROOT={makerRootSettings.envRootPath}</span>
+                      ) : null}
+                      {makerRootNotice ? <span className="text-[11px] text-text-subtle">{makerRootNotice}</span> : null}
+                    </div>
+                  }
+                >
+                  <div className="flex min-w-[320px] max-w-[520px] items-center gap-2">
+                    <input
+                      value={makerRootDraft}
+                      onChange={(event) => setMakerRootDraft(event.target.value)}
+                      className="h-9 min-w-0 flex-1 rounded-control border border-border bg-surface-app px-3 font-mono text-[11px] text-text outline-none focus:border-brand"
+                      placeholder={makerRootSettings?.defaultRootPath ?? "Maker projects root"}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleSaveMakerRoot()}
+                      disabled={!makerRootDraft.trim() || makerRootDraft.trim() === makerRootSettings?.rootPath}
+                    >
+                      保存
+                    </Button>
+                  </div>
+                </SettingContainer>
               </SettingsGroup>
             </div>
 

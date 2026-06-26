@@ -410,6 +410,21 @@ export type DesktopReadiness = {
   env: DesktopReadinessEnv;
 };
 
+export type MakerProjectsRootSettings = {
+  rootPath: string;
+  defaultRootPath: string;
+  storedRootPath?: string;
+  envRootPath?: string;
+  exists: boolean;
+  source: "app_settings" | "env" | "default";
+};
+
+export type MakerProjectsRootSettingsResponse = {
+  settings: MakerProjectsRootSettings;
+  selectedProjectId?: string;
+  projects?: ProjectSummary[];
+};
+
 export type ProjectHealthSummary = {
   projectId: string;
   rootPath: string;
@@ -906,6 +921,20 @@ export async function saveSettingsPreferences(preferences: Record<string, unknow
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ preferences }),
+    }),
+  );
+}
+
+export async function getMakerProjectsRootSettings(): Promise<MakerProjectsRootSettingsResponse> {
+  return json<MakerProjectsRootSettingsResponse>(await fetch("/api/settings/maker-projects-root"));
+}
+
+export async function saveMakerProjectsRootSettings(rootPath: string): Promise<MakerProjectsRootSettingsResponse> {
+  return json<MakerProjectsRootSettingsResponse>(
+    await fetch("/api/settings/maker-projects-root", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rootPath }),
     }),
   );
 }

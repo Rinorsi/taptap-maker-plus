@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { Settings, Moon, Sun, Search, Boxes, FolderOpen, Wrench, File, Activity, Minus, Square, X, Copy } from "lucide-react";
+import { Settings, Moon, Sun, Search, Boxes, FolderOpen, Wrench, File, Activity, Minus, Square, X, Copy, Power } from "lucide-react";
 import { Button } from "../ui/Button";
 import type { AssetSummary, ProjectSummary, RuntimeSummary, TaskRecord, ToolSummary } from "../../api";
 import type { WorkbenchModule } from "../../app/routes";
@@ -21,9 +21,12 @@ type Props = {
   onSelectProject: (projectId: string) => void;
   onOpenModule: (module: WorkbenchModule) => void;
   onOpenLogs: () => void;
+  onOpenTools?: () => void;
   onSelect: (selection: InspectorSelection) => void;
   appMenu?: ReactNode;
   searchFocusSignal?: number;
+  onStartRuntime?: () => void;
+  onStopRuntime?: () => void;
 };
 
 type SearchResult =
@@ -41,7 +44,7 @@ function isWindowDragTarget(target: EventTarget | null) {
   );
 }
 
-export function TopBar({ project, runtime, notice, toolCount, theme, projects = [], tools = [], assets = [], tasks = [], onThemeToggle, onOpenSettings, onSelectProject, onOpenModule, onOpenLogs, onSelect, appMenu, searchFocusSignal = 0 }: Props) {
+export function TopBar({ project, runtime, notice, toolCount, theme, projects = [], tools = [], assets = [], tasks = [], onThemeToggle, onOpenSettings, onSelectProject, onOpenModule, onOpenLogs, onOpenTools, onSelect, appMenu, searchFocusSignal = 0, onStartRuntime, onStopRuntime }: Props) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -183,10 +186,38 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
       </div>
 
       <div className="flex items-center gap-2 justify-end shrink-0" data-no-window-drag>
-        <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-pill bg-surface-muted border border-border-soft text-xs whitespace-nowrap font-medium mr-2 text-text-subtle">
+        <button
+          className={cn(
+            "hidden sm:flex items-center justify-center p-1.5 rounded-full border transition-all cursor-pointer",
+            runtimeStatus === "READY"
+              ? "bg-brand/10 border-brand/20 text-brand hover:bg-brand/20 shadow-[0_0_8px_rgba(0,217,197,0.1)]"
+              : "bg-surface-muted border-border-soft text-text-muted hover:bg-surface-raised"
+          )}
+          onClick={() => {
+            if (runtimeStatus === "READY") {
+              onStopRuntime?.();
+            } else {
+              onStartRuntime?.();
+            }
+          }}
+          title={runtimeStatus === "READY" ? "停止 MCP 服务" : "启动 MCP 服务"}
+        >
+          <Power className="w-[18px] h-[18px]" />
+        </button>
+
+        <button
+          className={cn(
+            "hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-pill border text-xs whitespace-nowrap font-medium mr-2 transition-all cursor-pointer",
+            runtimeStatus === "READY"
+              ? "bg-brand/10 border-brand/20 text-brand hover:bg-brand/20 shadow-[0_0_8px_rgba(0,217,197,0.1)]"
+              : "bg-surface-muted border-border-soft text-text-subtle hover:bg-surface-raised"
+          )}
+          onClick={() => onOpenTools?.()}
+          title="MCP 工具箱"
+        >
           <Boxes className="w-3.5 h-3.5" />
           <span>Tools {toolCount}</span>
-        </div>
+        </button>
         
         <Button variant="ghost" size="icon" onClick={onThemeToggle} title="切换主题">
           <ThemeToggleIcon theme={theme} />

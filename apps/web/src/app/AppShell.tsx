@@ -464,23 +464,32 @@ export function AppShell() {
     const confirmed = await requestConfirm({
       title: isRestart ? "重启 MCP Runtime" : "启动 MCP Runtime",
       body: (
-        <div className="flex flex-col gap-2">
-          <p>
+        <div className="flex flex-col gap-4 mt-1">
+          <p className="text-sm text-text-subtle">
             {isRestart
-              ? "将先停止当前 MCP runtime，再重新建立连接并刷新 tools/list。"
-              : "将为当前项目启动 MCP runtime，并通过 Fastify 调用既有启动链路。"}
+              ? "将先停止当前 MCP runtime，再重新建立连接并刷新工具列表。"
+              : "将为当前项目启动 MCP runtime，并通过后台调用既有启动链路。"}
           </p>
-          <code className="rounded bg-surface-muted px-2 py-1 text-xs text-text">
-            {selectedProject.name}
-          </code>
-          <code className="rounded bg-surface-muted px-2 py-1 text-xs text-text">
-            {selectedProject.rootPath}
-          </code>
-          {isRestart ? (
-            <code className="rounded bg-surface-muted px-2 py-1 text-xs text-text">
-              PID: {currentRuntime?.processId ?? "-"}
-            </code>
-          ) : null}
+          <div className="flex flex-col gap-3 rounded-xl bg-surface-panel/50 p-4 border border-border-soft">
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-0.5">项目名称</span>
+              <span className="text-sm font-bold text-text">{selectedProject.name}</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-0.5">项目路径</span>
+              <span className="text-xs font-mono text-text-subtle truncate" title={selectedProject.rootPath}>
+                {selectedProject.rootPath}
+              </span>
+            </div>
+            {isRestart && currentRuntime?.processId ? (
+              <div className="flex flex-col">
+                <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-0.5">当前进程 PID</span>
+                <span className="text-xs font-mono text-brand-strong">
+                  {currentRuntime.processId}
+                </span>
+              </div>
+            ) : null}
+          </div>
         </div>
       ),
       confirmLabel: isRestart ? "重启 Runtime" : "启动 Runtime",
@@ -575,17 +584,26 @@ export function AppShell() {
     const confirmed = await requestConfirm({
       title: "停止 MCP Runtime",
       body: (
-        <div className="flex flex-col gap-2">
-          <p>将停止当前项目的 MCP runtime。正在运行的本地 MCP 进程会被关闭。</p>
-          <code className="rounded bg-surface-muted px-2 py-1 text-xs text-text">
-            {selectedProject.name}
-          </code>
-          <code className="rounded bg-surface-muted px-2 py-1 text-xs text-text">
-            {selectedProject.rootPath}
-          </code>
-          <code className="rounded bg-surface-muted px-2 py-1 text-xs text-text">
-            PID: {runtimeView?.processId ?? "-"}
-          </code>
+        <div className="flex flex-col gap-4 mt-1">
+          <p className="text-sm text-text-subtle">
+            将停止当前项目的 MCP runtime。正在运行的本地 MCP 进程会被关闭。
+          </p>
+          <div className="flex flex-col gap-3 rounded-xl bg-surface-panel/50 p-4 border border-border-soft">
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-0.5">项目名称</span>
+              <span className="text-sm font-bold text-text">{selectedProject.name}</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-0.5">项目路径</span>
+              <span className="text-xs font-mono text-text-subtle truncate" title={selectedProject.rootPath}>
+                {selectedProject.rootPath}
+              </span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-0.5">当前进程 PID</span>
+              <span className="text-xs font-mono text-brand-strong">{runtimeView?.processId ?? "-"}</span>
+            </div>
+          </div>
         </div>
       ),
       confirmLabel: "停止 Runtime",
@@ -1447,11 +1465,22 @@ export function AppShell() {
       isOpen: true,
       title: "移除项目记录",
       body: (
-        <div className="flex flex-col gap-2">
-          <p>只从本地工作台移除这条记录，不删除项目文件夹。</p>
-          <code className="rounded bg-surface-muted px-2 py-1 text-xs text-text">
-            {project.rootPath}
-          </code>
+        <div className="flex flex-col gap-4 mt-1">
+          <p className="text-sm text-text-subtle">
+            只从本地工作台移除这条记录，不删除项目文件夹。
+          </p>
+          <div className="flex flex-col gap-3 rounded-xl bg-surface-panel/50 p-4 border border-border-soft">
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-0.5">项目名称</span>
+              <span className="text-sm font-bold text-text">{project.name}</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-0.5">项目路径</span>
+              <span className="text-xs font-mono text-text-subtle truncate" title={project.rootPath}>
+                {project.rootPath}
+              </span>
+            </div>
+          </div>
         </div>
       ),
       confirmLabel: "移除记录",
@@ -1480,11 +1509,22 @@ export function AppShell() {
       isOpen: true,
       title: "删除本地项目文件夹",
       body: (
-        <div className="flex flex-col gap-2">
-          <p>将删除下面这个本地文件夹，并同时移除工作台记录。此操作不可撤销。</p>
-          <code className="rounded bg-red-500/10 px-2 py-1 text-xs text-red-600">
-            {project.rootPath}
-          </code>
+        <div className="flex flex-col gap-4 mt-1">
+          <p className="text-sm text-text-subtle">
+            将删除下面这个本地文件夹，并同时移除工作台记录。此操作不可撤销。
+          </p>
+          <div className="flex flex-col gap-3 rounded-xl bg-red-500/5 p-4 border border-red-500/20">
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold text-red-500/70 uppercase tracking-wider mb-0.5">项目名称</span>
+              <span className="text-sm font-bold text-red-500">{project.name}</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold text-red-500/70 uppercase tracking-wider mb-0.5">项目路径</span>
+              <span className="text-xs font-mono text-red-500/80 truncate" title={project.rootPath}>
+                {project.rootPath}
+              </span>
+            </div>
+          </div>
         </div>
       ),
       confirmLabel: "删除本地文件夹",
@@ -2647,7 +2687,19 @@ export function AppShell() {
           if (context.objectType !== "task") return;
           const confirmed = await requestConfirm({
             title: "确认删除任务记录？",
-            body: context.taskId,
+            body: (
+              <div className="flex flex-col gap-4 mt-1">
+                <p className="text-sm text-text-subtle">
+                  从当前前端列表移除这条任务记录。
+                </p>
+                <div className="flex flex-col gap-3 rounded-xl bg-red-500/5 p-4 border border-red-500/20">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-red-500/70 uppercase tracking-wider mb-0.5">任务 ID</span>
+                    <span className="text-xs font-mono text-red-500/80 truncate">{context.taskId}</span>
+                  </div>
+                </div>
+              </div>
+            ),
             confirmLabel: "删除",
             danger: true,
           });
@@ -3542,9 +3594,15 @@ export function AppShell() {
             setRightPanelTab("logs");
             setInspectorMinimized(false);
           }}
+          onOpenTools={() => {
+            setRightPanelTab("tools");
+            setInspectorMinimized(false);
+          }}
           onSelect={handleSelectSelection}
           appMenu={<AppMenuBar context={commandContext} />}
           searchFocusSignal={searchFocusSignal}
+          onStartRuntime={handleStartRuntime}
+          onStopRuntime={handleStopRuntime}
         />
 
         <div

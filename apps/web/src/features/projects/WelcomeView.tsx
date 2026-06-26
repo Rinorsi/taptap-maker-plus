@@ -4,6 +4,7 @@ import {
   Folder,
   FolderSync,
   Image as ImageIcon,
+  MoreHorizontal,
   Music,
   Play,
   RefreshCw,
@@ -78,42 +79,39 @@ export function WelcomeView({
   ).length;
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden text-text">
-      <div className="flex min-h-0 w-full flex-1 flex-col gap-6 p-6 lg:flex-row lg:p-8">
-        <section className="flex min-w-0 flex-1 flex-col">
-          <div className="mb-6 shrink-0">
-            <div className="mb-3 flex items-center gap-2 select-none">
-              <img src="/files.png" alt="Plus" className="h-10 rounded-lg object-contain" />
-              <img src="/logo-text.png" alt="TapTap Maker Plus" className="h-9 object-contain" />
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h1 className="m-0 text-lg font-bold text-text">项目首页</h1>
-                <p className="mt-1 text-xs font-medium text-text-subtle">
-                  本地 MCP 工作台项目状态与入口
-                </p>
-              </div>
-              <button
-                onClick={onScanProjects}
-                disabled={busy}
-                className="inline-flex h-8 items-center gap-2 rounded-control border border-border bg-surface-panel px-3 text-xs font-semibold text-text hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-50"
-                type="button"
-              >
-                <FolderSync className="h-3.5 w-3.5" />
-                扫描项目
-              </button>
+    <div className="relative flex h-full w-full items-center justify-center overflow-y-auto text-text">
+      
+      <div className="relative z-10 mx-auto flex w-full max-w-5xl flex-col gap-12 p-8 lg:flex-row lg:items-center lg:p-12 xl:p-16">
+        {/* Left Column (Start & Recent) */}
+        <section className="flex w-full shrink-0 flex-col lg:w-[320px]">
+          <div className="mb-10">
+            <div className="mb-4 flex items-center gap-3 select-none">
+              <img src="/files.png" alt="Plus" className="h-10 rounded-xl object-contain shadow-sm" />
+              <img src="/logo-text.png" alt="TapTap Maker Plus" className="h-8 object-contain" />
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto pr-2">
-            {projects.length === 0 ? (
-              <div className="flex h-full min-h-[280px] flex-col items-center justify-center rounded-large border border-dashed border-border bg-surface-panel/60 text-center">
-                <Folder className="mb-4 h-12 w-12 text-text-muted opacity-60" />
-                <p className="mb-1 text-sm font-bold text-text">暂无项目记录</p>
-                <p className="text-xs text-text-subtle">扫描本地 Maker 项目后会显示真实状态。</p>
+          <div className="mb-8">
+            <h2 className="mb-3 text-xs font-bold text-text-muted tracking-wider">快速开始</h2>
+            <button
+              onClick={onScanProjects}
+              disabled={busy}
+              className="group flex w-full items-center gap-3 rounded-lg py-2 text-left text-sm font-medium text-text transition-colors hover:text-brand disabled:cursor-not-allowed disabled:opacity-50"
+              type="button"
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded bg-surface-panel text-text-muted transition-colors group-hover:bg-brand/10 group-hover:text-brand">
+                <FolderSync className="h-4 w-4" />
               </div>
+              扫描本地项目...
+            </button>
+          </div>
+
+          <div>
+            <h2 className="mb-3 text-xs font-bold text-text-muted tracking-wider">最近项目</h2>
+            {projects.length === 0 ? (
+              <p className="text-sm text-text-subtle">没有最近项目</p>
             ) : (
-              <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              <div className="flex flex-col gap-1">
                 {projects.map((project) => (
                   <ProjectCard
                     key={project.id}
@@ -129,78 +127,100 @@ export function WelcomeView({
           </div>
         </section>
 
-        <aside className="flex w-full shrink-0 flex-col gap-4 lg:w-[340px]">
-          <section className="rounded-large border border-border bg-surface-panel shadow-sm">
-            <div className="border-b border-border-soft px-4 py-3">
-              <h2 className="m-0 text-sm font-bold text-text">当前项目</h2>
-              <p className="mt-1 truncate text-xs text-text-subtle" title={selectedProject?.rootPath}>
-                {selectedProject?.name ?? "未选择项目"}
-              </p>
+        {/* Right Column (Dashboard) */}
+        <section className="flex min-w-0 flex-1 flex-col pt-2 lg:pt-0">
+          {!selectedProject ? (
+            <div className="flex h-64 flex-col items-center justify-center text-center opacity-60">
+              <img src="/logo.png" alt="Logo" className="mb-4 h-16 w-16 object-contain opacity-20 grayscale" />
+              <p className="text-sm text-text-muted">请从左侧选择一个项目开始工作</p>
             </div>
-            <div className="grid grid-cols-2 gap-2 p-3">
-              {quickEntries.map((entry) => {
-                const Icon = entry.icon;
-                return (
+          ) : (
+            <div className="flex flex-col gap-10">
+              {/* Hero Header */}
+              <div className="flex flex-col gap-4">
+                <div className="min-w-0">
+                  <h1 className="m-0 text-3xl font-bold text-text truncate">{selectedProject.name}</h1>
+                  <div className="mt-2 flex items-center gap-2 text-sm text-text-subtle font-mono">
+                    <Folder className="h-4 w-4 opacity-70" />
+                    <span className="truncate">{selectedProject.rootPath}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 mt-2">
                   <button
-                    key={entry.module}
                     type="button"
-                    disabled={!selectedProject}
-                    onClick={() => onOpenModule(entry.module)}
-                    className="flex h-20 flex-col items-start justify-between rounded-control border border-border-soft bg-surface-app p-3 text-left text-xs font-semibold text-text hover:border-brand/40 hover:bg-brand/5 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={busy}
+                    onClick={onStartRuntime}
+                    className="inline-flex h-9 items-center justify-center gap-2 rounded bg-brand px-5 text-sm font-bold text-black hover:brightness-110 transition-all disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <Icon className="h-4 w-4 text-brand-strong" />
-                    <span>{entry.label}</span>
+                    <Play className="h-4 w-4 fill-current" />
+                    启动引擎
                   </button>
-                );
-              })}
-            </div>
-          </section>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void onRefreshProject?.()}
+                    className="inline-flex h-9 items-center justify-center gap-2 rounded bg-surface-panel px-4 text-sm font-medium text-text hover:bg-surface-muted transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <RefreshCw className="h-4 w-4 text-text-muted" />
+                    同步状态
+                  </button>
+                </div>
+              </div>
 
-          <section className="rounded-large border border-border bg-surface-panel shadow-sm">
-            <div className="flex items-center justify-between border-b border-border-soft px-4 py-3">
-              <h2 className="m-0 text-sm font-bold text-text">状态摘要</h2>
-              <button
-                type="button"
-                disabled={!selectedProject || busy}
-                onClick={() => void onRefreshProject?.()}
-                className="inline-flex h-7 items-center gap-1.5 rounded-control px-2 text-xs font-semibold text-text-muted hover:bg-surface-muted hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                刷新
-              </button>
+              {/* Metrics */}
+              <div>
+                <h2 className="mb-4 text-xs font-bold text-text-muted tracking-wider">环境状态</h2>
+                <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+                  <MetricCard label="引擎状态" value={runtime?.status ?? selectedProject?.runtime?.status ?? "idle"} />
+                  <MetricCard
+                    label="运行任务"
+                    value={
+                      <span className="flex items-baseline gap-1.5" title={`总计: ${selectedProjectTasks.length}, 运行中: ${runningTaskCount}`}>
+                        <span>{selectedProjectTasks.length}</span>
+                        {runningTaskCount > 0 ? (
+                          <span className="text-xs text-brand-strong font-sans opacity-90">({runningTaskCount} 运行中)</span>
+                        ) : null}
+                      </span>
+                    }
+                  />
+                  <MetricCard label="资产数量" value={`${selectedProjectAssets.length}`} />
+                  <MetricCard label="工具数量" value={`${tools.length || runtime?.toolCount || selectedProject?.runtime?.toolCount || 0}`} />
+                </div>
+              </div>
+
+              {/* Launchpad Grid */}
+              <div>
+                <h2 className="mb-4 text-xs font-bold text-text-muted tracking-wider">工作室与工作流</h2>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {quickEntries.map((entry) => {
+                    const Icon = entry.icon;
+                    return (
+                      <button
+                        key={entry.module}
+                        type="button"
+                        onClick={() => onOpenModule(entry.module)}
+                        className="group flex items-center gap-4 rounded-xl border border-transparent p-4 text-left transition-all hover:bg-surface-panel hover:border-border-soft"
+                      >
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-surface-panel text-text-muted transition-colors group-hover:bg-brand/10 group-hover:text-brand">
+                          <Icon className="h-6 w-6" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <span className="block text-sm font-bold text-text group-hover:text-brand-strong transition-colors">{entry.label}</span>
+                          <span className="mt-0.5 block text-[11px] text-text-subtle truncate">打开模块</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
-            <div className="p-2">
-              <SummaryRow label="Runtime" value={runtime?.status ?? selectedProject?.runtime?.status ?? "idle"} />
-              <SummaryRow label="tools/list" value={`${tools.length || runtime?.toolCount || selectedProject?.runtime?.toolCount || 0} 个工具`} />
-              <SummaryRow label="任务" value={`${selectedProjectTasks.length} 条，运行 ${runningTaskCount}，失败 ${failedTaskCount}`} />
-              <SummaryRow label="素材索引" value={`${selectedProjectAssets.length} 个文件`} />
-              <SummaryRow label="last scan" value={latestAssetScanAt ?? selectedProject?.lastScannedAt ?? "-"} />
-            </div>
-            <div className="flex gap-2 border-t border-border-soft p-3">
-              <button
-                type="button"
-                disabled={!selectedProject || busy}
-                onClick={onStartRuntime}
-                className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-control bg-brand px-3 text-xs font-semibold text-black hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Play className="h-3.5 w-3.5" />
-                启动 Runtime
-              </button>
-              <button
-                type="button"
-                disabled={!selectedProject || busy}
-                onClick={onScanAssets}
-                className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-control border border-border bg-surface-app px-3 text-xs font-semibold text-text hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Scan className="h-3.5 w-3.5" />
-                扫描素材
-              </button>
-            </div>
-          </section>
-        </aside>
+          )}
+        </section>
       </div>
-      <div className="absolute bottom-4 right-6 flex items-center gap-2 opacity-30 select-none pointer-events-none">
-        <span className="text-[10px] font-mono font-bold uppercase tracking-[0.15em] text-text">
+      
+      {/* Footer Version */}
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 opacity-20 pointer-events-none select-none">
+        <span className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-text">
           Maker Plus v0.1.0-alpha
         </span>
       </div>
@@ -221,105 +241,50 @@ function ProjectCard({
   onRemoveProjectRecord: (projectId: string) => void;
   onDeleteProjectLocalFolder: (projectId: string) => void;
 }) {
-  const runtimeStatus = project.runtime?.status ?? "idle";
-  const toolsCount = project.runtime?.toolCount ?? project.toolCount ?? 0;
   return (
     <article
       className={[
-        "group rounded-large border bg-surface-panel p-4 shadow-sm transition-colors",
-        selected ? "border-brand/45" : "border-border hover:border-brand/30",
+        "group relative flex items-center rounded-lg px-3 py-2 transition-colors",
+        selected 
+          ? "bg-surface-panel text-brand-strong before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-r before:bg-brand" 
+          : "text-text hover:bg-surface-panel/50",
       ].join(" ")}
     >
       <button
         type="button"
         onClick={() => onSelectProject(project.id)}
-        className="flex w-full items-start gap-3 text-left"
+        className="flex w-full min-w-0 flex-1 items-center gap-3 text-left"
       >
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-surface-muted ring-1 ring-border-soft">
-          <span className="text-sm font-bold text-text-muted">
-            {project.name.charAt(0).toUpperCase()}
+        <div className="min-w-0 flex-1 flex flex-col">
+          <span className="truncate text-[13px] font-bold">
+            {project.name}
+          </span>
+          <span className="truncate text-[11px] opacity-60 font-mono mt-0.5" title={project.rootPath}>
+            {project.rootPath}
           </span>
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <strong className="min-w-0 truncate text-sm font-bold text-text">{project.name}</strong>
-            {selected ? (
-              <span className="shrink-0 rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-bold text-brand-strong">
-                当前
-              </span>
-            ) : null}
-          </div>
-          <p className="mt-1 truncate font-mono text-[11px] text-text-muted" title={project.rootPath}>
-            {project.rootPath}
-          </p>
-        </div>
-        <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-text-muted" />
       </button>
 
-      <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
-        <StatusPill label="project_id" value={project.makerProjectId} />
-        <StatusPill label="config" value={project.configExists ? "present" : "missing"} tone={project.configExists ? "ok" : "bad"} />
-        <StatusPill label="runtime" value={runtimeStatus} tone={runtimeStatus === "ready" ? "ok" : runtimeStatus === "error" ? "bad" : "neutral"} />
-        <StatusPill label="tools" value={String(toolsCount)} />
-        <StatusPill label="last scan" value={project.lastScannedAt ?? "-"} wide />
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-2 border-t border-border-soft pt-3">
+      {/* Hover Actions */}
+      <div className="ml-2 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
         <button
           type="button"
-          onClick={() => onRemoveProjectRecord(project.id)}
-          className="inline-flex h-7 items-center gap-1.5 rounded-control border border-border bg-surface-app px-2.5 text-[11px] font-semibold text-text-muted hover:bg-surface-muted hover:text-text"
+          title="移除记录"
+          onClick={(e) => { e.stopPropagation(); onRemoveProjectRecord(project.id); }}
+          className="p-1.5 text-text-muted hover:text-text hover:bg-surface-muted rounded transition-colors"
         >
           <XCircle className="h-3.5 w-3.5" />
-          移除记录
-        </button>
-        <button
-          type="button"
-          onClick={() => onDeleteProjectLocalFolder(project.id)}
-          className="inline-flex h-7 items-center gap-1.5 rounded-control border border-red-500/20 bg-red-500/5 px-2.5 text-[11px] font-semibold text-red-600 hover:bg-red-500/10"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-          删除本地文件夹
         </button>
       </div>
     </article>
   );
 }
 
-function StatusPill({
-  label,
-  value,
-  tone = "neutral",
-  wide = false,
-}: {
-  label: string;
-  value: string;
-  tone?: "neutral" | "ok" | "bad";
-  wide?: boolean;
-}) {
-  const toneClass =
-    tone === "ok"
-      ? "text-emerald-600"
-      : tone === "bad"
-        ? "text-red-600"
-        : "text-text";
+function MetricCard({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className={["min-w-0 rounded-control bg-surface-app px-2 py-1.5", wide ? "col-span-2" : ""].join(" ")}>
-      <div className="text-[10px] font-semibold uppercase text-text-subtle">{label}</div>
-      <div className={`truncate font-mono text-[11px] font-semibold ${toneClass}`} title={value}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function SummaryRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-control px-3 py-2 hover:bg-surface-muted">
-      <span className="text-xs font-semibold text-text-subtle">{label}</span>
-      <strong className="min-w-0 truncate text-right text-xs font-semibold text-text" title={value}>
-        {value}
-      </strong>
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[11px] font-bold text-text-muted">{label}</span>
+      <strong className="text-lg font-mono font-bold text-text truncate" title={typeof value === 'string' ? value : undefined}>{value}</strong>
     </div>
   );
 }

@@ -3,7 +3,8 @@ import {
   ArrowLeft,
   Info, Cpu, Terminal, Play, RefreshCw, Activity, 
   Search, Loader2,
-  FileJson, PanelRightClose, Copy, Trash2, AlertCircle, AlertTriangle, ListChecks, Download
+  FileJson, PanelRightClose, Copy, Trash2, AlertCircle, AlertTriangle, ListChecks, Download, Wrench,
+  Box, Film, Image as ImageIcon, Package, CheckCircle2, Clock, Music
 } from "lucide-react";
 import { assetPreviewUrl, getAgentContext, getBuildLogs, getDesktopReadiness, openLocalAssetPath, type AgentContextSnapshot, type AssetSummary, type DesktopReadiness, type ProjectBuildLogsSummary, type ProjectLogFileSummary, type ProjectSummary, type TaskRecord, type ToolSummary } from "../../api";
 import type { AssetReferenceScanResult } from "../../api";
@@ -229,12 +230,6 @@ export function AgentInspectorPanel({
           icon={<Cpu className="w-5 h-5" />}
           label="MCP 工具箱 (MCP Tools)"
         />
-        <TabIconButton 
-          active={activeTab === "gameLogs" && !minimized}
-          onClick={() => handleTabClick("gameLogs")}
-          icon={<Terminal className="w-5 h-5" />}
-          label="游戏运行日志"
-        />
         <TabIconButton
           active={activeTab === "logs" && !minimized} 
           onClick={() => handleTabClick("logs")} 
@@ -248,6 +243,12 @@ export function AgentInspectorPanel({
           icon={<AlertTriangle className="w-5 h-5" />}
           label="错误详情"
           badgeCount={tasks.filter(t => t.status === "failed").length}
+        />
+        <TabIconButton 
+          active={activeTab === "gameLogs" && !minimized}
+          onClick={() => handleTabClick("gameLogs")}
+          icon={<Terminal className="w-5 h-5" />}
+          label="游戏运行日志"
         />
       </div>
 
@@ -290,7 +291,7 @@ export function AgentInspectorPanel({
           {/* Body content based on tab */}
           <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
             {activeTab === "status" && (
-              <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-3.5 scrollbar-thin">
+              <div className="flex-1 overflow-y-auto pr-1 flex min-w-0 flex-col gap-3.5 scrollbar-thin">
                 {selectedReferenceReport ? (
                   <AssetReferenceReportView report={selectedReferenceReport} />
                 ) : currentStatusSelection?.type === "asset" ? (
@@ -453,7 +454,7 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
   }
 
   return (
-    <div className="flex flex-col gap-2.5">
+    <div className="flex min-w-0 flex-col gap-2.5">
       <div className={cn("rounded-panel border p-3", ready ? "border-brand/25 bg-brand/5" : runtimeStatus === "error" ? "border-[#b03939]/25 bg-[#b03939]/5" : "border-border-soft bg-surface-raised")}>
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="min-w-0">
@@ -582,16 +583,13 @@ function RuntimeLogSnapshot({
   const runtimeLogJson = formatRuntimeLogTailJson(runtimeTailLines, runtime.stateParseError);
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col overflow-hidden border border-border-soft bg-surface-raised">
-      <div className="shrink-0 border-b border-border-soft bg-surface-muted/20 px-3 py-2">
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-          <strong className="min-w-0 truncate text-[11px] text-text-muted">Runtime / build 日志摘要</strong>
-          <span className="min-w-0 truncate text-right font-mono text-[10px] text-text-subtle" title={buildLogs.generatedAt}>
-            {formatDateTime(buildLogs.generatedAt)}
-          </span>
-        </div>
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto pr-1 scrollbar-thin">
+      <div className="flex flex-col pb-3 pt-1 border-b border-border-soft px-1 shrink-0">
+        <span className="block truncate font-mono text-xs text-text-muted">
+          生成时间: {formatDateTime(buildLogs.generatedAt)}
+        </span>
       </div>
-      <div className="shrink-0 divide-y divide-border-soft border-b border-border-soft">
+      <div className="flex flex-col divide-y divide-border-soft border-b border-border-soft shrink-0">
         <RuntimeLogFileRow projectId={projectId} label="state.json" file={runtime.stateFile} />
         <RuntimeLogFileRow projectId={projectId} label="runtime.log" file={runtime.runtimeLog} />
         <RuntimeLogFileRow projectId={projectId} label="watcher.out.log" file={runtime.watcherOut} />
@@ -658,7 +656,7 @@ function RuntimeLogSnapshot({
           复制 runtime 摘要
         </Button>
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -681,20 +679,20 @@ function RuntimeLogFileRow({
 
   return (
     <div
-      className="grid min-w-0 grid-cols-[64px_minmax(0,1fr)] items-center gap-2 px-2 py-1.5 text-[10px] transition-colors hover:bg-surface-muted/30"
+      className="flex items-center justify-between gap-3 px-3 py-2.5 bg-transparent hover:bg-surface-app/50 transition-colors"
       onDoubleClick={() => void handleOpen()}
       title={canOpen ? `${title} (双击打开)` : title}
     >
-      <span className="shrink-0 text-text-subtle">{label}</span>
+      <span className="text-xs font-semibold text-text-subtle shrink-0">{label}</span>
       <button
         type="button"
         disabled={!canOpen}
         onClick={() => void handleOpen()}
-        className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-left font-mono font-semibold text-text-muted transition-colors enabled:hover:bg-surface-raised enabled:hover:text-text disabled:cursor-default disabled:opacity-70"
+        className="flex min-w-0 items-center gap-1.5 rounded text-left font-mono font-semibold text-text-muted transition-colors enabled:hover:text-text disabled:cursor-default disabled:opacity-70"
         title={canOpen ? `打开 ${file?.relativePath}` : title}
       >
         <FileJson className="h-3.5 w-3.5 shrink-0 text-brand-strong" />
-        <span className="min-w-0 truncate">{file?.relativePath ?? "-"}</span>
+        <span className="min-w-0 truncate text-[11px]">{file?.relativePath ?? "-"}</span>
       </button>
     </div>
   );
@@ -729,12 +727,12 @@ function formatLevelCounts(levelCounts: Record<string, number>) {
 function InfoRowCompact({ label, value }: { label: string; value: string }) {
   return (
     <div
-      className="grid min-w-0 cursor-pointer grid-cols-[78px_minmax(0,1fr)] items-center gap-2 rounded px-1 py-0.5 text-[10px] transition-colors hover:bg-surface-muted/30"
+      className="grid min-w-0 grid-cols-[80px_minmax(0,1fr)] items-center gap-3 px-3 py-2 bg-transparent hover:bg-surface-app/50 transition-colors cursor-pointer"
       onDoubleClick={() => void copyText(value, { successMessage: "已复制" })}
       title={`${value} (双击复制)`}
     >
-      <span className="shrink-0 text-text-subtle">{label}</span>
-      <strong className="min-w-0 truncate text-right font-mono font-semibold text-text-muted">{value}</strong>
+      <span className="text-xs font-semibold text-text-subtle shrink-0">{label}</span>
+      <strong className="text-[12px] font-semibold text-text-muted min-w-0 truncate text-right">{value}</strong>
     </div>
   );
 }
@@ -743,20 +741,20 @@ function ToolInspector({ tool }: { tool: ToolSummary }) {
   const display = getToolDisplay(tool);
   const [descriptionMode, setDescriptionMode] = useState<"translated" | "original">("translated");
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto pr-1 scrollbar-thin">
-      <div className="rounded-panel border border-border-soft bg-surface-raised p-3">
-        <strong className="block truncate text-sm text-text">{display.title}</strong>
-        <span className="mt-1 block truncate font-mono text-[10px] text-text-subtle">{tool.name}</span>
-        <p className="m-0 mt-2 text-[11px] leading-relaxed text-text-muted">{display.summary}</p>
+    <div className="flex h-full min-h-0 flex-col gap-1 overflow-y-auto pr-1 scrollbar-thin">
+      <div className="flex flex-col gap-1 pb-4 pt-2 border-b border-border-soft px-1">
+        <strong className="block truncate text-base text-text">{display.title}</strong>
+        <span className="block truncate font-mono text-[11px] text-text-subtle">{tool.name}</span>
+        <p className="m-0 mt-3 text-[12px] leading-relaxed text-text-muted">{display.summary}</p>
       </div>
-      <div className="rounded-panel border border-border-soft bg-surface-raised divide-y divide-border-soft overflow-hidden">
+      <div className="flex flex-col divide-y divide-border-soft border-b border-border-soft">
         <InfoRow label="类别" value={getToolCategoryLabel(tool.category)} />
         <InfoRow label="必填字段" value={tool.required.length ? tool.required.join(", ") : "-"} />
       </div>
       {tool.description && (
-        <section className="rounded-panel border border-border-soft bg-surface-raised p-3">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <span className="text-[10px] font-bold uppercase tracking-wide text-text-subtle">工具描述</span>
+        <section className="flex flex-col gap-3 py-4 border-b border-border-soft px-1">
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-wide text-text-subtle">工具描述</span>
             <div className="flex shrink-0 rounded-control border border-border-soft bg-surface-muted p-0.5">
               <button
                 type="button"
@@ -777,9 +775,9 @@ function ToolInspector({ tool }: { tool: ToolSummary }) {
           <MarkdownDescription value={descriptionMode === "translated" ? display.translatedDescription : tool.description} />
         </section>
       )}
-      <div className="mt-1 flex shrink-0 flex-col">
-        <span className="flex items-center gap-1.5 text-[10px] font-bold text-text-subtle mb-2 uppercase tracking-wide">
-          <FileJson className="w-3.5 h-3.5" />
+      <div className="mt-3 flex shrink-0 flex-col px-1 pb-4">
+        <span className="mb-3 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-text-subtle">
+          <FileJson className="h-4 w-4" />
           输入 Schema
         </span>
         <CodeEditorPanel
@@ -1133,7 +1131,7 @@ function ProjectInspector({ project }: { project: ProjectSummary }) {
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div
-      className="flex items-center justify-between gap-3 px-3 py-2.5 bg-transparent hover:bg-surface-app/50 transition-colors cursor-pointer"
+      className="grid min-w-0 grid-cols-[100px_minmax(0,1fr)] items-center gap-3 px-3 py-2 bg-transparent hover:bg-surface-app/50 transition-colors cursor-pointer"
       onDoubleClick={() => void copyText(value, { successMessage: "已复制" })}
       title={`${value} (双击复制)`}
     >
@@ -1144,16 +1142,48 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 }
 
 // Sub Tab component: MCP Tools
+function getToolCategoryIcon(category: string) {
+  const cat = category.toLowerCase();
+  if (cat.includes("image") || cat.includes("图片")) return <ImageIcon className="h-4 w-4" />;
+  if (cat.includes("3d") || cat.includes("model")) return <Box className="h-4 w-4" />;
+  if (cat.includes("video") || cat.includes("视频") || cat.includes("film")) return <Film className="h-4 w-4" />;
+  if (cat.includes("audio") || cat.includes("music") || cat.includes("音频") || cat.includes("音乐")) return <Music className="h-4 w-4" />;
+  if (cat.includes("status") || cat.includes("状态") || cat.includes("health")) return <Activity className="h-4 w-4" />;
+  if (cat.includes("build") || cat.includes("构建")) return <Package className="h-4 w-4" />;
+  return <Wrench className="h-4 w-4" />;
+}
+
+function getCategoryWeight(category: string) {
+  const cat = category.toLowerCase();
+  if (cat.includes("status") || cat.includes("状态") || cat.includes("health")) return 1;
+  if (cat.includes("build") || cat.includes("构建")) return 2;
+  if (cat.includes("image") || cat.includes("图片")) return 3;
+  if (cat.includes("video") || cat.includes("视频") || cat.includes("film")) return 4;
+  if (cat.includes("audio") || cat.includes("music") || cat.includes("音频") || cat.includes("音乐")) return 5;
+  return 99;
+}
+
 function ToolsTab({ tools, selectedTool, onSelectTool }: { tools: ToolSummary[]; selectedTool?: ToolSummary; onSelectTool: (tool?: ToolSummary) => void }) {
   const [query, setQuery] = useState("");
   const filteredTools = useMemo(() => {
     const needle = query.toLowerCase();
-    return tools.filter((tool) => {
+    const filtered = tools.filter((tool) => {
       const display = getToolDisplay(tool);
       return tool.name.toLowerCase().includes(needle)
         || tool.category.toLowerCase().includes(needle)
         || display.title.toLowerCase().includes(needle)
         || display.summary.toLowerCase().includes(needle);
+    });
+    return filtered.sort((a, b) => {
+      const weightA = getCategoryWeight(a.category);
+      const weightB = getCategoryWeight(b.category);
+      if (weightA !== weightB) {
+        return weightA - weightB;
+      }
+      if (a.category !== b.category) {
+        return a.category.localeCompare(b.category);
+      }
+      return a.name.localeCompare(b.name);
     });
   }, [tools, query]);
 
@@ -1186,15 +1216,22 @@ function ToolsTab({ tools, selectedTool, onSelectTool }: { tools: ToolSummary[];
               <AppContextMenu key={tool.name} context={{ objectType: "mcpTool", toolName: tool.name }}>
                 <button
                   onClick={() => onSelectTool(tool)}
-                  className="flex w-full cursor-pointer flex-col rounded-card border border-border-soft bg-surface-raised p-3 text-left shadow-sm transition-all hover:border-brand/40 hover:bg-surface-panel"
+                  className="group flex w-full cursor-pointer items-start gap-3 border-b border-border-soft px-2 py-2.5 text-left transition-colors hover:bg-surface-raised"
                   type="button"
                 >
-                  <div className="flex items-center justify-between gap-2 w-full">
-                    <strong className="text-[12px] font-bold text-text truncate leading-none">{display.title}</strong>
-                    <span className="text-[8px] tracking-wider text-brand-strong bg-brand/10 px-1.5 py-0.5 rounded font-extrabold shrink-0 leading-none">{getToolCategoryLabel(tool.category)}</span>
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded bg-surface-muted text-text-muted transition-colors group-hover:bg-brand/10 group-hover:text-brand">
+                    {getToolCategoryIcon(tool.category)}
                   </div>
-                  <span className="mt-1 truncate font-mono text-[9px] text-text-subtle">{tool.name}</span>
-                  <p className="m-0 mt-2 line-clamp-2 text-[10px] leading-relaxed text-text-muted">{display.summary}</p>
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <div className="flex w-full items-center justify-between gap-2">
+                      <strong className="truncate text-[13px] font-bold leading-none text-text">{display.title}</strong>
+                      <span className="shrink-0 rounded bg-brand/10 px-1.5 py-0.5 text-[9px] font-extrabold leading-none tracking-wider text-brand-strong">
+                        {getToolCategoryLabel(tool.category)}
+                      </span>
+                    </div>
+                    <span className="mt-1.5 truncate font-mono text-[10px] text-text-subtle/80">{tool.name}</span>
+                    <p className="m-0 mt-1 line-clamp-2 text-[11px] leading-relaxed text-text-muted">{display.summary}</p>
+                  </div>
                 </button>
               </AppContextMenu>
             );
@@ -1348,35 +1385,38 @@ function ConsoleTab({
                 <AppContextMenu key={t.taskId} context={{ objectType: "task", taskId: t.taskId }}>
                 <div className="group relative flex w-full">
                   <button
-                    onClick={() => {
-                      onSelectTask(t);
-                    }}
-                    className={cn(
-                      "flex items-center justify-between p-2 rounded border text-left transition-colors cursor-pointer w-full text-xs",
-                      isFailed ? "border-[#b03939]/20 bg-[#b03939]/5 hover:bg-[#b03939]/10" :
-                          isSuccess ? "border-[#246b2f]/10 bg-[#246b2f]/5 hover:bg-[#246b2f]/10" :
-                          isRunning ? "border-brand/30 bg-brand/5 hover:bg-brand/10" :
-                          "border-border-soft bg-surface-raised hover:bg-surface-muted"
-                    )}
+                    onClick={() => onSelectTask(t)}
+                    className="group/btn flex w-full cursor-pointer items-start gap-3 border-b border-border-soft px-2 py-3 text-left transition-colors hover:bg-surface-raised"
                     type="button"
                   >
-                    <div className="min-w-0 flex-1 pr-2 flex flex-col gap-0.5">
-                      <strong className="block truncate text-xs">{t.toolName}</strong>
-                      <span className="block text-[9px] text-text-subtle truncate">{t.inputSummary}</span>
-                    </div>
-                    <span className={cn(
-                      "text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide shrink-0",
-                      isFailed ? "text-[#b03939]" : 
-                      isSuccess ? "text-[#246b2f]" : 
-                      isRunning ? "text-[#0a7f72]" : 
-                      "text-text-subtle"
+                    <div className={cn(
+                      "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded transition-colors",
+                      isFailed ? "bg-[#b03939]/10 text-[#b03939] group-hover/btn:bg-[#b03939]/20" :
+                      isSuccess ? "bg-[#246b2f]/10 text-[#246b2f] group-hover/btn:bg-[#246b2f]/20" :
+                      isRunning ? "bg-brand/10 text-brand group-hover/btn:bg-brand/20" :
+                      "bg-surface-muted text-text-muted group-hover/btn:text-text"
                     )}>
-                      {hasErrorInResult ? "失败 (MCP 报错)" : 
-                       isFailed ? "失败" : 
-                       isSuccess ? "成功" : 
-                       isRunning ? "运行中" : 
-                       t.status === "queued" ? "排队中" : t.status}
-                    </span>
+                       {isFailed ? <AlertTriangle className="h-4 w-4" /> : isSuccess ? <CheckCircle2 className="h-4 w-4" /> : isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clock className="h-4 w-4" />}
+                    </div>
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <div className="flex w-full items-center justify-between gap-2">
+                        <strong className="truncate text-[13px] font-bold leading-none text-text">{t.toolName}</strong>
+                        <span className={cn(
+                          "shrink-0 rounded px-1.5 py-0.5 text-[9px] font-extrabold leading-none tracking-wider",
+                          isFailed ? "bg-[#b03939]/10 text-[#b03939]" : 
+                          isSuccess ? "bg-[#246b2f]/10 text-[#246b2f]" : 
+                          isRunning ? "bg-brand/10 text-brand-strong" : 
+                          "bg-surface-muted text-text-subtle"
+                        )}>
+                          {hasErrorInResult ? "失败 (MCP 报错)" : 
+                           isFailed ? "失败" : 
+                           isSuccess ? "成功" : 
+                           isRunning ? "运行中" : 
+                           t.status === "queued" ? "排队中" : t.status}
+                        </span>
+                      </div>
+                      <span className="mt-1.5 truncate font-mono text-[10px] text-text-subtle">{t.inputSummary}</span>
+                    </div>
                   </button>
                   <button 
                     onClick={(e) => { e.stopPropagation(); onDeleteTask(t.taskId); }}

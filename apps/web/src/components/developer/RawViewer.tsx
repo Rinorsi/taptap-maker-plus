@@ -75,7 +75,9 @@ export function RawViewer({
   const monacoLanguage = language === "json" ? "json" : "text";
   const theme = preferences.theme === "light"
     ? "vs"
-    : preferences.theme === "dark" || preferences.theme === "high-contrast"
+    : preferences.theme === "high-contrast"
+      ? "hc-black"
+      : preferences.theme === "dark"
       ? "vs-dark"
       : documentTheme === "light" ? "vs" : "vs-dark";
   const fontSize = preferences.fontSize === "small" ? 10 : preferences.fontSize === "large" ? 13 : 11;

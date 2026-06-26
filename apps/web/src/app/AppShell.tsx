@@ -176,7 +176,7 @@ export function AppShell() {
     const hasProject = localStorage.getItem("taptap.selectedProjectId");
     return resolveInitialModule(Boolean(hasProject));
   });
-  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("project");
+  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("appearance");
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState(
     () => localStorage.getItem("taptap.selectedProjectId") ?? "",

@@ -127,7 +127,7 @@ export function CodeEditorPanel({
               key={`${index}-${line.slice(0, 12)}`}
               className={cn("grid px-0", showLineNumbers ? (wrapLines ? "grid-cols-[44px_minmax(0,1fr)]" : "grid-cols-[44px_max-content]") : (wrapLines ? "grid-cols-[minmax(0,1fr)]" : "grid-cols-[max-content]"))}
             >
-              {showLineNumbers ? <span className={cn("select-none border-r border-white/8 pr-2 text-right align-top", isLight ? "text-[#64748B]" : "text-[#808080]")}>{index + 1}</span> : null}
+              {showLineNumbers ? <span className={cn("select-none border-r pr-2 text-right align-top", isHighContrast ? "border-[#FDE047] text-[#FDE047]" : isLight ? "border-black/10 text-[#64748B]" : "border-white/8 text-[#808080]")}>{index + 1}</span> : null}
               <pre
                 className={cn(
                   "m-0 px-3 text-inherit",
@@ -136,7 +136,7 @@ export function CodeEditorPanel({
                     : "min-w-max whitespace-pre"
                 )}
               >
-                {renderHighlightedLine(line)}
+                {renderHighlightedLine(line, isHighContrast)}
               </pre>
             </div>
           ))}
@@ -146,15 +146,15 @@ export function CodeEditorPanel({
   );
 }
 
-function renderHighlightedLine(line: string) {
+function renderHighlightedLine(line: string, highContrast = false) {
   if (!line) return " ";
 
   if (/^\s*\$/.test(line)) {
-    return <span className="text-[#DCDCAA]">{line}</span>;
+    return <span className={highContrast ? "text-[#FDE047]" : "text-[#DCDCAA]"}>{line}</span>;
   }
 
   if (/^\s*>/.test(line)) {
-    return <span className="text-[#9CDCFE]">{line}</span>;
+    return <span className={highContrast ? "text-[#67E8F9]" : "text-[#9CDCFE]"}>{line}</span>;
   }
 
   const parts = line.split(/("(?:\\.|[^"\\])*"|true|false|null|-?\d+(?:\.\d+)?)/g);
@@ -164,17 +164,17 @@ function renderHighlightedLine(line: string) {
       const nextText = parts.slice(index + 1).join("");
       const isKey = /^\s*:/.test(nextText);
       return (
-        <span key={`${index}-${part}`} className={isKey ? "text-[#9CDCFE]" : "text-[#CE9178]"}>
+        <span key={`${index}-${part}`} className={highContrast ? (isKey ? "text-[#67E8F9]" : "text-[#FDE047]") : isKey ? "text-[#9CDCFE]" : "text-[#CE9178]"}>
           {part}
         </span>
       );
     }
     if (/^(true|false|null)$/.test(part)) {
-      return <span key={`${index}-${part}`} className="text-[#569CD6]">{part}</span>;
+      return <span key={`${index}-${part}`} className={highContrast ? "text-[#22D3EE]" : "text-[#569CD6]"}>{part}</span>;
     }
     if (/^-?\d+(?:\.\d+)?$/.test(part)) {
-      return <span key={`${index}-${part}`} className="text-[#B5CEA8]">{part}</span>;
+      return <span key={`${index}-${part}`} className={highContrast ? "text-[#86EFAC]" : "text-[#B5CEA8]"}>{part}</span>;
     }
-    return <span key={`${index}-${part}`} className="text-[#D4D4D4]">{part}</span>;
+    return <span key={`${index}-${part}`} className={highContrast ? "text-[#FFFFFF]" : "text-[#D4D4D4]"}>{part}</span>;
   });
 }

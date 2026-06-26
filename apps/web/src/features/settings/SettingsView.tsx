@@ -296,7 +296,7 @@ export function SettingsView({
           <div className="min-h-0 flex-1 overflow-y-auto px-12 pb-32 scrollbar-thin flex flex-col gap-12 max-w-4xl mx-auto w-full pt-12">
 
             {/* General */}
-            <div id="settings-general" className="scroll-mt-12 flex flex-col gap-6">
+            <div id="settings-general" className="scroll-mt-12 flex flex-col gap-6 order-3">
               <SectionHeader title="通用" icon={<Settings />} description="基础应用行为偏好。" />
               <SettingsGroup>
                 <SegmentedSetting
@@ -343,7 +343,7 @@ export function SettingsView({
             </div>
 
             {/* Appearance */}
-            <div id="settings-appearance" className="scroll-mt-12 flex flex-col gap-6">
+            <div id="settings-appearance" className="scroll-mt-12 flex flex-col gap-6 order-1">
               <SectionHeader title="外观" icon={<Palette />} description="软件界面及代码编辑器样式主题。" />
               <SettingsGroup preview={<WorkbenchPreview prefs={prefs} />}>
                 <ThemeSelectorPreview
@@ -384,11 +384,11 @@ export function SettingsView({
             </div>
 
             {/* Personalization (Prototype) */}
-            <div id="settings-personalization" className="scroll-mt-12 flex flex-col gap-6 opacity-60 grayscale pointer-events-none">
-              <SectionHeader title="个性化" icon={<Bot />} badge="雏形" description="AI 智能助手的偏好与自定义指令。" />
+            <div id="settings-personalization" className="scroll-mt-12 flex flex-col gap-6 opacity-60 grayscale pointer-events-none order-5">
+              <SectionHeader title="个性化" icon={<Bot />} badge="未接入" description="AI 智能助手的偏好与自定义指令。" />
               <SettingsGroup>
-                <PreferenceNote text="该分类仍在开发中，以下为界面原型预览。" />
-                <SegmentedSetting label="默认模型偏好" value="gemini" options={[{label: "Gemini 1.5 Pro", value: "gemini"}, {label: "Claude 3.5 Sonnet", value: "claude"}]} onChange={() => {}} />
+                <PreferenceNote text="这里还没有接入真实模型配置；下面只保留后续 UI 形态。" />
+                <SegmentedSetting label="默认模型偏好" value="gpt-5-4" options={[{label: "GPT-5.4", value: "gpt-5-4"}, {label: "Claude Sonnet 4.5", value: "claude-sonnet-4-5"}]} onChange={() => {}} />
                 <SwitchSetting label="自动附加项目上下文" checked={true} onChange={() => {}} />
                 <SettingContainer label="自定义指令" description="助手生成代码和思考时的基础规则">
                    <Button variant="outline" size="sm">编辑规则 (0)</Button>
@@ -397,29 +397,29 @@ export function SettingsView({
             </div>
 
             {/* Shortcuts (Prototype) */}
-            <div id="settings-shortcuts" className="scroll-mt-12 flex flex-col gap-6">
-              <SectionHeader title="快捷键" icon={<Keyboard />} badge="只读" description="查看当前可用命令与快捷键，改键能力待接入。" />
+            <div id="settings-shortcuts" className="scroll-mt-12 flex flex-col gap-6 order-6">
+              <SectionHeader title="快捷键" icon={<Keyboard />} badge="只读" description="查看当前可用命令与快捷键；改键功能尚未接入。" />
               <SettingsGroup>
-                <PreferenceNote text="这里读取真实命令注册表；当前仅用于查看，不会修改快捷键绑定。" />
+                <PreferenceNote text="已读取真实命令注册表；当前只能查看，不能修改快捷键绑定。" />
                 <CommandShortcutList commands={commands} />
               </SettingsGroup>
             </div>
 
             {/* Browser (Prototype) */}
-            <div id="settings-browser" className="scroll-mt-12 flex flex-col gap-6 opacity-60 grayscale pointer-events-none">
-              <SectionHeader title="浏览器" icon={<MonitorCog />} badge="雏形" description="内置 Chromium 浏览器设置。" />
+            <div id="settings-browser" className="scroll-mt-12 flex flex-col gap-6 opacity-60 grayscale pointer-events-none order-7">
+              <SectionHeader title="浏览器" icon={<MonitorCog />} badge="未接入" description="内置 Chromium 浏览器设置。" />
               <SettingsGroup>
-                <PreferenceNote text="此功能暂未开放配置。" />
+                <PreferenceNote text="当前没有可用配置入口；下面的开关不会生效。" />
                 <SwitchSetting label="禁用同源策略 (CORS)" checked={false} onChange={() => {}} />
                 <SwitchSetting label="默认清空缓存并硬性重新加载" checked={true} onChange={() => {}} />
               </SettingsGroup>
             </div>
 
             {/* Permissions (Prototype) */}
-            <div id="settings-permissions" className="scroll-mt-12 flex flex-col gap-6 opacity-60 grayscale pointer-events-none">
-              <SectionHeader title="权限" icon={<Shield />} badge="待接入" description="管理 MCP 工具的自动审批与访问策略。" />
+            <div id="settings-permissions" className="scroll-mt-12 flex flex-col gap-6 opacity-60 grayscale pointer-events-none order-8">
+              <SectionHeader title="权限" icon={<Shield />} badge="未接入" description="管理 MCP 工具的自动审批与访问策略。" />
               <SettingsGroup>
-                <PreferenceNote text="文件及命令审计系统开发中。" />
+                <PreferenceNote text="当前没有接入权限策略保存与执行链路；下面的控件不会生效。" />
                 <SettingContainer label="工作区访问策略" description="定义智能助手读写文件的范围和确认机制。">
                    <Button variant="outline" size="sm">管理策略</Button>
                 </SettingContainer>
@@ -428,7 +428,7 @@ export function SettingsView({
             </div>
 
             {/* Project Preferences */}
-            <div id="settings-project" className="scroll-mt-12 flex flex-col gap-6">
+            <div id="settings-project" className="scroll-mt-12 flex flex-col gap-6 order-2">
               <SectionHeader title="项目偏好" icon={<FolderCog />} description="当前打开项目的相关行为。" />
               <SettingsGroup>
                 <SettingContainer
@@ -467,7 +467,7 @@ export function SettingsView({
             </div>
 
             {/* Workspaces */}
-            <div id="settings-workspaces" className="scroll-mt-12 flex flex-col gap-6">
+            <div id="settings-workspaces" className="scroll-mt-12 flex flex-col gap-6 order-10">
               <SectionHeader title="工作区默认值" icon={<Box />} description="所有新项目的全局初始化规则与默认模型设置。" />
               <SettingsGroup>
                 <WorkspaceDefaultsPreview prefs={prefs} />
@@ -510,7 +510,7 @@ export function SettingsView({
             </div>
 
             {/* Canvas */}
-            <div id="settings-canvas" className="scroll-mt-12 flex flex-col gap-6">
+            <div id="settings-canvas" className="scroll-mt-12 flex flex-col gap-6 order-11">
               <SectionHeader title="画布" icon={<Workflow />} description="节点编辑器行为偏好。" />
               <SettingsGroup preview={<CanvasPreview prefs={prefs} />}>
                 <SwitchSetting label="显示网格背景" checked={prefs.canvasGrid === "visible"} onChange={(v) => setPref("canvasGrid", v ? "visible" : "hidden")} />
@@ -531,7 +531,7 @@ export function SettingsView({
             </div>
 
             {/* Assets */}
-            <div id="settings-assets" className="scroll-mt-12 flex flex-col gap-6">
+            <div id="settings-assets" className="scroll-mt-12 flex flex-col gap-6 order-9">
               <SectionHeader title="资产" icon={<Images />} description="素材库与文件流转行为偏好。" />
               <SettingsGroup preview={<AssetDropPreview prefs={prefs} />}>
                 <SegmentedSetting
@@ -550,7 +550,7 @@ export function SettingsView({
             </div>
 
             {/* Tasks */}
-            <div id="settings-tasks" className="scroll-mt-12 flex flex-col gap-6">
+            <div id="settings-tasks" className="scroll-mt-12 flex flex-col gap-6 order-12">
               <SectionHeader title="任务" icon={<Grid3X3 />} description="任务面板展现与通知策略。" />
               <SettingsGroup preview={<TaskInspectorPreview prefs={prefs} />}>
                 <SegmentedSetting
@@ -566,8 +566,8 @@ export function SettingsView({
             </div>
 
             {/* Runtime */}
-            <div id="settings-runtime" className="scroll-mt-12 flex flex-col gap-6">
-              <SectionHeader title="Runtime" icon={<Cpu />} description="MCP 运行时控制。" />
+            <div id="settings-runtime" className="scroll-mt-12 flex flex-col gap-6 order-4">
+              <SectionHeader title="运行时" icon={<Cpu />} description="MCP 运行时控制。" />
               <SettingsGroup>
                 <SegmentedSetting
                   label="自动启动策略"
@@ -595,7 +595,7 @@ export function SettingsView({
             </div>
 
             {/* Logs */}
-            <div id="settings-logs" className="scroll-mt-12 flex flex-col gap-6">
+            <div id="settings-logs" className="scroll-mt-12 flex flex-col gap-6 order-[13]">
               <SectionHeader title="日志与通知" icon={<Bell />} description="软件诊断日志及运行记录留存策略。" />
               <SettingsGroup>
                 <SettingContainer label="高级诊断报告" description="打包当前软件、MCP Runtime 与项目上下文快照。">
@@ -618,8 +618,8 @@ export function SettingsView({
             </div>
 
             {/* Developer */}
-            <div id="settings-developer" className="scroll-mt-12 flex flex-col gap-6">
-              <SectionHeader title="Developer" icon={<Bug />} description="供开发者或高级用户使用的实验性功能。" />
+            <div id="settings-developer" className="scroll-mt-12 flex flex-col gap-6 order-[14]">
+              <SectionHeader title="开发者" icon={<Bug />} description="供开发者或高级用户使用的实验性功能。" />
               <SettingsGroup>
                 <SwitchSetting label="启用开发者模式" description="开启后将记录更详尽的系统级调试日志" checked={developerMode} onChange={(val) => setDeveloperModeEnabled(val)} />
                 <SettingContainer label="Chromium DevTools" description="开启内置浏览器及前端环境的检查器">

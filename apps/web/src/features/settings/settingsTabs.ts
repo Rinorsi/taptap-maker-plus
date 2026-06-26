@@ -33,18 +33,18 @@ export type SettingsTab =
   | "developer";
 
 export const settingsTabs: Array<{ id: SettingsTab; label: string; icon: LucideIcon }> = [
-  { id: "general", label: "通用", icon: Settings },
   { id: "appearance", label: "外观", icon: Palette },
+  { id: "project", label: "项目", icon: FolderCog },
+  { id: "general", label: "通用", icon: Settings },
+  { id: "runtime", label: "运行时", icon: Cpu },
   { id: "personalization", label: "个性化", icon: Bot },
   { id: "shortcuts", label: "快捷键", icon: Keyboard },
   { id: "browser", label: "浏览器", icon: MonitorCog },
   { id: "permissions", label: "权限", icon: Shield },
-  { id: "project", label: "项目", icon: FolderCog },
+  { id: "assets", label: "资产", icon: Images },
   { id: "workspaces", label: "工作区", icon: Box },
   { id: "canvas", label: "画布", icon: Workflow },
-  { id: "assets", label: "资产", icon: Images },
   { id: "tasks", label: "任务", icon: Grid3X3 },
-  { id: "runtime", label: "Runtime", icon: Cpu },
   { id: "logs", label: "日志与通知", icon: Bell },
-  { id: "developer", label: "Developer", icon: Bug },
+  { id: "developer", label: "开发者", icon: Bug },
 ];

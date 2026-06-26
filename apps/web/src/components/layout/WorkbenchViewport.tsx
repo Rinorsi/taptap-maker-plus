@@ -63,6 +63,9 @@ type Props = {
   busy: boolean;
   onStartRuntime: () => void;
   onScanAssets: () => void;
+  onRefreshProject?: () => void | Promise<void>;
+  onRemoveProjectRecord: (projectId: string) => void;
+  onDeleteProjectLocalFolder: (projectId: string) => void;
   onDeleteAssets: (relativePaths: string[]) => Promise<void>;
   onMoveAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
   onCopyAssets: (relativePaths: string[], targetFolder: string) => Promise<void>;
@@ -77,7 +80,6 @@ type Props = {
   onConfirmReferenceMutation: (relativePaths: string[], actionLabel: string, allowUpdateReferences: boolean) => Promise<"update" | "skip" | "cancel">;
   onAssetMutationResult: (prefix: string, result: AssetMutationResponse) => void;
   onScanAssetReferences: (relativePaths: string[]) => Promise<void>;
-  onRefreshProject?: () => void | Promise<void>;
   onNotice: (notice: string) => void;
   onCallStatusLite: () => void;
   onCallTool: (toolName: string, args: Record<string, unknown>) => Promise<unknown>;
@@ -98,8 +100,18 @@ export function WorkbenchViewport(props: Props) {
       {props.activeModule === "home" ? (
         <WelcomeView
           projects={props.projects}
+          selectedProjectId={props.project?.id ?? ""}
+          runtime={props.runtime}
+          tools={props.tools}
+          tasks={props.tasks}
+          assets={props.assets}
           onSelectProject={props.onSelectProject}
           onScanProjects={props.onScanProjects}
+          onScanAssets={props.onScanAssets}
+          onRefreshProject={props.onRefreshProject}
+          onStartRuntime={props.onStartRuntime}
+          onRemoveProjectRecord={props.onRemoveProjectRecord}
+          onDeleteProjectLocalFolder={props.onDeleteProjectLocalFolder}
           onOpenModule={props.onOpenModule}
           busy={props.busy}
         />

@@ -17,8 +17,11 @@ export type ProjectSummary = {
   rootPath: string;
   makerProjectId: string;
   configPath: string;
+  configExists?: boolean;
+  toolCount?: number;
   createdAt?: string;
   updatedAt?: string;
+  lastScannedAt?: string;
   runtime?: RuntimeSummary;
   selected?: boolean;
   iconUrl?: string;
@@ -425,6 +428,27 @@ export async function listProjects(): Promise<{ projects: ProjectSummary[]; sele
 export async function selectProject(projectId: string) {
   return json<{ selectedProjectId: string; project: ProjectSummary }>(
     await fetch(`/api/projects/${encodeURIComponent(projectId)}/select`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+  );
+}
+
+export type RemoveProjectResponse = {
+  ok: true;
+  removedProjectId: string;
+  deletedLocalFolder: boolean;
+  deletedPath?: string;
+  projects: ProjectSummary[];
+  selectedProjectId?: string;
+};
+
+export async function removeProjectRecord(projectId: string): Promise<RemoveProjectResponse> {
+  return json<RemoveProjectResponse>(
+    await fetch(`/api/projects/${encodeURIComponent(projectId)}/record`, { method: "DELETE" })
+  );
+}
+
+export async function deleteProjectLocalFolder(projectId: string): Promise<RemoveProjectResponse> {
+  return json<RemoveProjectResponse>(
+    await fetch(`/api/projects/${encodeURIComponent(projectId)}/local-folder`, { method: "DELETE" })
   );
 }
 

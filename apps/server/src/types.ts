@@ -4,8 +4,11 @@ export type ProjectSummary = {
   rootPath: string;
   makerProjectId: string;
   configPath: string;
+  configExists?: boolean;
+  toolCount?: number;
   createdAt?: string;
   updatedAt?: string;
+  lastScannedAt?: string;
   runtime?: RuntimeSummary;
   selected?: boolean;
 };

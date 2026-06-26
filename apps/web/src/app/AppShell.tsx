@@ -22,12 +22,14 @@ import {
   refreshTools,
   renameAssetFolder,
   renameAssetWithResult,
+  removeProjectRecord,
   scanAssets,
   scanAssetReferences,
   scanProjects,
   selectProject,
   startRuntime,
   clearTasks,
+  deleteProjectLocalFolder,
   type AgentPageState,
   type AssetDirectoryNode,
   type AssetMutationResponse,
@@ -1330,6 +1332,90 @@ export function AppShell() {
     }
     setActiveModule(module);
     if (module === "settings") setSelection(undefined);
+  }
+
+  function applyProjectRemoval(projectId: string, nextProjects: ProjectSummary[], nextSelectedProjectId?: string) {
+    setProjects(nextProjects);
+    if (selectedProjectId === projectId) {
+      localStorage.removeItem("taptap.selectedProjectId");
+      setSelectedProjectId(nextSelectedProjectId ?? "");
+      setTools([]);
+      setAssets([]);
+      setAssetTree(undefined);
+      setTasks([]);
+      setRuntime(undefined);
+      setStatusText("");
+      setSelection(undefined);
+      setActiveModule(nextSelectedProjectId ? DEFAULT_PROJECT_MODULE : "home");
+      setRightPanelTab("status");
+    }
+  }
+
+  function handleRemoveProjectRecord(projectId: string) {
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) return;
+    setConfirmConfig({
+      isOpen: true,
+      title: "移除项目记录",
+      body: (
+        <div className="flex flex-col gap-2">
+          <p>只从本地工作台移除这条记录，不删除项目文件夹。</p>
+          <code className="rounded bg-surface-muted px-2 py-1 text-xs text-text">
+            {project.rootPath}
+          </code>
+        </div>
+      ),
+      confirmLabel: "移除记录",
+      cancelLabel: "取消",
+      onCancel: () => setConfirmConfig((current) => ({ ...current, isOpen: false })),
+      onConfirm: async () => {
+        setConfirmConfig((current) => ({ ...current, isOpen: false }));
+        setBusy(true);
+        try {
+          const response = await removeProjectRecord(project.id);
+          applyProjectRemoval(project.id, response.projects, response.selectedProjectId);
+          setNotice(`已移除项目记录：${project.name}`);
+        } catch (error) {
+          setNotice(error instanceof Error ? error.message : String(error));
+        } finally {
+          setBusy(false);
+        }
+      },
+    });
+  }
+
+  function handleDeleteProjectLocalFolder(projectId: string) {
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) return;
+    setConfirmConfig({
+      isOpen: true,
+      title: "删除本地项目文件夹",
+      body: (
+        <div className="flex flex-col gap-2">
+          <p>将删除下面这个本地文件夹，并同时移除工作台记录。此操作不可撤销。</p>
+          <code className="rounded bg-red-500/10 px-2 py-1 text-xs text-red-600">
+            {project.rootPath}
+          </code>
+        </div>
+      ),
+      confirmLabel: "删除本地文件夹",
+      cancelLabel: "取消",
+      danger: true,
+      onCancel: () => setConfirmConfig((current) => ({ ...current, isOpen: false })),
+      onConfirm: async () => {
+        setConfirmConfig((current) => ({ ...current, isOpen: false }));
+        setBusy(true);
+        try {
+          const response = await deleteProjectLocalFolder(project.id);
+          applyProjectRemoval(project.id, response.projects, response.selectedProjectId);
+          setNotice(`已删除本地文件夹：${response.deletedPath ?? project.rootPath}`);
+        } catch (error) {
+          setNotice(error instanceof Error ? error.message : String(error));
+        } finally {
+          setBusy(false);
+        }
+      },
+    });
   }
 
   function runWorkflowCanvasCommand(detail: Record<string, unknown>) {
@@ -3432,6 +3518,8 @@ export function AppShell() {
               busy={busy}
               onStartRuntime={handleStartRuntime}
               onScanAssets={handleScanAssets}
+              onRemoveProjectRecord={handleRemoveProjectRecord}
+              onDeleteProjectLocalFolder={handleDeleteProjectLocalFolder}
               onDeleteAssets={handleDeleteAssets}
               onMoveAssets={handleMoveAssets}
               onCopyAssets={handleCopyAssets}
@@ -3454,10 +3542,7 @@ export function AppShell() {
               agentPage={agentPage}
               onSelectProject={handleSelectProject}
               onScanProjects={handleScanProjects}
-              onOpenModule={(m) => {
-                setActiveModule(m);
-                setSelection(undefined);
-              }}
+              onOpenModule={selectModule}
               onCollapseSidebar={() => {
                 setSidebarCollapsed(true);
                 setInspectorMinimized(true);

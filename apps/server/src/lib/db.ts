@@ -164,6 +164,7 @@ const toProject = (row: any, selectedProjectId?: string): ProjectSummary => ({
   configPath: row.config_path,
   createdAt: row.created_at ?? undefined,
   updatedAt: row.updated_at ?? undefined,
+  lastScannedAt: row.last_scanned_at ?? undefined,
   selected: selectedProjectId === row.id
 });
 
@@ -300,6 +301,14 @@ export function listProjects(): ProjectSummary[] {
 export function getProject(id: string): ProjectSummary | undefined {
   const row = sqlite.prepare("SELECT * FROM projects WHERE id = ?").get(id);
   return row ? toProject(row, getSelectedProjectId()) : undefined;
+}
+
+export function removeProjectRecord(projectId: string) {
+  sqlite.prepare("DELETE FROM projects WHERE id = ?").run(projectId);
+  const selectedProjectId = getSelectedProjectId();
+  if (selectedProjectId === projectId) {
+    sqlite.prepare("DELETE FROM app_settings WHERE key = 'selected_project_id'").run();
+  }
 }
 
 export function saveTools(projectId: string, tools: ToolSummary[], rawResult?: unknown) {

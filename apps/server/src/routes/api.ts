@@ -25,6 +25,7 @@ import {
   listTools,
   listWorkflowGraphs,
   listWorkflowRuns,
+  removeProjectRecord,
   saveWorkflowGraph,
   setSelectedProject,
   listCreditRecords
@@ -276,6 +277,15 @@ function requireProject(projectId: string): ProjectSummary {
   return project;
 }
 
+function assertProjectRootAllowed(project: ProjectSummary) {
+  const projectRoot = path.resolve(project.rootPath);
+  const makerRoot = path.resolve(config.makerProjectsRoot);
+  if (projectRoot === makerRoot || !projectRoot.startsWith(`${makerRoot}${path.sep}`)) {
+    throw new Error(`Refusing to delete project outside maker projects root: ${project.rootPath}`);
+  }
+  return projectRoot;
+}
+
 function sendAssetFileOperationError(reply: FastifyReply, error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   if (error instanceof AssetFileOperationError) {
@@ -285,7 +295,12 @@ function sendAssetFileOperationError(reply: FastifyReply, error: unknown) {
 }
 
 function withRuntime(project: ProjectSummary) {
-  return { ...project, runtime: runtimeManager.getSummary(project.id) };
+  return {
+    ...project,
+    configExists: fs.existsSync(project.configPath),
+    toolCount: listTools(project.id).length,
+    runtime: runtimeManager.getSummary(project.id)
+  };
 }
 
 function readNodeId(node: unknown): string | undefined {
@@ -594,6 +609,22 @@ export async function registerApiRoutes(app: FastifyInstance) {
     const project = requireProject(request.params.projectId);
     setSelectedProject(project.id);
     return { selectedProjectId: project.id, project: withRuntime(project) };
+  });
+
+  app.delete<{ Params: { projectId: string } }>("/api/projects/:projectId/record", async (request) => {
+    const project = requireProject(request.params.projectId);
+    await runtimeManager.stop(project.id).catch(() => undefined);
+    removeProjectRecord(project.id);
+    return { ok: true, removedProjectId: project.id, deletedLocalFolder: false, projects: listProjects().map((item) => withRuntime(item)), selectedProjectId: getSelectedProjectId() };
+  });
+
+  app.delete<{ Params: { projectId: string } }>("/api/projects/:projectId/local-folder", async (request) => {
+    const project = requireProject(request.params.projectId);
+    const projectRoot = assertProjectRootAllowed(project);
+    await runtimeManager.stop(project.id).catch(() => undefined);
+    if (fs.existsSync(projectRoot)) fs.rmSync(projectRoot, { recursive: true, force: true });
+    removeProjectRecord(project.id);
+    return { ok: true, removedProjectId: project.id, deletedLocalFolder: true, deletedPath: project.rootPath, projects: listProjects().map((item) => withRuntime(item)), selectedProjectId: getSelectedProjectId() };
   });
 
   app.post<{ Params: { projectId: string } }>("/api/projects/:projectId/mcp/start", async (request) => {

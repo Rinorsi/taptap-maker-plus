@@ -27,3 +27,7 @@ export const config = {
 export function setMakerProjectsRoot(rootPath: string) {
   config.makerProjectsRoot = rootPath;
 }
+
+export function setMakerPackage(packageSpec: string) {
+  config.makerPackage = packageSpec;
+}

@@ -51,6 +51,7 @@ import {
 import type { SettingsTab } from "./settingsTabs";
 import { cn } from "../../lib/utils";
 import React from "react";
+import { McpPackageManager } from "./McpPackageManager";
 import {
   defaultSettingsPreferences,
   readStoredPreference,
@@ -591,6 +592,7 @@ export function SettingsView({
                      </Button>
                    </div>
                 </SettingContainer>
+                <McpPackageManager busy={busy} />
               </SettingsGroup>
             </div>
 

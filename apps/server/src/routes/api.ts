@@ -51,6 +51,7 @@ import {
 import { buildAssetDirectoryTree, listProjectAssetDirectories } from "../services/assetTree.js";
 import { rebuildAssetProvenance } from "../services/assetProvenance.js";
 import { runtimeManager } from "../services/mcpRuntime.js";
+import { getMcpPackageUpdateStatus, installMcpPackage, saveMcpReleaseNotes } from "../services/mcpPackageManager.js";
 import { executeToolCall, syncCreditRecordsFromTasks } from "../services/toolExecution.js";
 import { buildAgentContext } from "../agent/contextBuilder.js";
 import { getProjectBuildLogs } from "../services/projectLogs.js";
@@ -72,6 +73,14 @@ const appSettingsPreferencesSchema = z.object({
 
 const makerProjectsRootSchema = z.object({
   rootPath: z.string().min(1)
+});
+
+const mcpPackageInstallSchema = z.object({
+  packageSpec: z.string().min(1)
+});
+
+const mcpPackageReleaseNotesSchema = z.object({
+  releaseNotes: z.string()
 });
 
 const assetPathsSchema = z.object({
@@ -785,6 +794,29 @@ export async function registerApiRoutes(app: FastifyInstance) {
   app.get("/api/mcp/status", async () => {
     const selectedProjectId = getSelectedProjectId();
     return { selectedProjectId, runtimes: runtimeManager.listSummaries() };
+  });
+
+  app.get<{ Querystring: { check?: string } }>("/api/mcp/package", async (request) => {
+    return { status: await getMcpPackageUpdateStatus({ checkRegistry: request.query?.check === "true" }) };
+  });
+
+  app.put<{ Body: unknown }>("/api/mcp/package/release-notes", async (request, reply) => {
+    const parsed = mcpPackageReleaseNotesSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const releaseNotes = saveMcpReleaseNotes(parsed.data.releaseNotes);
+    return { releaseNotes };
+  });
+
+  app.post<{ Body: unknown }>("/api/mcp/package/install", async (request, reply) => {
+    const parsed = mcpPackageInstallSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
+      const result = await installMcpPackage(parsed.data.packageSpec);
+      await runtimeManager.stopAll();
+      return result;
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+    }
   });
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/tools", async (request) => {

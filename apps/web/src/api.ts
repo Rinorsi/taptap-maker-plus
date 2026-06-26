@@ -425,6 +425,24 @@ export type MakerProjectsRootSettingsResponse = {
   projects?: ProjectSummary[];
 };
 
+export type McpPackageUpdateStatus = {
+  packageName: string;
+  packageSpec: string;
+  installedSpec: string;
+  currentVersion?: string;
+  latestVersion?: string;
+  updateAvailable: boolean;
+  lastCheckedAt?: string;
+  lastInstalledAt?: string;
+  releaseNotes: string;
+  registryError?: string;
+};
+
+export type McpPackageInstallResult = {
+  status: McpPackageUpdateStatus;
+  installOutput: string;
+};
+
 export type ProjectHealthSummary = {
   projectId: string;
   rootPath: string;
@@ -935,6 +953,30 @@ export async function saveMakerProjectsRootSettings(rootPath: string): Promise<M
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rootPath }),
+    }),
+  );
+}
+
+export async function getMcpPackageStatus(check = false): Promise<{ status: McpPackageUpdateStatus }> {
+  return json<{ status: McpPackageUpdateStatus }>(await fetch(`/api/mcp/package${check ? "?check=true" : ""}`));
+}
+
+export async function saveMcpPackageReleaseNotes(releaseNotes: string): Promise<{ releaseNotes: string }> {
+  return json<{ releaseNotes: string }>(
+    await fetch("/api/mcp/package/release-notes", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ releaseNotes }),
+    }),
+  );
+}
+
+export async function installMcpPackage(packageSpec: string): Promise<McpPackageInstallResult> {
+  return json<McpPackageInstallResult>(
+    await fetch("/api/mcp/package/install", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ packageSpec }),
     }),
   );
 }

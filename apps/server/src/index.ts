@@ -6,6 +6,7 @@ import { scanMakerProjects } from "./services/projectDiscovery.js";
 import { registerApiRoutes } from "./routes/api.js";
 import { registerStaticWeb } from "./services/staticWeb.js";
 import { runtimeManager } from "./services/mcpRuntime.js";
+import { loadStoredMakerPackage } from "./services/mcpPackageManager.js";
 
 const app = Fastify({ logger: true });
 let shuttingDown = false;
@@ -40,6 +41,7 @@ await registerStaticWeb(app);
 
 const storedMakerProjectsRoot = getAppSetting("maker_projects_root");
 if (storedMakerProjectsRoot) setMakerProjectsRoot(storedMakerProjectsRoot);
+loadStoredMakerPackage();
 await scanMakerProjects();
 
 process.once("SIGINT", () => {

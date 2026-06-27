@@ -6,6 +6,7 @@ use std::{
   path::{Path, PathBuf},
   process::{Child, Command, Stdio},
   sync::{Arc, Mutex},
+  sync::OnceLock,
   thread,
   time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -13,7 +14,7 @@ use std::{
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-use tauri::{Manager, PhysicalSize, RunEvent, Url, WindowEvent};
+use tauri::{LogicalSize, Manager, RunEvent, Url};
 
 const SERVER_HOST: &str = "127.0.0.1";
 const SERVER_PORT_NUMBER: u16 = 8787;
@@ -26,11 +27,11 @@ const READINESS_APP_ID: &str = r#""appId":"taptap-maker-plus""#;
 const READINESS_TOKEN_KEY: &str = r#""desktopInstanceToken":""#;
 const WEB_IDENTITY_NAME: &str = r#"name="taptap-maker-plus""#;
 const WEB_IDENTITY_CONTENT: &str = r#"content="web""#;
-const ASPECT_WIDTH: u32 = 16;
-const ASPECT_HEIGHT: u32 = 9;
-const ASPECT_TOLERANCE: u32 = 3;
+const MIN_WINDOW_LOGICAL_WIDTH: f64 = 1366.0;
+const MIN_WINDOW_LOGICAL_HEIGHT: f64 = 768.0;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+static APP_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 struct LocalPortProbe {
   host: &'static str,
   port: u16,
@@ -45,12 +46,6 @@ struct DesktopServerLaunch {
 struct DesktopServer {
   child: Arc<Mutex<Option<Child>>>,
   launch: Arc<Mutex<Option<DesktopServerLaunch>>>,
-}
-
-#[derive(Default)]
-struct AspectRatioLock {
-  adjusting: bool,
-  last_size: Option<PhysicalSize<u32>>,
 }
 
 impl DesktopServer {
@@ -70,16 +65,12 @@ impl DesktopServer {
     let workspace_root = normalize_windows_path(workspace_root(app)?);
     append_log(&desktop_log_path, &format!("starting Fastify from {}", workspace_root.display()));
     append_log(&desktop_log_path, &format!("server log {}", server_log_path.display()));
-    let server_port = if cfg!(debug_assertions) {
-      find_available_local_port(SERVER_HOST, SERVER_PORT_NUMBER, 0)
-        .ok_or_else(|| format!("Development server port {SERVER_PORT_NUMBER} is already in use"))?
-    } else {
-      find_available_local_port(SERVER_HOST, SERVER_PORT_NUMBER, SERVER_PORT_SCAN_LIMIT)
-        .ok_or_else(|| format!("Unable to find available local port from {SERVER_PORT_NUMBER}"))?
-    };
+    let server_port = find_available_local_port(SERVER_HOST, SERVER_PORT_NUMBER, SERVER_PORT_SCAN_LIMIT)
+      .ok_or_else(|| format!("Unable to find available local port from {SERVER_PORT_NUMBER}"))?;
     let instance_token = make_desktop_instance_token();
     append_log(&desktop_log_path, &format!("Fastify target port {server_port}"));
     let mut command = server_command(&workspace_root);
+    let node_runtime_dir = workspace_root.join("node-runtime");
     let server_stdout = OpenOptions::new()
       .create(true)
       .append(true)
@@ -91,7 +82,6 @@ impl DesktopServer {
       .env("NODE_ENV", if cfg!(debug_assertions) { "development" } else { "production" })
       .env("TAPTAP_WORKSPACE_ROOT", &workspace_root)
       .env("TAPTAP_WEB_DIST_DIR", workspace_root.join("apps").join("web").join("dist"))
-      .env("TAPTAP_NODE_RUNTIME_DIR", workspace_root.join("node-runtime"))
       .env("TAPTAP_MAKER_PROJECTS_ROOT", maker_projects_root())
       .env("TAPTAP_DESKTOP_PARENT_PID", std::process::id().to_string())
       .env("TAPTAP_DATA_DIR", &app_data_dir)
@@ -104,6 +94,9 @@ impl DesktopServer {
       .stdin(Stdio::null())
       .stdout(Stdio::from(server_stdout))
       .stderr(Stdio::from(server_stderr));
+    if node_runtime_is_usable(&node_runtime_dir) {
+      command.env("TAPTAP_NODE_RUNTIME_DIR", &node_runtime_dir);
+    }
 
     let child = command.spawn().map_err(|error| error.to_string())?;
     append_log(&desktop_log_path, &format!("Fastify child pid {}", child.id()));
@@ -144,6 +137,18 @@ fn append_log(log_path: &Path, message: &str) {
   if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
     let _ = writeln!(file, "{message}");
   }
+}
+
+fn install_panic_logger() {
+  std::panic::set_hook(Box::new(|panic_info| {
+    let log_dir = APP_DATA_DIR
+      .get()
+      .cloned()
+      .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let _ = fs::create_dir_all(&log_dir);
+    let log_path = log_dir.join("desktop-crash.log");
+    append_log(&log_path, &format!("panic: {panic_info}"));
+  }));
 }
 
 fn normalize_windows_path(path: PathBuf) -> PathBuf {
@@ -187,6 +192,15 @@ fn server_command(workspace_root: &Path) -> Command {
   command.arg(workspace_root.join("apps").join("server").join("dist").join("index.js"));
   hide_command_window(&mut command);
   command
+}
+
+fn node_runtime_is_usable(node_runtime_dir: &Path) -> bool {
+  let node_name = if cfg!(windows) { "node.exe" } else { "node" };
+  let npm_name = if cfg!(windows) { "npm.cmd" } else { "npm" };
+  let npx_name = if cfg!(windows) { "npx.cmd" } else { "npx" };
+  node_runtime_dir.join(node_name).is_file()
+    && node_runtime_dir.join(npm_name).is_file()
+    && node_runtime_dir.join(npx_name).is_file()
 }
 
 fn hide_command_window(command: &mut Command) {
@@ -274,31 +288,46 @@ fn has_readiness_identity(host: &str, port: u16, instance_token: &str) -> bool {
   response_has_readiness_identity(&response, instance_token)
 }
 
-fn wait_for_desktop_server_identity(host: &'static str, port: u16, instance_token: &str) -> bool {
-  for _ in 0..120 {
+fn wait_for_desktop_server_identity_until_ready(host: &'static str, port: u16, instance_token: &str, desktop_log_path: &Path) {
+  let mut attempts = 0u32;
+  loop {
+    attempts += 1;
     if has_readiness_identity(host, port, instance_token) && has_web_identity(host, port) {
-      return true;
+      if attempts > 1 {
+        append_log(desktop_log_path, &format!("desktop server identity ready after retry batch {attempts}"));
+      }
+      return;
+    }
+    if attempts % 120 == 0 {
+      append_log(desktop_log_path, "still waiting for desktop server identity");
     }
     thread::sleep(Duration::from_millis(250));
   }
-  false
 }
 
-fn wait_for_dev_desktop_identity(
+fn wait_for_dev_desktop_identity_until_ready(
   web_probes: &[LocalPortProbe],
   server_host: &'static str,
   server_port: u16,
   instance_token: &str,
-) -> bool {
-  for _ in 0..120 {
+  desktop_log_path: &Path,
+) {
+  let mut attempts = 0u32;
+  loop {
+    attempts += 1;
     let web_ready = web_probes.iter().any(|probe| has_web_identity(probe.host, probe.port));
     let server_ready = has_readiness_identity(server_host, server_port, instance_token);
     if web_ready && server_ready {
-      return true;
+      if attempts > 1 {
+        append_log(desktop_log_path, &format!("dev desktop identity ready after retry batch {attempts}"));
+      }
+      return;
+    }
+    if attempts % 120 == 0 {
+      append_log(desktop_log_path, &format!("still waiting for dev desktop identity: web_ready={web_ready}, server_ready={server_ready}"));
     }
     thread::sleep(Duration::from_millis(250));
   }
-  false
 }
 
 #[cfg(test)]
@@ -396,73 +425,22 @@ fn open_external_url(url: String) -> Result<(), String> {
   }
 }
 
-fn rounded_div(value: u64, divisor: u64) -> u32 {
-  ((value + (divisor / 2)) / divisor) as u32
-}
-
-fn enforce_aspect_ratio(
-  app_handle: &tauri::AppHandle,
-  label: &str,
-  size: PhysicalSize<u32>,
-  lock: &Arc<Mutex<AspectRatioLock>>,
-) {
-  if label != "main" || size.width == 0 || size.height == 0 {
-    return;
-  }
-
-  let Some(window) = app_handle.get_webview_window(label) else {
-    return;
-  };
-  if window.is_fullscreen().unwrap_or(false) || window.is_maximized().unwrap_or(false) {
-    if let Ok(mut state) = lock.lock() {
-      state.last_size = Some(size);
-    }
-    return;
-  }
-
-  let Ok(mut state) = lock.lock() else {
-    return;
-  };
-  if state.adjusting {
-    state.adjusting = false;
-    state.last_size = Some(size);
-    return;
-  }
-
-  let target_height_from_width = rounded_div(size.width as u64 * ASPECT_HEIGHT as u64, ASPECT_WIDTH as u64);
-  if size.height.abs_diff(target_height_from_width) <= ASPECT_TOLERANCE {
-    state.last_size = Some(size);
-    return;
-  }
-
-  let target_width_from_height = rounded_div(size.height as u64 * ASPECT_WIDTH as u64, ASPECT_HEIGHT as u64);
-  let (next_width, next_height) = match state.last_size {
-    Some(previous) => {
-      let width_change = size.width.abs_diff(previous.width);
-      let height_change = size.height.abs_diff(previous.height);
-      if width_change >= height_change {
-        (size.width, target_height_from_width.max(1))
-      } else {
-        (target_width_from_height.max(1), size.height)
-      }
-    }
-    None => (size.width, target_height_from_width.max(1)),
-  };
-
-  let next_size = PhysicalSize::new(next_width, next_height);
-  state.adjusting = true;
-  state.last_size = Some(next_size);
-  drop(state);
-  let _ = window.set_size(next_size);
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  let aspect_ratio_lock = Arc::new(Mutex::new(AspectRatioLock::default()));
-  let aspect_ratio_lock_for_run = aspect_ratio_lock.clone();
+  install_panic_logger();
   let app = tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
     .setup(|app| {
+      if let Ok(app_data_dir) = app.path().app_data_dir() {
+        let _ = fs::create_dir_all(&app_data_dir);
+        let _ = APP_DATA_DIR.set(app_data_dir);
+      }
+      if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_min_size(Some(LogicalSize::new(
+          MIN_WINDOW_LOGICAL_WIDTH,
+          MIN_WINDOW_LOGICAL_HEIGHT,
+        )));
+      }
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
@@ -473,9 +451,15 @@ pub fn run() {
       let server = DesktopServer::default();
       let app_handle = app.handle().clone();
       server.start(&app_handle).map_err(|error| {
+        if let Ok(app_data_dir) = app.path().app_data_dir() {
+          append_log(&app_data_dir.join("desktop.log"), &format!("failed to start Fastify: {error}"));
+        }
         tauri::Error::Io(std::io::Error::new(std::io::ErrorKind::Other, error))
       })?;
       let server_launch = server.launch().map_err(|error| {
+        if let Ok(app_data_dir) = app.path().app_data_dir() {
+          append_log(&app_data_dir.join("desktop.log"), &format!("failed to read Fastify launch: {error}"));
+        }
         tauri::Error::Io(std::io::Error::new(std::io::ErrorKind::Other, error))
       })?;
       app.manage(server.clone());
@@ -483,26 +467,29 @@ pub fn run() {
       let dev_web_probes = [
         LocalPortProbe { host: "127.0.0.1", port: DEV_WEB_PORT_NUMBER },
       ];
+      let desktop_log_path = app.path().app_data_dir().map(|dir| dir.join("desktop.log")).ok();
       thread::spawn(move || {
-        let target_ready = if cfg!(debug_assertions) {
-          wait_for_dev_desktop_identity(
+        if cfg!(debug_assertions) {
+          wait_for_dev_desktop_identity_until_ready(
             &dev_web_probes,
             SERVER_HOST,
             server_launch.port,
             &server_launch.instance_token,
-          )
+            desktop_log_path.as_deref().unwrap_or_else(|| Path::new("desktop.log")),
+          );
         } else {
-          wait_for_desktop_server_identity(SERVER_HOST, server_launch.port, &server_launch.instance_token)
-        };
-        let target_url = if target_ready {
-          let api_base = format!("http://{SERVER_HOST}:{}", server_launch.port);
-          if cfg!(debug_assertions) {
-            format!("{DEV_WEB_URL}?apiBase={api_base}")
-          } else {
-            format!("{api_base}?apiBase={api_base}")
-          }
+          wait_for_desktop_server_identity_until_ready(
+            SERVER_HOST,
+            server_launch.port,
+            &server_launch.instance_token,
+            desktop_log_path.as_deref().unwrap_or_else(|| Path::new("desktop.log")),
+          );
+        }
+        let api_base = format!("http://{SERVER_HOST}:{}", server_launch.port);
+        let target_url = if cfg!(debug_assertions) {
+          format!("{DEV_WEB_URL}?apiBase={api_base}")
         } else {
-          return;
+          format!("{api_base}?apiBase={api_base}")
         };
         let window_app_handle = app_handle.clone();
         let _ = app_handle.run_on_main_thread(move || {
@@ -520,9 +507,6 @@ pub fn run() {
     .expect("error while building tauri application");
 
   app.run(move |app_handle, event| {
-    if let RunEvent::WindowEvent { label, event: WindowEvent::Resized(size), .. } = &event {
-      enforce_aspect_ratio(app_handle, label, *size, &aspect_ratio_lock_for_run);
-    }
     if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
       app_handle.state::<DesktopServer>().stop();
     }

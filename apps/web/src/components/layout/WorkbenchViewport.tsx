@@ -108,6 +108,9 @@ type Props = {
   onSelectProject: (projectId: string) => void;
   onScanProjects: () => void;
   onOpenCloudProjects?: () => void;
+  onOpenVersionHistory?: () => void;
+  appUpdateAvailable?: boolean;
+  appLatestVersion?: string;
   onOpenModule: (module: WorkbenchModule) => void;
   activeSettingsTab: SettingsTab;
   sidebarCollapsed: boolean;
@@ -155,6 +158,9 @@ export function WorkbenchViewport(props: Props) {
           onRemoveProjectRecord={props.onRemoveProjectRecord}
           onDeleteProjectLocalFolder={props.onDeleteProjectLocalFolder}
           onOpenModule={props.onOpenModule}
+          onOpenVersionHistory={props.onOpenVersionHistory}
+          appUpdateAvailable={props.appUpdateAvailable}
+          appLatestVersion={props.appLatestVersion}
           busy={props.busy}
         />
       ) : null}

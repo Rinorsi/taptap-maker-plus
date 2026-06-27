@@ -4,6 +4,7 @@ import {
   Bot,
   Bug,
   Cpu,
+  Download,
   FolderCog,
   Grid3X3,
   Images,
@@ -29,6 +30,7 @@ export type SettingsTab =
   | "assets"
   | "tasks"
   | "runtime"
+  | "software-update"
   | "logs"
   | "developer";
 
@@ -42,7 +44,8 @@ export const settingsTabs: Array<{ id: SettingsTab; label: string; icon: LucideI
   { id: "canvas", label: "画布", icon: Workflow, keywords: ["节点", "节点编辑器", "画布自动保存", "画布更改自动保存", "进入画布", "侧边栏折叠", "离开画布", "恢复侧栏", "恢复侧栏状态", "网格", "显示网格背景", "迷你地图", "MiniMap", "吸附"] },
   { id: "tasks", label: "任务", icon: Grid3X3, keywords: ["任务面板", "任务详情", "点击任务默认展示", "状态", "日志", "错误", "异常通知", "桌面通知", "任务失败", "自动弹出错误日志", "生成类任务", "生成完成", "刷新资产", "完成后刷新资产"] },
   { id: "assets", label: "资产", icon: Images, keywords: ["素材库", "素材", "资产", "文件流转", "外部拖入", "拖入资产", "自动复制", "每次询问", "移动资产", "删除资产", "移动删除资产前", "引用扫描", "项目资产", "资源"] },
-  { id: "runtime", label: "运行时", icon: Cpu, keywords: ["MCP", "Runtime", "运行时", "自动启动策略", "手动控制", "选中项目后启动", "服务管理", "启动 MCP", "启动服务", "停止服务", "刷新工具", "软件版本", "MCP 包", "包更新", "安装", "重装", "卸载", "版本", "云端版本", "本地版本", "npm-cache"] },
+  { id: "runtime", label: "MCP 运行时", icon: Cpu, keywords: ["MCP", "Runtime", "运行时", "自动启动策略", "手动控制", "选中项目后启动", "服务管理", "启动 MCP", "启动服务", "停止服务", "刷新工具", "MCP 包", "包更新", "安装", "重装", "卸载", "云端版本", "本地版本", "npm-cache"] },
+  { id: "software-update", label: "软件更新", icon: Download, keywords: ["软件版本", "软件更新", "更新检查", "版本列表", "版本历史", "下载安装器", "覆盖安装", "GitHub Releases", "静态更新清单", "公告", "更新日志", "最新版本"] },
   { id: "browser", label: "浏览器", icon: MonitorCog, keywords: ["Chromium", "DevTools", "浏览器", "同源策略", "CORS", "缓存", "硬性重新加载", "右键菜单", "原生菜单"] },
   { id: "permissions", label: "权限", icon: Shield, keywords: ["权限", "工作区访问", "工作区访问策略", "自动执行", "确认机制", "工具权限", "执行终端命令", "终端命令", "总是询问", "管理策略"] },
   { id: "logs", label: "日志与通知", icon: Bell, keywords: ["日志", "通知", "诊断", "高级诊断报告", "诊断报告", "诊断包", "导出诊断包", "本地运行日志", "日志缓存", "清空日志", "保留策略", "14 天", "运行记录"] },

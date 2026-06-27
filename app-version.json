@@ -2,25 +2,22 @@
   "appId": "taptap-maker-plus",
   "productName": "TapTap Maker Plus 桌面端",
   "windowTitle": "TapTap Maker Plus",
-  "displayVersion": "v0.13.1-ALPHA",
-  "packageVersion": "0.13.1-alpha",
+  "displayVersion": "v0.13.3-ALPHA",
+  "packageVersion": "0.13.3-alpha",
   "channel": "ALPHA",
   "publisher": "TapTap Maker",
   "description": "TapTap Maker 本地桌面工作台",
-  "announcementTitle": "v0.13.1-ALPHA 测试基准包",
-  "announcementBody": "Alpha 测试版本。本版本用于验证静态更新清单、版本列表、指定版本下载安装和 GitHub Releases 兜底链路。",
+  "announcementTitle": "v0.13.3-ALPHA 测试包",
+  "announcementBody": "## v0.13.3-ALPHA 测试包\n\nAlpha 测试版本。用于验证静态更新清单能展示 `0.13.3`，并支持从 `0.13.1` 选择指定版本下载安装。",
+  "announcementMarkdown": "## TapTap Maker Plus Alpha 公告\n\n欢迎来到 TapTap Maker Plus。它现在还是 **Alpha 版本**，但已经可以作为一个本地桌面工作台，帮你把 TapTap Maker 项目、MCP Runtime、素材管理和常用生成流程放到同一个地方处理。\n\n### 你现在可以先用起来的部分\n\n* 接入本地 TapTap Maker 项目，进入工作台继续制作\n* 管理 MCP 包、本地运行时和项目工具列表\n* 扫描素材库，整理图片、视频、音乐和 3D 资源\n* 使用图像、视频、音乐和 3D 工作室处理生成任务\n* 在视频多模态画布里组织分镜、参考素材和提示词流程\n* 查看任务记录、运行状态和错误信息\n\n### 这还是一个正在长大的版本\n\n有些地方还会粗糙，比如首次启动、项目识别、MCP 安装、网络环境、错误提示和个别页面的完成度。重要项目建议保留独立备份；如果你看到某个流程绕、卡、提示看不懂，基本都值得反馈。\n\n### 遇到问题可以直接反馈\n\n如果软件卡在启动页、白屏、闪退、MCP 安装失败、项目无法绑定，或者生成任务结果不对，可以把截图、操作步骤和诊断包一起发来。即使只有一句“我点了这里没反应”，也比憋着强。\n\n> 这是云端公告不可用时显示的本地备用公告。",
   "announcements": [
     {
       "title": "静态更新清单",
-      "body": "更新检查优先读取静态清单，减少 GitHub API 限流对版本列表的影响。"
+      "body": "版本号和更新日志来自 updates/app-update-manifest.json。"
     },
     {
-      "title": "版本更新测试",
-      "body": "设置页保留更新检测、版本列表、更新日志和选择版本下载安装能力，用于测试 0.13.1 获取 0.13.2、0.13.3 与 v99.99 测试包。"
-    },
-    {
-      "title": "已支持能力概览",
-      "body": "本地项目绑定、MCP 包管理、素材库扫描、图像/视频/音频/3D 工作室、视频多模态画布、任务记录和右侧 Inspector 已进入 Alpha 可测范围。"
+      "title": "v0.13.3-ALPHA 测试包",
+      "body": "## v0.13.3-ALPHA 测试包\n\nAlpha 测试版本。用于验证静态更新清单能展示 `0.13.3`，并支持从 `0.13.1` 选择指定版本下载安装。"
     }
   ]
 }

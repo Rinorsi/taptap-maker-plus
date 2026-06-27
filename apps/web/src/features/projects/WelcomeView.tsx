@@ -33,6 +33,9 @@ type Props = {
   onRemoveProjectRecord: (projectId: string) => void;
   onDeleteProjectLocalFolder: (projectId: string) => void;
   onOpenModule: (module: WorkbenchModule) => void;
+  onOpenVersionHistory?: () => void;
+  appUpdateAvailable?: boolean;
+  appLatestVersion?: string;
   busy: boolean;
 };
 
@@ -61,6 +64,9 @@ export function WelcomeView({
   onRemoveProjectRecord,
   onDeleteProjectLocalFolder,
   onOpenModule,
+  onOpenVersionHistory,
+  appUpdateAvailable,
+  appLatestVersion,
   busy,
 }: Props) {
   const selectedProject =
@@ -233,11 +239,22 @@ export function WelcomeView({
       </div>
       
       {/* Footer Version */}
-      <div className="pointer-events-none absolute bottom-6 left-1/2 -translate-x-1/2 select-none opacity-25">
+      <button
+        type="button"
+        onClick={onOpenVersionHistory}
+        disabled={!onOpenVersionHistory}
+        className="absolute bottom-6 left-1/2 z-[140] -translate-x-1/2 select-none rounded-full px-3 py-1 opacity-35 transition-opacity hover:bg-surface-panel hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
+        title="查看版本列表"
+      >
         <span className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-text">
           Maker Plus {appVersion.displayVersion}
         </span>
-      </div>
+        {appUpdateAvailable ? (
+          <span className="ml-2 inline-flex items-center rounded-full bg-brand px-1.5 py-0.5 text-[9px] font-bold tracking-normal text-white">
+            {appLatestVersion ? `更新 ${appLatestVersion}` : "有更新"}
+          </span>
+        ) : null}
+      </button>
     </div>
   );
 }

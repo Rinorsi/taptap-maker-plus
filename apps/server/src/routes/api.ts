@@ -61,6 +61,7 @@ import { bindExistingMakerProject, initMakerCloudProject, listMakerCloudProjects
 import { getProjectBuildLogs } from "../services/projectLogs.js";
 import { scanModelPackages, organizeModelPackage, bindModelPackage, discardModelPackage, restoreModelPackage, updateResourceTable, runModelPackageBatchAction } from "../services/modelPackage.js";
 import { convertMdlToGltf, inspectMdlFile } from "../services/urhoMdl.js";
+import { createDiagnosticBundle, getDesktopResourceReadiness, resolveDiagnosticBundlePath } from "../services/diagnosticBundle.js";
 import type { AppSettingsPreferencesResponse, MakerWorkflowGraph, ProjectSummary, ToolSummary, WorkflowNodeRunResult, WorkflowRunStatus } from "../types.js";
 
 const callToolSchema = z.object({
@@ -266,6 +267,14 @@ const frontendDiagnosticDeleteQuerySchema = z.object({
 });
 const developerResetInitialStateSchema = z.object({
   confirmText: z.literal("重置软件")
+});
+
+const diagnosticBundleSchema = z.object({
+  projectId: z.string().min(1).optional()
+});
+
+const diagnosticBundleParamsSchema = z.object({
+  fileName: z.string().min(1)
 });
 
 const workflowGraphSchema = z.object({
@@ -784,6 +793,34 @@ export async function registerApiRoutes(app: FastifyInstance) {
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
     const result = applyFrontendDiagnosticsRetention(parsed.data.retention ?? "all");
     return { ok: true, ...result };
+  });
+
+  app.get("/api/developer/desktop-resources", async () => {
+    return { readiness: getDesktopResourceReadiness() };
+  });
+
+  app.post<{ Body: unknown }>("/api/developer/diagnostics", async (request, reply) => {
+    const parsed = diagnosticBundleSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
+      return await createDiagnosticBundle(parsed.data.projectId);
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.get<{ Params: unknown }>("/api/developer/diagnostics/:fileName", async (request, reply) => {
+    const parsed = diagnosticBundleParamsSchema.safeParse(request.params ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
+      const filePath = resolveDiagnosticBundlePath(parsed.data.fileName);
+      return reply
+        .type("application/zip")
+        .header("Content-Disposition", `attachment; filename="${path.basename(filePath)}"`)
+        .send(fs.createReadStream(filePath));
+    } catch (error) {
+      return reply.code(404).send({ error: error instanceof Error ? error.message : String(error) });
+    }
   });
 
   app.post<{ Body: unknown }>("/api/developer/reset-initial-state", async (request, reply) => {

@@ -1,5 +1,7 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import fs from "node:fs";
+import path from "node:path";
 import { config, setMakerProjectsRoot } from "./lib/config.js";
 import { getAppSetting } from "./lib/db.js";
 import { scanMakerProjects } from "./services/projectDiscovery.js";
@@ -11,6 +13,20 @@ import { loadStoredMakerPackage } from "./services/mcpPackageManager.js";
 const app = Fastify({ logger: true });
 let shuttingDown = false;
 let desktopParentMonitor: NodeJS.Timeout | undefined;
+
+function appendServerCrashLog(source: string, error: unknown) {
+  try {
+    fs.mkdirSync(config.dataDir, { recursive: true });
+    const message = error instanceof Error ? error.stack || error.message : String(error);
+    fs.appendFileSync(
+      path.join(config.dataDir, "server-crash.log"),
+      `[${new Date().toISOString()}] ${source}\n${message}\n\n`,
+      "utf8",
+    );
+  } catch {
+    // Crash logging must not throw while handling another failure.
+  }
+}
 
 async function shutdown(signal: string) {
   if (shuttingDown) return;
@@ -54,6 +70,16 @@ process.once("SIGINT", () => {
 
 process.once("SIGTERM", () => {
   void shutdown("SIGTERM").finally(() => process.exit(0));
+});
+
+process.on("uncaughtException", (error) => {
+  appendServerCrashLog("uncaughtException", error);
+  app.log.error(error, "uncaught exception");
+});
+
+process.on("unhandledRejection", (reason) => {
+  appendServerCrashLog("unhandledRejection", reason);
+  app.log.error({ reason }, "unhandled rejection");
 });
 
 startDesktopParentMonitor();

@@ -34,6 +34,9 @@ import type { MakerProjectsRootSettings, ProjectSummary, RuntimeSummary, ToolSum
 import {
   clearFrontendDiagnostics,
   confirmMakerProjectsRootSettings,
+  createDiagnosticBundle,
+  diagnosticBundleDownloadUrl,
+  getDesktopResourceReadiness,
   getMakerProjectsRootSettings,
   listFrontendDiagnostics,
   resetDesktopInitialState,
@@ -63,6 +66,7 @@ import {
   readStoredPreference,
   settingsPreferenceKeys,
   SETTINGS_PREFERENCES_CHANGED_EVENT,
+  subscribeSettingsPreferencesSaveFailed,
   subscribeSettingsPreferencesSaved,
   subscribeSettingsRemoteSync,
   writeLocalPreference,
@@ -166,6 +170,11 @@ export function SettingsView({
   const [serverLogEntries, setServerLogEntries] = useState<
     FrontendDiagnosticEntry[]
   >([]);
+  const [diagnosticExportState, setDiagnosticExportState] = useState<{
+    status: "idle" | "working" | "done" | "error";
+    message: string;
+    zipPath?: string;
+  }>({ status: "idle", message: "" });
   const [makerRootSettings, setMakerRootSettings] = useState<MakerProjectsRootSettings>();
   const [makerRootDraft, setMakerRootDraft] = useState("");
   const [makerRootNotice, setMakerRootNotice] = useState("");
@@ -181,7 +190,7 @@ export function SettingsView({
       : settingsSaveState.status === "error"
         ? "保存失败"
         : settingsSaveState.savedAt
-          ? `上次保存 ${formatLocalTime(settingsSaveState.savedAt)}`
+          ? `已保存 ${formatLocalTime(settingsSaveState.savedAt)}`
           : "修改后自动保存";
   const developerLogCount = Math.max(
     getDeveloperLogEntries().length,
@@ -203,11 +212,15 @@ export function SettingsView({
     const unsubscribeSaved = subscribeSettingsPreferencesSaved(({ savedAt }) => {
       setSettingsSaveState({ status: "saved", savedAt });
     });
+    const unsubscribeFailed = subscribeSettingsPreferencesSaveFailed(({ message }) => {
+      setSettingsSaveState({ status: "error", message: `保存失败：${message}` });
+    });
     const unsubscribeRemote = subscribeSettingsRemoteSync(() => {
       setSettingsSaveState((prev) => ({ status: "saved", savedAt: prev.savedAt }));
     });
     return () => {
       unsubscribeSaved();
+      unsubscribeFailed();
       unsubscribeRemote();
     };
   }, []);
@@ -373,32 +386,46 @@ export function SettingsView({
     await refreshServerLogs();
   };
 
-  const handleExportLogs = () => {
-    const exportPayload = JSON.stringify(
-      {
-        generatedAt: new Date().toISOString(),
-        project: project
-          ? {
-              id: project.id,
-              name: project.name,
-              rootPath: project.rootPath,
-              makerProjectId: project.makerProjectId,
-            }
-          : undefined,
-        runtime,
-        serverLogPath,
-        logText: visibleLogs,
-      },
-      null,
-      2,
-    );
-    const blob = new Blob([exportPayload], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `taptap-settings-diagnostics-${Date.now()}.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+  const handleExportLogs = async () => {
+    setDiagnosticExportState({ status: "working", message: "正在生成诊断包..." });
+    try {
+      const result = await createDiagnosticBundle(project?.id);
+      const anchor = document.createElement("a");
+      anchor.href = diagnosticBundleDownloadUrl(result.downloadUrl);
+      anchor.download = result.fileName;
+      anchor.click();
+      setDiagnosticExportState({
+        status: "done",
+        message: result.resourceReadiness.ok
+          ? `已生成诊断包：${result.fileName}`
+          : `已生成诊断包；安装资源自检发现缺失项：${result.resourceReadiness.resources.filter((item) => item.required && !item.exists).length} 项`,
+        zipPath: result.zipPath,
+      });
+    } catch (error) {
+      setDiagnosticExportState({
+        status: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  const handleCheckDesktopResources = async () => {
+    setDiagnosticExportState({ status: "working", message: "正在检查安装资源..." });
+    try {
+      const { readiness } = await getDesktopResourceReadiness();
+      const missingRequired = readiness.resources.filter((item) => item.required && !item.exists);
+      setDiagnosticExportState({
+        status: readiness.ok ? "done" : "error",
+        message: readiness.ok
+          ? "安装资源自检通过。"
+          : `安装资源自检未通过，缺失 ${missingRequired.length} 个必需项：${missingRequired.map((item) => item.label).join("、")}`,
+      });
+    } catch (error) {
+      setDiagnosticExportState({
+        status: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   };
 
   const handleResetInitialState = async () => {
@@ -535,7 +562,11 @@ export function SettingsView({
                   <span
                     className={cn(
                       "truncate text-[11px]",
-                      settingsSaveState.status === "error" ? "text-red-500" : "text-text-subtle",
+                      settingsSaveState.status === "saved" && settingsSaveState.savedAt
+                        ? "text-emerald-500"
+                        : settingsSaveState.status === "error"
+                          ? "text-red-500"
+                          : "text-text-subtle",
                     )}
                     title={settingsSaveState.message ?? "设置修改后会自动保存；保存按钮用于立即保存当前设置。"}
                   >
@@ -585,11 +616,8 @@ export function SettingsView({
                   options={[{label: "宽松", value: "comfortable"}, {label: "标准", value: "standard"}, {label: "紧凑", value: "compact"}]}
                   onChange={(v) => setPref("density", v as any)}
                 />
-                <SettingContainer
-                  label="界面最小尺寸"
-                  description="限制桌面窗口最小宽高，避免设置页、画布和右栏在过小窗口里挤压错位。默认 1366 x 768。"
-                >
-                  <div className="flex flex-wrap items-center justify-end gap-2">
+                <SettingContainer label="界面最小尺寸">
+                  <div className="flex items-center gap-3">
                     <SelectField
                       id="window-minimum-size-preset"
                       value={prefs.windowMinimumSizePreset}
@@ -600,25 +628,27 @@ export function SettingsView({
                         { label: "自定义", value: "custom" },
                       ]}
                       onChange={(value) => applyWindowMinimumSizePreset(value as SettingsPreferences["windowMinimumSizePreset"])}
-                      className="w-[140px] text-[12px]"
+                      className="w-[120px] text-[12px] h-8 bg-surface-app/50 border-border-soft"
                     />
-                    <input
-                      type="number"
-                      min={1024}
-                      value={prefs.windowMinimumWidth}
-                      onChange={(event) => updateWindowMinimumSize("width", event.target.value)}
-                      className="h-9 w-[88px] rounded-control border border-border bg-surface-app px-2 text-right text-[12px] text-text outline-none focus:border-brand"
-                      aria-label="最小宽度"
-                    />
-                    <span className="text-xs text-text-subtle">x</span>
-                    <input
-                      type="number"
-                      min={640}
-                      value={prefs.windowMinimumHeight}
-                      onChange={(event) => updateWindowMinimumSize("height", event.target.value)}
-                      className="h-9 w-[88px] rounded-control border border-border bg-surface-app px-2 text-right text-[12px] text-text outline-none focus:border-brand"
-                      aria-label="最小高度"
-                    />
+                    <div className="flex items-center bg-surface-app/50 rounded-lg border border-border-soft overflow-hidden shadow-inner h-8 px-1">
+                      <input
+                        type="number"
+                        min={1024}
+                        value={prefs.windowMinimumWidth}
+                        onChange={(event) => updateWindowMinimumSize("width", event.target.value)}
+                        className="w-[50px] bg-transparent px-1 text-center text-[12px] font-mono text-text outline-none focus:text-brand transition-colors"
+                        aria-label="最小宽度"
+                      />
+                      <span className="text-[10px] text-text-subtle/50 font-bold px-1 select-none">✕</span>
+                      <input
+                        type="number"
+                        min={640}
+                        value={prefs.windowMinimumHeight}
+                        onChange={(event) => updateWindowMinimumSize("height", event.target.value)}
+                        className="w-[50px] bg-transparent px-1 text-center text-[12px] font-mono text-text outline-none focus:text-brand transition-colors"
+                        aria-label="最小高度"
+                      />
+                    </div>
                   </div>
                 </SettingContainer>
                 <SegmentedSetting
@@ -851,7 +881,7 @@ export function SettingsView({
 
             {/* Runtime */}
             <div id="settings-runtime" className="scroll-mt-12 flex flex-col gap-6 order-10">
-              <SectionHeader title="运行时" icon={<Cpu />} description="MCP 运行时控制。" />
+              <SectionHeader title="MCP 运行时" icon={<Cpu />} description="当前项目的 MCP 服务控制与 MCP 包环境管理。" />
               <SettingsGroup>
                 <SegmentedSetting
                   label="自动启动策略"
@@ -877,24 +907,54 @@ export function SettingsView({
                 </SettingContainer>
               </SettingsGroup>
               <SettingsGroup>
-                <McpPackageManager busy={busy} />
+                <div className="p-4">
+                  <SectionHeader title="MCP 包管理" icon={<Box />} description="管理桌面端 MCP (Model Context Protocol) 运行时与环境。" />
+                  <McpPackageManager busy={busy} />
+                </div>
               </SettingsGroup>
+            </div>
+
+            {/* Software Update */}
+            <div id="settings-software-update" className="scroll-mt-12 flex flex-col gap-6 order-11">
               <SettingsGroup>
                 <div className="p-4">
-                  <SectionHeader title="软件更新" icon={<Download />} description="检查 GitHub Releases，选择版本并下载安装器覆盖安装。" />
+                  <SectionHeader title="软件更新" icon={<Download />} description="检查远端更新清单，查看版本列表，并下载安装器覆盖安装。" />
                   <AppUpdatePanel state={updateState} />
                 </div>
               </SettingsGroup>
             </div>
 
             {/* Logs */}
-            <div id="settings-logs" className="scroll-mt-12 flex flex-col gap-6 order-[13]">
+            <div id="settings-logs" className="scroll-mt-12 flex flex-col gap-6 order-[14]">
               <SectionHeader title="日志与通知" icon={<Bell />} description="软件诊断日志及运行记录留存策略。" />
               <SettingsGroup>
-                <SettingContainer label="高级诊断报告" description="打包当前软件、MCP Runtime 与项目上下文快照。">
-                  <Button variant="outline" size="sm" onClick={handleExportLogs}>
-                    <Download className="w-3.5 h-3.5 mr-1" /> 导出诊断包
-                  </Button>
+                <SettingContainer
+                  label="高级诊断报告"
+                  description={
+                    diagnosticExportState.message
+                      ? `${diagnosticExportState.message}${diagnosticExportState.zipPath ? ` 路径：${diagnosticExportState.zipPath}` : ""}`
+                      : "打包当前软件、MCP Runtime、前端错误和项目日志快照。"
+                  }
+                >
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleCheckDesktopResources()}
+                      disabled={diagnosticExportState.status === "working"}
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> 检查安装资源
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleExportLogs()}
+                      disabled={diagnosticExportState.status === "working"}
+                    >
+                      <Download className="w-3.5 h-3.5 mr-1" />
+                      {diagnosticExportState.status === "working" ? "处理中" : "导出诊断包"}
+                    </Button>
+                  </div>
                 </SettingContainer>
                 <SettingContainer label="本地运行日志缓存" description={`当前已缓存 ${developerLogCount} 条开发者日志记录`}>
                   <Button variant="outline" size="sm" onClick={() => void handleClearLogs()} className="hover:text-red-400 hover:border-red-400">
@@ -1094,10 +1154,27 @@ function SegmentedSetting<T extends string>({
   options: { value: T; label: string; description?: string }[];
   onChange: (value: T) => void;
 }) {
-  const id = React.useId();
   return (
     <SettingContainer label={label} description={description}>
-      <SelectField id={id} value={value} options={options.map(o => ({ value: o.value, label: o.label }))} onChange={onChange as any} className="w-48 text-[13px]" />
+      <div className="flex bg-surface-app/50 p-1 rounded-lg border border-border-soft shadow-inner">
+        {options.map((o) => {
+          const active = value === o.value;
+          return (
+            <button
+              key={o.value}
+              onClick={() => onChange(o.value)}
+              className={cn(
+                "relative whitespace-nowrap px-4 py-1.5 text-center text-[12px] font-medium transition-all duration-200 rounded-md outline-none",
+                active
+                  ? "text-brand shadow-[0_1px_3px_rgba(0,0,0,0.1)] bg-surface-panel border border-border-soft"
+                  : "text-text-subtle hover:text-text hover:bg-surface-muted/50 border border-transparent"
+              )}
+            >
+              <span className="relative z-10">{o.label}</span>
+            </button>
+          );
+        })}
+      </div>
     </SettingContainer>
   );
 }

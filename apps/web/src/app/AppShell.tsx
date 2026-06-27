@@ -43,6 +43,7 @@ import {
   type AgentSelectionReference,
   type AssetReferenceScanResult,
   type AssetSummary,
+  type AppAnnouncementSummary,
   type ProjectSummary,
   type RuntimeSummary,
   type TaskRecord,
@@ -86,6 +87,7 @@ import { copyText } from "../lib/clipboard";
 import { ContextMenuStyles } from "../components/ui/ContextMenuStyles";
 import { PromptDialog, type PromptConfig } from "../components/ui/PromptDialog";
 import { ConfirmDialog, type ConfirmConfig } from "../components/ui/ConfirmDialog";
+import { Button } from "../components/ui/Button";
 import { ASSET_DRAG_MIME, clearAssetDragData } from "../components/interaction/assetDragData";
 import {
   SETTINGS_PREFERENCES_CHANGED_EVENT,
@@ -112,6 +114,7 @@ import {
   subscribeDeveloperMode,
 } from "../lib/developerMode";
 import { FirstRunOnboarding } from "../features/onboarding/FirstRunOnboarding";
+import { useAppUpdateUi } from "../features/updates/appUpdateUi";
 import { appVersion } from "../generated/appVersion";
 
 const DEFAULT_PROJECT_MODULE: WorkbenchModule = defaultWorkspaceToModule("assets");
@@ -121,6 +124,8 @@ const NODE_PRESET_TEXT_PREFIX = "taptap-node-preset:";
 const BOOTSTRAP_RETRY_DELAYS_MS = [800, 1200, 1800, 2600, 3600];
 const ASSET_REFERENCE_CACHE_TTL_MS = 30_000;
 const ONBOARDING_DISMISSED_STORAGE_KEY = "taptap.onboardingDismissed";
+const ANNOUNCEMENT_READ_STORAGE_KEY = "taptap.readAnnouncementIds";
+const LEGACY_ANNOUNCEMENT_READ_STORAGE_KEY = "taptap.readAnnouncementId";
 
 function resolveThemePreference(preference: ThemePreference): "light" | "dark" {
   if (preference === "light" || preference === "dark") return preference;
@@ -169,6 +174,64 @@ function clearTapTapLocalState() {
     const key = localStorage.key(index);
     if (key?.startsWith("taptap.")) localStorage.removeItem(key);
   }
+}
+
+type AnnouncementContent = {
+  id: string;
+  title: string;
+  summary: string;
+  markdown: string;
+  publishedAt: string;
+  source: "cloud" | "local";
+};
+
+function readAnnouncementReadIds() {
+  const raw = localStorage.getItem(ANNOUNCEMENT_READ_STORAGE_KEY);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed.filter((item): item is string => typeof item === "string" && Boolean(item));
+      }
+    } catch {
+      return [];
+    }
+  }
+  const legacyId = localStorage.getItem(LEGACY_ANNOUNCEMENT_READ_STORAGE_KEY);
+  return legacyId ? [legacyId] : [];
+}
+
+function writeAnnouncementReadIds(ids: string[]) {
+  const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+  localStorage.setItem(ANNOUNCEMENT_READ_STORAGE_KEY, JSON.stringify(uniqueIds));
+  localStorage.removeItem(LEGACY_ANNOUNCEMENT_READ_STORAGE_KEY);
+  return uniqueIds;
+}
+
+function toCloudAnnouncementContent(announcement: AppAnnouncementSummary): AnnouncementContent {
+  return {
+    id: announcement.id,
+    title: announcement.title,
+    summary: announcement.summary,
+    markdown: announcement.markdown,
+    publishedAt: announcement.publishedAt,
+    source: "cloud",
+  };
+}
+
+function resolveAnnouncementContents(announcements?: AppAnnouncementSummary[], announcement?: AppAnnouncementSummary): AnnouncementContent[] {
+  const cloudAnnouncements = announcements?.length ? announcements : announcement ? [announcement] : [];
+  if (cloudAnnouncements.length) return cloudAnnouncements.map(toCloudAnnouncementContent);
+  return [
+    {
+      id: `${appVersion.displayVersion}:${appVersion.announcementMarkdown}`,
+      title: appVersion.announcementTitle,
+      summary: appVersion.announcementBody,
+      markdown: appVersion.announcementMarkdown,
+      publishedAt: new Date().toISOString(),
+      source: "local",
+    },
+  ];
 }
 
 type ResizeEdge = "n" | "e" | "s" | "w" | "ne" | "nw" | "se" | "sw";
@@ -238,6 +301,13 @@ export function AppShell() {
   const [developerModeEnabled, setDeveloperModeEnabledState] = useState(() => isDeveloperModeEnabled());
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [announcementOpen, setAnnouncementOpen] = useState(false);
+  const [readAnnouncementIds, setReadAnnouncementIds] = useState<string[]>(() => readAnnouncementReadIds());
+  const appUpdateState = useAppUpdateUi(developerModeEnabled);
+  const announcementContents = useMemo(
+    () => resolveAnnouncementContents(appUpdateState.status?.announcements, appUpdateState.status?.announcement),
+    [appUpdateState.status?.announcement, appUpdateState.status?.announcements],
+  );
+  const announcementUnread = announcementContents.some((announcement) => !readAnnouncementIds.includes(announcement.id));
   const themeCinemaTargetRef = useRef<"light" | "dark" | undefined>(undefined);
   const startupPromptedRef = useRef(false);
   const onboardingDismissedRef = useRef(
@@ -297,6 +367,16 @@ export function AppShell() {
     [tasks],
   );
 
+  function markAnnouncementsRead() {
+    setReadAnnouncementIds((current) =>
+      writeAnnouncementReadIds([
+        ...current,
+        ...announcementContents.map((announcement) => announcement.id),
+      ]),
+    );
+    setAnnouncementOpen(false);
+  }
+
   const previousFailedTasksRef = useRef<Set<string>>(new Set());
   const previousTaskStatusRef = useRef<Map<string, string>>(new Map());
 
@@ -338,7 +418,7 @@ export function AppShell() {
     for (const task of tasks) {
       const previousStatus = previousTaskStatusRef.current.get(task.taskId);
       const currentStatus = task.status;
-      
+
       // 检测从 running 变为 succeeded/failed
       if (previousStatus === "running" && (currentStatus === "succeeded" || currentStatus === "failed")) {
         // 发送全局事件
@@ -351,7 +431,7 @@ export function AppShell() {
             },
           })
         );
-        
+
         // 生成任务完成时刷新资产列表和资产树，画布结果节点依赖 assets 回填。
         if (
           currentStatus === "succeeded" &&
@@ -362,10 +442,10 @@ export function AppShell() {
           void refreshProjectAssets(selectedProject.id);
         }
       }
-      
+
       previousTaskStatusRef.current.set(task.taskId, currentStatus);
     }
-    
+
     // 清理已不存在的任务
     const currentTaskIds = new Set(tasks.map((t) => t.taskId));
     for (const taskId of previousTaskStatusRef.current.keys()) {
@@ -1293,7 +1373,7 @@ export function AppShell() {
     );
     const currentFolder =
       relativePaths[0]?.split(/[\\/]/).slice(0, -1).join("/") || "assets";
-    
+
     setPromptConfig({
       isOpen: true,
       title: "输入目标目录",
@@ -1460,7 +1540,7 @@ export function AppShell() {
 
   async function handleDeleteFolder(directoryPath: string) {
     if (!selectedProject) return;
-    
+
     // Step 1: Get folder statistics
     const folderAssets = filterAssetsForDirectory(assets, directoryPath, true);
     const subDirectories = new Set(
@@ -1476,7 +1556,7 @@ export function AppShell() {
         })
         .filter((dir): dir is string => dir !== null)
     );
-    
+
     // Step 2: Show statistics confirmation
     const statsConfirmed = await requestConfirm({
       title: "确认删除文件夹？",
@@ -1492,12 +1572,12 @@ export function AppShell() {
       confirmLabel: "继续",
       danger: true,
     });
-    
+
     if (!statsConfirmed) {
       setNotice("已取消删除文件夹");
       return;
     }
-    
+
     // Step 3: Scan references and get user decision
     const assetPaths = folderAssets.map(asset => asset.relativePath);
     const decision = await requestReferenceMutationDecision({
@@ -1506,12 +1586,12 @@ export function AppShell() {
       actionLabel: "删除",
       allowUpdateReferences: false,
     });
-    
+
     if (decision === "cancel") {
       setNotice("已取消删除文件夹");
       return;
     }
-    
+
     // Step 4: Execute deletion
     setBusy(true);
     try {
@@ -3866,10 +3946,7 @@ export function AppShell() {
     event.preventDefault();
     event.stopPropagation();
     try {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
       const appWindow = getCurrentWindow();
-      if ((await appWindow.isMaximized()) || (await appWindow.isFullscreen()))
-        return;
       await appWindow.startResizeDragging(toTauriResizeDirection(edge));
     } catch {
       // Browser preview has no desktop shell to resize.
@@ -3930,9 +4007,9 @@ export function AppShell() {
 
   return (
     <CommandProvider registry={commandRegistry}>
-      <ThemeCinemaOverlay 
-         active={cinemaThemeState.active} 
-         toTheme={cinemaThemeState.toTheme} 
+      <ThemeCinemaOverlay
+         active={cinemaThemeState.active}
+         toTheme={cinemaThemeState.toTheme}
          onMidpoint={(newTheme) => {
            document.documentElement.dataset.theme = newTheme;
            setTheme(newTheme);
@@ -4007,6 +4084,7 @@ export function AppShell() {
               collapsed={effectiveSidebarCollapsed}
               width={effectiveSidebarWidth}
               developerMode={developerModeEnabled}
+              announcementUnread={announcementUnread}
               onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
               onClearProject={handleClearProject}
               onSelectModule={selectModule}
@@ -4080,6 +4158,12 @@ export function AppShell() {
                 localStorage.removeItem(ONBOARDING_DISMISSED_STORAGE_KEY);
                 setOnboardingOpen(true);
               }}
+              onOpenVersionHistory={() => {
+                setActiveSettingsTab("software-update");
+                selectModule("settings");
+              }}
+              appUpdateAvailable={appUpdateState.status?.updateAvailable}
+              appLatestVersion={appUpdateState.status?.latestVersion}
               onProjectsRootChanged={handleProjectsRootChanged}
               onResetInitialState={handleResetInitialState}
               onThemePreferenceChange={handleThemePreferenceChange}
@@ -4211,55 +4295,204 @@ export function AppShell() {
         <PromptDialog config={promptConfig} />
         <ConfirmDialog config={confirmConfig} />
         {announcementOpen ? (
-          <AnnouncementDialog onClose={() => setAnnouncementOpen(false)} />
+          <AnnouncementDialog
+            announcements={announcementContents}
+            readAnnouncementIds={readAnnouncementIds}
+            onClose={markAnnouncementsRead}
+          />
         ) : null}
       </div>
     </CommandProvider>
   );
 }
 
-function AnnouncementDialog({ onClose }: { onClose: () => void }) {
+function renderInlineMarkdown(text: string) {
+  const html = text
+    .replace(/\*\*(.*?)\*\*/g, '<strong class="text-text font-bold">$1</strong>')
+    .replace(/`(.*?)`/g, '<code class="bg-surface-muted text-brand px-1.5 py-0.5 rounded text-[13px] border border-border-soft font-mono">$1</code>');
+
+  return <span dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+function MiniMarkdown({ content, skipFirstHeading }: { content: string; skipFirstHeading?: string }) {
+  let skippedHeading = false;
+  const lines = content.split('\n').filter(line => line.trim() !== '');
+
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 px-5 backdrop-blur-sm">
-      <div className="w-full max-w-2xl rounded-xl border border-border bg-surface-panel p-5 shadow-2xl">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="text-[11px] font-bold uppercase tracking-wide text-brand">公告</div>
-            <h2 className="m-0 mt-1 text-xl font-bold text-text">{appVersion.announcementTitle}</h2>
-            <p className="m-0 mt-2 text-sm leading-relaxed text-text-muted">{appVersion.announcementBody}</p>
+    <div className="flex flex-col text-[15px] text-text-muted leading-relaxed">
+      {lines.map((line, i) => {
+        if (skipFirstHeading && !skippedHeading && line.startsWith('## ') && line.includes(skipFirstHeading)) {
+          skippedHeading = true;
+          return null;
+        }
+        if (line.startsWith('## ')) {
+          return (
+            <h2 key={i} className={`text-text font-bold text-[20px] mb-4 leading-tight flex items-center gap-2.5 ${i > 0 ? "mt-10" : "mt-0"}`}>
+              <div className="w-1.5 h-5 bg-brand rounded-full"></div>
+              {line.replace('## ', '')}
+            </h2>
+          );
+        }
+        if (line.startsWith('### ')) {
+          return (
+            <h3 key={i} className={`text-text font-bold text-[17px] mb-3 leading-tight ${i > 0 ? "mt-8" : "mt-0"}`}>
+              {line.replace('### ', '')}
+            </h3>
+          );
+        }
+        if (line.startsWith('> ')) {
+          return (
+            <blockquote key={i} className="border-l-[3px] border-brand/50 bg-brand/5 pl-5 py-3.5 text-text-subtle mt-4 mb-6 rounded-r-lg text-[14px]">
+              {renderInlineMarkdown(line.replace('> ', ''))}
+            </blockquote>
+          );
+        }
+        if (line.startsWith('* ')) {
+          return (
+            <div key={i} className="flex items-start gap-3 ml-2 mt-2">
+              <span className="text-brand mt-[8px] text-[10px] opacity-80">●</span>
+              <span className="flex-1">{renderInlineMarkdown(line.replace('* ', ''))}</span>
+            </div>
+          );
+        }
+        return <p key={i} className="m-0 mb-5">{renderInlineMarkdown(line)}</p>;
+      })}
+    </div>
+  );
+}
+
+function formatAnnouncementDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function startAnnouncementWindowDrag(event: React.PointerEvent<HTMLElement>) {
+  if (event.button !== 0) return;
+  if (
+    event.target instanceof HTMLElement &&
+    event.target.closest("button, input, textarea, select, a")
+  ) {
+    return;
+  }
+  getCurrentWindow().startDragging().catch(() => undefined);
+}
+
+function AnnouncementDialog({
+  announcements,
+  readAnnouncementIds,
+  onClose,
+}: {
+  announcements: AnnouncementContent[];
+  readAnnouncementIds: string[];
+  onClose: () => void;
+}) {
+  const [selectedId, setSelectedId] = useState(() => announcements[0]?.id ?? "");
+  const selectedAnnouncement = announcements.find((announcement) => announcement.id === selectedId) ?? announcements[0];
+
+  return (
+    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 px-6 backdrop-blur-[4px] animate-in fade-in duration-200">
+      {/* Clean, Flat Modal Container */}
+      <div className="flex h-[75vh] w-full max-w-[960px] overflow-hidden rounded-panel bg-surface-panel shadow-popover animate-in zoom-in-[0.98] duration-200 relative ring-1 ring-border-soft">
+
+        {/* LEFT SIDEBAR (Solid, Clean) */}
+        <aside className="flex w-[260px] shrink-0 flex-col border-r border-border-soft bg-surface-app">
+          <div
+            className="flex h-[80px] shrink-0 cursor-grab items-center px-6 active:cursor-grabbing"
+            onPointerDown={startAnnouncementWindowDrag}
+            title="拖动窗口"
+          >
+            <h2 className="m-0 text-[18px] font-bold text-text flex items-center gap-2">
+              <svg className="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg>
+              公告中心
+            </h2>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-text-muted hover:bg-surface-muted hover:text-text"
-            title="关闭公告"
+
+          <div className="flex-1 overflow-y-auto scrollbar-none px-4 py-2">
+            <div className="flex flex-col gap-1.5">
+              {announcements.map((announcement) => {
+                const active = selectedAnnouncement?.id === announcement.id;
+                const unread = !readAnnouncementIds.includes(announcement.id);
+                return (
+                  <button
+                    key={announcement.id}
+                    type="button"
+                    onClick={() => setSelectedId(announcement.id)}
+                    className={`flex w-full flex-col rounded-control px-4 py-3.5 text-left transition-colors ${
+                      active ? "bg-brand/10 text-brand" : "text-text-muted hover:bg-surface-muted hover:text-text"
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      {unread ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" /> : null}
+                      <span className="min-w-0 flex-1 text-[14px] font-bold line-clamp-1">
+                        {announcement.title}
+                      </span>
+                      <span className="shrink-0 rounded bg-surface-muted px-1.5 py-0.5 text-[9px] font-bold text-text-subtle">
+                        {announcement.source === "cloud" ? "云端" : "本地"}
+                      </span>
+                    </span>
+
+                    <span className="mt-1.5 text-[12px] font-medium opacity-80 font-mono">
+                      {formatAnnouncementDate(announcement.publishedAt)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </aside>
+
+        {/* RIGHT CONTENT AREA (Minimalist) */}
+        <section className="relative flex min-w-0 flex-1 flex-col bg-surface-panel overflow-hidden">
+
+          {/* Header Area (Clean, High Contrast) */}
+          <div
+            className="relative shrink-0 cursor-grab px-12 pt-14 pb-8 border-b border-border-soft flex justify-between items-start gap-4 active:cursor-grabbing"
+            onPointerDown={startAnnouncementWindowDrag}
+            title="拖动窗口"
           >
-            <XCircle className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="mt-5 grid gap-3 md:grid-cols-2">
-          {appVersion.announcements.map((item) => (
-            <article key={item.title} className="rounded-lg border border-border-soft bg-surface-app/65 p-4">
-              <h3 className="m-0 text-sm font-bold text-text">{item.title}</h3>
-              <p className="m-0 mt-2 text-xs leading-relaxed text-text-muted">{item.body}</p>
-            </article>
-          ))}
-        </div>
-        <div className="mt-5 rounded-lg border border-border-soft bg-surface-app/65 p-4">
-          <h3 className="m-0 text-sm font-bold text-text">当前支持的主要内容</h3>
-          <p className="m-0 mt-2 text-xs leading-relaxed text-text-muted">
-            本地 Maker 项目绑定、MCP 包安装/卸载与运行时管理、素材库扫描与引用治理、图像/视频/音频/3D 工作室、视频多模态画布、任务记录和右侧 Inspector 状态面板。
-          </p>
-        </div>
-        <div className="mt-5 flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-9 items-center justify-center rounded-control bg-brand px-4 text-sm font-bold text-white hover:bg-brand-strong"
-          >
-            我知道了
-          </button>
-        </div>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-3 mb-4">
+                <span className="inline-flex items-center rounded-control bg-brand px-2 py-0.5 text-[11px] font-bold text-white uppercase tracking-wider">
+                  官方动态
+                </span>
+                <span className="inline-flex items-center rounded-control border border-border-soft bg-surface-muted px-2 py-0.5 text-[10px] font-bold text-text-subtle">
+                  {selectedAnnouncement.source === "cloud" ? "云端" : "本地"}
+                </span>
+                <span className="text-[13px] text-text-subtle font-mono">
+                  {formatAnnouncementDate(selectedAnnouncement.publishedAt)}
+                </span>
+              </div>
+              <h3 className="m-0 text-[32px] font-bold leading-tight text-text tracking-tight">
+                {selectedAnnouncement.title}
+              </h3>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              onPointerDown={(event) => event.stopPropagation()}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-surface-muted text-text-muted transition-colors hover:bg-border-soft hover:text-text"
+              title="关闭公告"
+            >
+              <XCircle className="h-5 w-5" />
+            </button>
+          </div>
+
+          {/* Scrollable Markdown Content */}
+          <div className="flex-1 overflow-y-auto px-12 py-10 scrollbar-thin">
+            {selectedAnnouncement ? (
+              <MiniMarkdown content={selectedAnnouncement.markdown} skipFirstHeading={selectedAnnouncement.title} />
+            ) : null}
+          </div>
+
+          {/* Footer Confirmation */}
+          <div className="shrink-0 border-t border-border-soft bg-surface-panel p-6 flex justify-end">
+              <Button onClick={onClose} size="lg" className="px-10 text-[15px]">
+                我知道了
+              </Button>
+          </div>
+        </section>
       </div>
     </div>
   );
@@ -4427,44 +4660,44 @@ function DesktopWindowResizeHandles({
   return (
     <>
       <div
-        className="fixed left-5 right-5 top-0 z-[70] h-2 cursor-ns-resize"
+        className="fixed left-5 right-5 top-0 z-[120] h-2 cursor-ns-resize"
         data-no-window-drag
-        onPointerDown={(event) => onResizeStart(event, "n")}
+        onPointerDownCapture={(event) => onResizeStart(event, "n")}
       />
       <div
-        className="fixed bottom-5 left-0 top-14 z-[70] w-2 cursor-ew-resize"
+        className="fixed bottom-5 left-0 top-14 z-[120] w-2 cursor-ew-resize"
         data-no-window-drag
-        onPointerDown={(event) => onResizeStart(event, "w")}
+        onPointerDownCapture={(event) => onResizeStart(event, "w")}
       />
       <div
-        className="fixed bottom-5 right-0 top-14 z-[70] w-2 cursor-ew-resize"
+        className="fixed bottom-5 right-0 top-14 z-[120] w-2 cursor-ew-resize"
         data-no-window-drag
-        onPointerDown={(event) => onResizeStart(event, "e")}
+        onPointerDownCapture={(event) => onResizeStart(event, "e")}
       />
       <div
-        className="fixed bottom-0 left-5 right-5 z-[70] h-2 cursor-ns-resize"
+        className="fixed bottom-0 left-5 right-5 z-[120] h-2 cursor-ns-resize"
         data-no-window-drag
-        onPointerDown={(event) => onResizeStart(event, "s")}
+        onPointerDownCapture={(event) => onResizeStart(event, "s")}
       />
       <div
-        className="fixed left-0 top-0 z-[71] h-5 w-5 cursor-nwse-resize"
+        className="fixed left-0 top-0 z-[121] h-5 w-5 cursor-nwse-resize"
         data-no-window-drag
-        onPointerDown={(event) => onResizeStart(event, "nw")}
+        onPointerDownCapture={(event) => onResizeStart(event, "nw")}
       />
       <div
-        className="fixed right-0 top-0 z-[71] h-5 w-5 cursor-nesw-resize"
+        className="fixed right-0 top-0 z-[121] h-5 w-5 cursor-nesw-resize"
         data-no-window-drag
-        onPointerDown={(event) => onResizeStart(event, "ne")}
+        onPointerDownCapture={(event) => onResizeStart(event, "ne")}
       />
       <div
-        className="fixed bottom-0 left-0 z-[71] h-5 w-5 cursor-nesw-resize"
+        className="fixed bottom-0 left-0 z-[121] h-5 w-5 cursor-nesw-resize"
         data-no-window-drag
-        onPointerDown={(event) => onResizeStart(event, "sw")}
+        onPointerDownCapture={(event) => onResizeStart(event, "sw")}
       />
       <div
-        className="fixed bottom-0 right-0 z-[71] h-5 w-5 cursor-nwse-resize"
+        className="fixed bottom-0 right-0 z-[121] h-5 w-5 cursor-nwse-resize"
         data-no-window-drag
-        onPointerDown={(event) => onResizeStart(event, "se")}
+        onPointerDownCapture={(event) => onResizeStart(event, "se")}
       />
     </>
   );
@@ -4564,17 +4797,17 @@ function buildAssetReferenceConfirmationMessage(
       assetPath: result.relativePath,
       assetRefCount: result.referenceCount,
     }));
-    
+
     references.forEach(ref => {
       const ext = ref.sourcePath.toLowerCase();
       let type = 'Resources';
       if (ext.endsWith('.lua')) type = 'Lua';
       else if (ext.endsWith('.json') || ext.endsWith('.fsm') || ext.endsWith('.blendspace')) type = 'Flow';
-      
+
       if (!groups[type]) groups[type] = [];
       groups[type].push(ref);
     });
-    
+
     return groups;
   }, {} as Record<string, Array<{ sourcePath: string; line: number; lineText: string; assetPath: string; assetRefCount: number }>>);
 
@@ -4596,7 +4829,7 @@ function buildAssetReferenceConfirmationMessage(
           const refs = groupedByType[type];
           const displayRefs = refs.slice(0, 20);
           const hasMore = refs.length > 20;
-          
+
           return (
             <details key={type} open className="group">
               <summary className="cursor-pointer list-none font-semibold text-text-strong text-[13px] py-2 px-2 rounded-lg hover:bg-surface-panel/50 select-none">
@@ -4659,13 +4892,13 @@ function buildAssetMutationNotice(prefix: string, result: AssetMutationResponse)
   return `${prefix}；同步更新 ${referenceUpdate.totalReplacements} 处引用，涉及 ${fileCount} 个文件${skippedCount ? `，仍有 ${skippedCount} 项未同步` : ""}`;
 }
 
-function ThemeCinemaOverlay({ 
-  active, 
+function ThemeCinemaOverlay({
+  active,
   toTheme,
   onMidpoint,
   onComplete
-}: { 
-  active: boolean; 
+}: {
+  active: boolean;
   toTheme: "light" | "dark";
   onMidpoint: (theme: "light" | "dark") => void;
   onComplete: () => void;
@@ -4686,18 +4919,18 @@ function ThemeCinemaOverlay({
       setPhase("idle");
       return;
     }
-    
+
     // 1. Fade in overlay completely first
     setPhase("fade-in");
     setIconState(toTheme === "dark" ? "light" : "dark");
-    
+
     // 2. Wait 200ms until overlay is 100% opaque. Then trigger morph AND underlying theme change.
     const t1 = setTimeout(() => {
       setPhase("morph");
       setIconState(toTheme);
       // At this point, screen is perfectly solid color. Safe to freeze main thread for heavy DOM update.
       onMidpointRef.current(toTheme);
-    }, 200); 
+    }, 200);
 
     // 3. Wait 500ms for morph to finish beautifully. Then reveal.
     const t2 = setTimeout(() => {
@@ -4714,24 +4947,24 @@ function ThemeCinemaOverlay({
 
   if (!active) return null;
 
-  const bg = toTheme === "dark" ? "#18191B" : "#F7F9FA"; 
+  const bg = toTheme === "dark" ? "#18191B" : "#F7F9FA";
   const brand = "#00D9C5";
-  
+
   const opacity = phase === "idle" || phase === "fade-out" ? 0 : 1;
   const isDarkIcon = iconState === "dark";
   const easeCurve = "cubic-bezier(0.4, 0, 0.2, 1)"; // Smooth Material ease, NO BOUNCING
 
   return (
-    <div 
+    <div
       className="fixed inset-0 z-[999999] pointer-events-none flex items-center justify-center transition-opacity duration-200"
       style={{ backgroundColor: bg, opacity }}
     >
-      <div 
+      <div
         className="transition-all duration-300"
         style={{
           transform: phase === "fade-out" ? "scale(2.5) blur(12px)" : "scale(1) blur(0px)",
           opacity: phase === "fade-out" ? 0 : 1,
-          filter: `drop-shadow(0 0 50px ${brand}80)` 
+          filter: `drop-shadow(0 0 50px ${brand}80)`
         }}
       >
         <svg

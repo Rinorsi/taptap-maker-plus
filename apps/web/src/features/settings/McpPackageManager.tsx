@@ -244,104 +244,151 @@ export function McpPackageManager({ busy, compact = false }: Props) {
   }
 
   return (
-    <div className="flex flex-col gap-0 border-t border-border-soft">
-      {/* MCP Package Update */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between p-4 border-b border-border-soft hover:bg-surface-muted/30 transition-colors gap-4">
-        <div className="flex flex-col flex-1 pr-0 md:pr-8">
-          <span className="text-[13px] font-medium text-text">MCP 包状态</span>
-          <span className="mt-1 text-xs text-text-muted leading-relaxed">
-            本地安装状态和云端版本检查分开显示；卸载本地 MCP 不影响继续检查云端版本。
-          </span>
-          <div className="mt-3 grid gap-2 text-[11px] text-text-subtle md:grid-cols-2">
-            <StatusCard
-              label="本地 MCP"
-              value={localStatus}
-              detail={`缓存：${formatCache(status)}`}
-              title={status?.cachePath}
-            />
-            <StatusCard
-              label="云端版本"
-              value={cloudStatus}
-              detail={`检查时间：${formatTime(status?.lastCheckedAt)}`}
-            />
-            <StatusPill label="安装时间" value={formatTime(status?.lastInstalledAt)} />
-            <StatusPill label="包名" value={status?.packageName ?? "-"} />
+    <div className="flex flex-col rounded-xl border border-border-soft bg-surface-panel shadow-sm overflow-hidden">
+      {/* Animated Header & Actions Area */}
+      <div className="flex flex-col xl:flex-row gap-6 p-5 bg-surface-app/40 border-b border-border-soft items-center justify-between relative overflow-hidden">
+
+        {/* Left Side: Status & Animation */}
+        <div className="flex flex-col md:flex-row items-center gap-5 flex-1 min-w-0">
+          {/* Animated SVG Graphic */}
+          <div className="shrink-0 relative w-20 h-20 flex items-center justify-center">
+            <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-md">
+              {/* Background glowing circle */}
+              <circle cx="50" cy="50" r="40" className="fill-brand/5 animate-pulse" style={{ animationDuration: '3s' }} />
+              {/* Outer rotating dashed ring */}
+              <circle cx="50" cy="50" r="35" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="4 6" className="text-brand/40 animate-spin origin-center" style={{ animationDuration: '12s' }} />
+              {/* Inner Hexagon or Box */}
+              <path d="M50 22 L74 36 L74 64 L50 78 L26 64 L26 36 Z" fill="currentColor" fillOpacity="0.05" stroke="currentColor" strokeWidth="1.5" className="text-brand" />
+              {/* Center dot */}
+              <circle cx="50" cy="50" r="4" className={cn("fill-brand transition-all", working && "animate-ping")} />
+              <circle cx="50" cy="50" r="4" className="fill-brand" />
+
+              {/* Data transfer lines */}
+              <path d="M26 36 L50 50 L74 36" fill="none" stroke="currentColor" strokeWidth="1" strokeOpacity="0.3" className="text-brand" />
+              <path d="M50 78 L50 50" fill="none" stroke="currentColor" strokeWidth="1" strokeOpacity="0.3" className="text-brand" />
+            </svg>
           </div>
-          {notice ? <div className="mt-2 text-xs text-brand">{notice}</div> : null}
+
+          <div className="flex-1 min-w-0 flex flex-col gap-1 text-center md:text-left mt-2 md:mt-0">
+            <div className="flex flex-col md:flex-row md:items-center gap-2 justify-center md:justify-start">
+              <span className="text-[15px] font-bold text-text tracking-wide">MCP Runtime</span>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-brand/10 text-brand font-mono border border-brand/20 shadow-[0_0_8px_rgba(0,217,197,0.1)] w-fit mx-auto md:mx-0">
+                {status?.packageName ?? "@taptap/maker"}
+              </span>
+            </div>
+
+            <div className="flex flex-row items-center justify-center md:justify-start gap-8 mt-3">
+              <div className="flex flex-col gap-1 items-center md:items-start">
+                <span className="text-[9px] text-text-subtle uppercase tracking-wider font-bold">本地环境 Local</span>
+                <div className="flex items-center gap-1.5">
+                  <span className={cn("text-[14px] font-bold font-mono tracking-tight", localStatus === "未安装" ? "text-text-muted" : "text-text")}>
+                    {localStatus}
+                  </span>
+                  {localStatus !== "未安装" && status?.latestVersion === status?.currentVersion && (
+                    <span className="text-[9px] bg-brand/10 text-brand px-1 py-0.5 rounded border border-brand/20">最新</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="w-px h-8 bg-border-soft hidden md:block"></div>
+
+              <div className="flex flex-col gap-1 items-center md:items-start">
+                <span className="text-[9px] text-text-subtle uppercase tracking-wider font-bold">云端仓库 Cloud</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[14px] font-bold font-mono text-brand tracking-tight">{cloudStatus}</span>
+                  <Button variant="ghost" size="sm" onClick={() => void refreshStatus(true)} disabled={disabled} className="h-5 w-5 p-0 rounded-full hover:bg-brand/10 hover:text-brand" title="检查云端版本">
+                    <RefreshCw className={cn("w-3 h-3", operation === "check" && "animate-spin")} />
+                  </Button>
+                </div>
+              </div>
+            </div>
+            {notice && <div className="mt-3 text-[10px] text-brand/80 font-medium bg-brand/5 border border-brand/10 rounded px-2 py-1 w-fit mx-auto md:mx-0">{notice}</div>}
+          </div>
         </div>
-        <div className="shrink-0 flex items-center md:justify-end">
-          <Button variant="outline" size="sm" onClick={() => void refreshStatus(true)} disabled={disabled}>
-            <RefreshCw className={cn("mr-1 h-3.5 w-3.5", operation === "check" && "animate-spin")} />
-            检查云端版本
-          </Button>
+
+        {/* Right Side: Actions */}
+        <div className="flex flex-col gap-2.5 shrink-0 w-full xl:w-[260px]">
+          <div className="flex flex-col gap-2 p-3 rounded-lg border border-border-soft bg-surface-panel shadow-sm transition-colors hover:border-brand/30">
+            <span className="text-[10px] font-bold text-text-muted flex items-center gap-1">
+              <Download className="w-3 h-3" /> 运行时版本管理
+            </span>
+            <div className="flex gap-2">
+              <SelectField
+                id="mcp-package-version"
+                value={selectedVersion}
+                options={versionOptions.length ? versionOptions : [{ value: "", label: "请先检查更新" }]}
+                onChange={setSelectedVersion}
+                className="flex-1 min-w-0 h-8 text-[11px]"
+                ariaLabel="选择 MCP 包版本"
+              />
+              <Button size="sm" onClick={() => void handleInstall()} disabled={disabled || !canInstall} className="h-8 px-3 shrink-0 bg-brand text-white shadow-[0_0_10px_rgba(0,217,197,0.2)] hover:bg-brand/90 transition-colors">
+                安装
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 p-3 rounded-lg border border-red-500/10 bg-red-500/5 transition-colors hover:border-red-500/30">
+            <span className="text-[10px] font-bold text-red-500/80 flex items-center gap-1">
+              <Trash2 className="w-3 h-3" /> 危险操作
+            </span>
+            <div className="flex gap-2">
+              <input
+                value={uninstallConfirmText}
+                onChange={(event) => setUninstallConfirmText(event.target.value)}
+                placeholder="输入: 卸载 MCP"
+                className="flex-1 min-w-0 h-8 rounded-md border border-border-soft bg-surface-app px-2 text-[11px] text-text outline-none focus:border-red-500/50 focus:ring-1 focus:ring-red-500/50 transition-all"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleUninstall()}
+                disabled={disabled || uninstallConfirmText !== "卸载 MCP"}
+                className="h-8 px-3 shrink-0 hover:border-red-500 hover:text-red-500 hover:bg-red-500/10 transition-colors"
+                title="停止并清理本地 MCP 环境"
+              >
+                卸载
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Specify MCP Package Version */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between p-4 border-b border-border-soft hover:bg-surface-muted/30 transition-colors gap-4">
-        <div className="flex flex-col pr-0 md:pr-8">
-          <span className="text-[13px] font-medium text-text">指定 MCP 包版本</span>
-          <span className="mt-1 text-xs text-text-muted leading-relaxed">
-            从云端版本列表选择一个版本，安装后会写入桌面端 MCP 包设置并预热本地缓存。
-          </span>
-        </div>
-        <div className="shrink-0 flex items-center justify-end gap-2">
-          <SelectField
-            id="mcp-package-version"
-            value={selectedVersion}
-            options={versionOptions.length ? versionOptions : [{ value: "", label: "请先检查更新" }]}
-            onChange={setSelectedVersion}
-            className="w-[200px]"
-            ariaLabel="选择 MCP 包版本"
-          />
-          <Button variant="outline" size="sm" onClick={() => void handleInstall()} disabled={disabled || !canInstall}>
-            <Download className="mr-1 h-3.5 w-3.5" />
-            安装/替换
-          </Button>
-        </div>
-      </div>
+      {/* Details Accordion */}
+      <details className="group">
+        <summary className="flex items-center gap-2 px-4 py-3 text-[11px] font-bold text-text-subtle hover:text-text cursor-pointer select-none bg-surface-app/30 hover:bg-surface-app/50 transition-colors list-none [&::-webkit-details-marker]:hidden">
+          <div className="flex items-center justify-between w-full">
+            <span>查看高级环境详情与更新日志</span>
+            <svg className="w-3.5 h-3.5 transition-transform duration-200 group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+        </summary>
+        <div className="p-4 border-t border-border-soft bg-surface-app/20 flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-6 p-3 rounded-lg border border-border-soft bg-surface-panel/50">
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-bold text-text-subtle">安装时间</span>
+              <span className="text-[11px] font-mono text-text">{formatTime(status?.lastInstalledAt)}</span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-bold text-text-subtle">包缓存占用</span>
+              <span className="text-[11px] font-mono text-text">{formatCache(status)}</span>
+            </div>
+            <div className="flex flex-col gap-1 min-w-0 flex-1">
+              <span className="text-[10px] font-bold text-text-subtle">缓存路径</span>
+              <span className="text-[11px] font-mono text-text truncate max-w-full" title={status?.cachePath}>
+                {status?.cachePath || "-"}
+              </span>
+            </div>
+          </div>
 
-      {/* Changelog */}
-      <div className="flex flex-col p-4 border-b border-border-soft last:border-b-0 hover:bg-surface-muted/30 transition-colors">
-        <div className="flex flex-col">
-          <span className="text-[13px] font-medium text-text">更新日志</span>
-          <span className="mt-1 text-xs text-text-muted leading-relaxed">
-            读取文件：<span className="font-mono">{status?.releaseNotesPath ?? "-"}</span>
-          </span>
-        </div>
-        <pre className="mt-3 max-h-44 overflow-auto whitespace-pre-wrap rounded-control border border-border bg-surface-app px-3 py-2 text-[12px] leading-relaxed text-text">
-          {status?.releaseNotes ?? "暂无更新日志"}
-        </pre>
-      </div>
-
-      {/* Uninstall MCP */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between p-4 border-b border-border-soft last:border-b-0 hover:bg-red-500/5 transition-colors gap-4">
-        <div className="flex flex-col flex-1 pr-0 md:pr-8">
-          <span className="text-[13px] font-medium text-red-500">卸载 MCP</span>
-          <span className="mt-1 text-xs text-text-muted leading-relaxed">
-            停止当前 MCP runtime，清理桌面端保存的 MCP 包版本设置和 <span className="font-mono">data/npm-cache</span> 下的 MCP 包缓存。不删除 Maker 项目目录，也不会改动 AI client 配置文件。
-          </span>
           <UninstallStepList steps={uninstallSteps} working={operation === "uninstall"} />
+
+          <div className="flex flex-col gap-2">
+            <span className="text-[10px] font-bold text-text-subtle">版本日志</span>
+            <pre className="m-0 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-border-soft bg-surface-panel p-3 text-[11.5px] leading-relaxed text-text-subtle font-sans scrollbar-thin">
+              {status?.releaseNotes ?? "暂无更新日志"}
+            </pre>
+          </div>
         </div>
-        <div className="shrink-0 flex flex-col items-stretch justify-end gap-2">
-          <input
-            value={uninstallConfirmText}
-            onChange={(event) => setUninstallConfirmText(event.target.value)}
-            placeholder="输入：卸载 MCP"
-            className="h-9 w-[220px] rounded-control border border-border bg-surface-app px-3 text-[12px] text-text outline-none focus:border-red-500"
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void handleUninstall()}
-            disabled={disabled || uninstallConfirmText !== "卸载 MCP"}
-            className="justify-center hover:border-red-500 hover:text-red-500"
-          >
-            <Trash2 className="mr-1 h-3.5 w-3.5" />
-            确认卸载
-          </Button>
-        </div>
-      </div>
+      </details>
     </div>
   );
 }
@@ -357,18 +404,19 @@ function CompactStatus({ label, value, title }: { label: string; value: string; 
 
 function StatusPill({ label, value }: { label: string; value: string }) {
   return (
-    <span className="rounded-control border border-border-soft bg-surface-muted px-2 py-1">
-      {label}: <span className="font-mono text-text">{value}</span>
+    <span className="inline-flex items-center gap-1.5 rounded bg-surface-muted/40 px-2.5 py-1 text-[11px] border border-border-soft/50">
+      <span className="text-text-muted">{label}:</span>
+      <span className="font-mono text-text font-medium">{value}</span>
     </span>
   );
 }
 
 function StatusCard({ label, value, detail, title }: { label: string; value: string; detail: string; title?: string }) {
   return (
-    <div className="min-w-0 rounded-panel border border-border-soft bg-surface-muted px-3 py-2" title={title}>
-      <div className="text-[11px] font-bold text-text">{label}</div>
-      <div className="mt-1 break-all font-mono text-[12px] text-text">{value}</div>
-      <div className="mt-1 break-all text-[11px] text-text-subtle">{detail}</div>
+    <div className="flex flex-col min-w-0 rounded-lg border border-border-soft/60 bg-surface-app/40 p-3" title={title}>
+      <span className="text-[12px] font-bold text-text mb-1">{label}</span>
+      <span className="break-all font-mono text-[13px] text-text font-medium">{value}</span>
+      <span className="mt-1 break-all text-[11px] text-text-subtle">{detail}</span>
     </div>
   );
 }
@@ -382,7 +430,7 @@ function UninstallStepList({
 }) {
   if (!steps.length) return null;
   return (
-    <div className="mt-3 grid gap-1.5 rounded-panel border border-border-soft bg-surface-app/70 p-2">
+    <div className="grid gap-1.5 rounded-lg border border-border-soft/50 bg-surface-app/30 p-2.5">
       {steps.map((step, index) => (
         <div key={`${step.label}-${index}`} className="grid grid-cols-[18px_1fr] gap-2 text-[11px] leading-relaxed">
           <span

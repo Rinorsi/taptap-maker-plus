@@ -9,8 +9,8 @@ const githubRepo = "taptap-maker-plus";
 const githubApiBase = `https://api.github.com/repos/${githubOwner}/${githubRepo}`;
 const githubRepositoryUrl = `https://github.com/${githubOwner}/${githubRepo}`;
 const staticManifestUrls = [
-  `https://cdn.jsdelivr.net/gh/${githubOwner}/${githubRepo}@main/updates/app-update-manifest.json`,
   `https://raw.githubusercontent.com/${githubOwner}/${githubRepo}/main/updates/app-update-manifest.json`,
+  `https://cdn.jsdelivr.net/gh/${githubOwner}/${githubRepo}@main/updates/app-update-manifest.json`,
 ];
 const releaseApiHeaders = {
   "Accept": "application/vnd.github+json",
@@ -38,23 +38,50 @@ export type AppReleaseSummary = {
   assets: AppReleaseAssetSummary[];
 };
 
+export type AppAnnouncementSeverity = "info" | "warning" | "critical";
+
+export type AppAnnouncementSummary = {
+  id: string;
+  title: string;
+  summary: string;
+  severity: AppAnnouncementSeverity;
+  publishedAt: string;
+  markdown: string;
+  sourceUrl?: string;
+};
+
 export type AppUpdateStatus = {
   currentVersion: string;
   currentDisplayVersion: string;
   latestVersion?: string;
   latestRelease?: AppReleaseSummary;
+  announcement?: AppAnnouncementSummary;
+  announcements: AppAnnouncementSummary[];
   releases: AppReleaseSummary[];
   updateAvailable: boolean;
   checkedAt: string;
   repositoryUrl: string;
+  announcementError?: string;
   error?: string;
+};
+
+type ReadAppUpdateManifestResult = {
+  latestVersion?: string;
+  releases: AppReleaseSummary[];
+  announcement?: AppAnnouncementSummary;
+  announcements: AppAnnouncementSummary[];
+  announcementError?: string;
 };
 
 const releasesCacheTtlMs = 10 * 60 * 1000;
 let releasesCache:
   | {
       expiresAt: number;
+      latestVersion?: string;
       releases: AppReleaseSummary[];
+      announcement?: AppAnnouncementSummary;
+      announcements: AppAnnouncementSummary[];
+      announcementError?: string;
     }
   | undefined;
 
@@ -83,6 +110,7 @@ type StaticUpdateManifest = {
   generatedAt?: unknown;
   repositoryUrl?: unknown;
   latestVersion?: unknown;
+  announcements?: unknown;
   releases?: unknown;
 };
 
@@ -90,21 +118,37 @@ type StaticManifestRelease = {
   version?: unknown;
   title?: unknown;
   changelog?: unknown;
+  changelogPath?: unknown;
+};
+
+type StaticManifestAnnouncement = {
+  id?: unknown;
+  title?: unknown;
+  summary?: unknown;
+  severity?: unknown;
+  publishedAt?: unknown;
+  markdownPath?: unknown;
 };
 
 export async function checkAppUpdate(): Promise<AppUpdateStatus> {
   const checkedAt = new Date().toISOString();
   try {
-    const releases = await listAppReleases();
-    const latestRelease = releases.find((release) => !release.draft);
+    const manifest = await readAppUpdateManifest();
+    const releases = manifest.releases;
+    const latestRelease = manifest.latestVersion
+      ? releases.find((release) => release.tagName === manifest.latestVersion)
+      : releases.find((release) => !release.draft);
     if (!latestRelease) {
       return {
         currentVersion: appVersion.packageVersion,
         currentDisplayVersion: appVersion.displayVersion,
+        announcement: manifest.announcement,
+        announcements: manifest.announcements,
         releases,
         updateAvailable: false,
         checkedAt,
         repositoryUrl: githubRepositoryUrl,
+        announcementError: manifest.announcementError,
         error: "GitHub Releases 暂无可用版本。",
       };
     }
@@ -113,35 +157,63 @@ export async function checkAppUpdate(): Promise<AppUpdateStatus> {
       currentDisplayVersion: appVersion.displayVersion,
       latestVersion: latestRelease.tagName,
       latestRelease,
+      announcement: manifest.announcement,
+      announcements: manifest.announcements,
       releases,
       updateAvailable: compareVersions(latestRelease.tagName, appVersion.packageVersion) > 0,
       checkedAt,
       repositoryUrl: githubRepositoryUrl,
+      announcementError: manifest.announcementError,
     };
   } catch (error) {
     return {
       currentVersion: appVersion.packageVersion,
       currentDisplayVersion: appVersion.displayVersion,
+      announcement: releasesCache?.announcement,
+      announcements: releasesCache?.announcements ?? [],
       releases: releasesCache?.releases ?? [],
       updateAvailable: false,
       checkedAt,
       repositoryUrl: githubRepositoryUrl,
+      announcementError: releasesCache?.announcementError,
       error: error instanceof Error ? error.message : String(error),
     };
   }
 }
 
 export async function listAppReleases(): Promise<AppReleaseSummary[]> {
-  if (releasesCache && releasesCache.expiresAt > Date.now()) return releasesCache.releases;
+  return (await readAppUpdateManifest()).releases;
+}
+
+async function readAppUpdateManifest(): Promise<{
+  latestVersion?: string;
+  releases: AppReleaseSummary[];
+  announcement?: AppAnnouncementSummary;
+  announcements: AppAnnouncementSummary[];
+  announcementError?: string;
+}> {
+  if (releasesCache && releasesCache.expiresAt > Date.now()) {
+    return {
+      latestVersion: releasesCache.latestVersion,
+      releases: releasesCache.releases,
+      announcement: releasesCache.announcement,
+      announcements: releasesCache.announcements,
+      announcementError: releasesCache.announcementError,
+    };
+  }
   const manifestErrorMessages: string[] = [];
   for (const manifestUrl of staticManifestUrls) {
     try {
-      const releases = await listStaticManifestReleases(manifestUrl);
+      const manifest = await readStaticManifest(manifestUrl);
       releasesCache = {
         expiresAt: Date.now() + releasesCacheTtlMs,
-        releases,
+        latestVersion: manifest.latestVersion,
+        releases: manifest.releases,
+        announcement: manifest.announcement,
+        announcements: manifest.announcements,
+        announcementError: manifest.announcementError,
       };
-      return releases;
+      return manifest;
     } catch (error) {
       manifestErrorMessages.push(`${manifestUrl}: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -159,11 +231,12 @@ export async function listAppReleases(): Promise<AppReleaseSummary[]> {
   releasesCache = {
     expiresAt: Date.now() + releasesCacheTtlMs,
     releases,
+    announcements: [],
   };
-  return releases;
+  return { releases, announcements: [] };
 }
 
-async function listStaticManifestReleases(manifestUrl: string): Promise<AppReleaseSummary[]> {
+async function readStaticManifest(manifestUrl: string): Promise<ReadAppUpdateManifestResult> {
   const response = await fetch(manifestUrl, {
     headers: {
       "Accept": "application/json",
@@ -186,11 +259,24 @@ async function listStaticManifestReleases(manifestUrl: string): Promise<AppRelea
   if (!Array.isArray(data.releases)) {
     throw new Error("静态更新清单 releases 不是数组。");
   }
-  const releases = data.releases.map((release) => normalizeStaticRelease(release)).filter((release) => !release.draft);
-  if (!releases.some((release) => release.tagName === data.latestVersion)) {
+  const releases = await Promise.all(
+    data.releases.map((release) => normalizeStaticRelease(release, manifestUrl)),
+  );
+  const visibleReleases = releases.filter((release) => !release.draft);
+  if (!visibleReleases.some((release) => release.tagName === data.latestVersion)) {
     throw new Error("静态更新清单 latestVersion 未出现在 releases 中。");
   }
-  return releases;
+  try {
+    const announcements = await readStaticAnnouncements(data.announcements, manifestUrl);
+    return { latestVersion: data.latestVersion, releases: visibleReleases, announcement: announcements[0], announcements };
+  } catch (error) {
+    return {
+      latestVersion: data.latestVersion,
+      releases: visibleReleases,
+      announcements: [],
+      announcementError: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 export async function downloadAndOpenAppUpdate(releaseId: number, assetId?: number, releaseFallback?: AppReleaseSummary) {
@@ -233,14 +319,14 @@ function normalizeRelease(raw: GitHubRelease): AppReleaseSummary {
   };
 }
 
-function normalizeStaticRelease(raw: unknown): AppReleaseSummary {
+async function normalizeStaticRelease(raw: unknown, manifestUrl: string): Promise<AppReleaseSummary> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error("静态更新清单 release 不是对象。");
   }
   const source = raw as StaticManifestRelease;
   const tagName = readString(source.version, "manifest.release.version");
   const title = readString(source.title, "manifest.release.title");
-  const changelog = readString(source.changelog, "manifest.release.changelog");
+  const changelog = await readStaticReleaseChangelog(source, manifestUrl);
   const asset = buildStaticInstallerAsset(tagName);
   return {
     id: stableReleaseId(tagName),
@@ -252,6 +338,65 @@ function normalizeStaticRelease(raw: unknown): AppReleaseSummary {
     draft: false,
     assets: [asset],
   };
+}
+
+async function readStaticReleaseChangelog(source: StaticManifestRelease, manifestUrl: string) {
+  if (typeof source.changelogPath === "string" && source.changelogPath.trim()) {
+    return fetchStaticMarkdown(resolveStaticManifestUrl(manifestUrl, source.changelogPath.trim()), "更新日志");
+  }
+  return readString(source.changelog, "manifest.release.changelog");
+}
+
+async function readStaticAnnouncements(raw: unknown, manifestUrl: string): Promise<AppAnnouncementSummary[]> {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) throw new Error("静态更新清单 announcements 不是数组。");
+  return Promise.all(
+    raw.map((announcement) => normalizeStaticAnnouncement(announcement, manifestUrl)),
+  );
+}
+
+async function normalizeStaticAnnouncement(raw: unknown, manifestUrl: string): Promise<AppAnnouncementSummary> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("静态更新清单 announcement 不是对象。");
+  }
+  const source = raw as StaticManifestAnnouncement;
+  const severity = readAnnouncementSeverity(source.severity);
+  const markdownPath = readString(source.markdownPath, "manifest.announcement.markdownPath");
+  const sourceUrl = resolveStaticManifestUrl(manifestUrl, markdownPath.trim());
+  return {
+    id: readString(source.id, "manifest.announcement.id"),
+    title: readString(source.title, "manifest.announcement.title"),
+    summary: readOptionalString(source.summary) || "",
+    severity,
+    publishedAt: readString(source.publishedAt, "manifest.announcement.publishedAt"),
+    markdown: await fetchStaticMarkdown(sourceUrl, "公告 Markdown"),
+    sourceUrl,
+  };
+}
+
+function readAnnouncementSeverity(value: unknown): AppAnnouncementSeverity {
+  if (value === "info" || value === "warning" || value === "critical") return value;
+  throw new Error("静态更新清单 announcement.severity 缺失或格式不正确。");
+}
+
+function resolveStaticManifestUrl(manifestUrl: string, relativePath: string) {
+  if (/^https?:\/\//i.test(relativePath)) return relativePath;
+  return new URL(relativePath, manifestUrl).toString();
+}
+
+async function fetchStaticMarkdown(markdownUrl: string, label: string) {
+  const response = await fetch(markdownUrl, {
+    headers: {
+      "Accept": "text/markdown,text/plain,*/*",
+      "User-Agent": "TapTap-Maker-Plus-Updater",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`无法获取${label}：HTTP ${response.status} ${response.statusText}`);
+  }
+  const text = (await response.text()).trim();
+  if (!text) throw new Error(`${label}内容为空。`);
+  return text;
 }
 
 function buildStaticInstallerAsset(tagName: string): AppReleaseAssetSummary {

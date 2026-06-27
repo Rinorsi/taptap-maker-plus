@@ -147,6 +147,7 @@ export const settingsPreferenceKeys = {
 
 export const SETTINGS_PREFERENCES_CHANGED_EVENT = "taptap:settings-preferences-changed";
 export const SETTINGS_PREFERENCES_SAVED_EVENT = "taptap:settings-preferences-saved";
+export const SETTINGS_PREFERENCES_SAVE_FAILED_EVENT = "taptap:settings-preferences-save-failed";
 
 const SETTINGS_REMOTE_SYNCED_EVENT = "taptap:settings-preferences-remote-synced";
 let saveTimer: number | undefined;
@@ -260,6 +261,14 @@ export function subscribeSettingsPreferencesSaved(listener: (detail: { savedAt: 
   return () => window.removeEventListener(SETTINGS_PREFERENCES_SAVED_EVENT, handle);
 }
 
+export function subscribeSettingsPreferencesSaveFailed(listener: (detail: { failedAt: string; message: string; source: "auto" | "manual" }) => void) {
+  const handle = (event: Event) => {
+    listener((event as CustomEvent<{ failedAt: string; message: string; source: "auto" | "manual" }>).detail);
+  };
+  window.addEventListener(SETTINGS_PREFERENCES_SAVE_FAILED_EVENT, handle);
+  return () => window.removeEventListener(SETTINGS_PREFERENCES_SAVE_FAILED_EVENT, handle);
+}
+
 export function readAllStoredSettingsPreferences(): Record<string, unknown> {
   const preferences: Record<string, unknown> = {};
   for (const key of Object.values(settingsPreferenceKeys)) {
@@ -290,17 +299,31 @@ export async function flushSettingsPreferencesSave(source: "auto" | "manual" = "
     saveTimer = undefined;
   }
 
-  const response = await saveSettingsPreferences(readAllStoredSettingsPreferences());
-  window.dispatchEvent(
-    new CustomEvent(SETTINGS_PREFERENCES_SAVED_EVENT, {
-      detail: {
-        savedAt: new Date().toISOString(),
-        updatedAt: response.updatedAt,
-        source,
-      },
-    }),
-  );
-  return response;
+  try {
+    const response = await saveSettingsPreferences(readAllStoredSettingsPreferences());
+    window.dispatchEvent(
+      new CustomEvent(SETTINGS_PREFERENCES_SAVED_EVENT, {
+        detail: {
+          savedAt: new Date().toISOString(),
+          updatedAt: response.updatedAt,
+          source,
+        },
+      }),
+    );
+    return response;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    window.dispatchEvent(
+      new CustomEvent(SETTINGS_PREFERENCES_SAVE_FAILED_EVENT, {
+        detail: {
+          failedAt: new Date().toISOString(),
+          message,
+          source,
+        },
+      }),
+    );
+    throw error;
+  }
 }
 
 export function loadRemoteSettingsPreferences() {

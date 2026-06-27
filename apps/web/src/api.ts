@@ -547,6 +547,32 @@ export type FrontendDiagnosticsResponse = {
   entries: FrontendDiagnosticEntry[];
 };
 
+export type DesktopResourceCheck = {
+  label: string;
+  path: string;
+  exists: boolean;
+  kind: "file" | "directory";
+  required: boolean;
+};
+
+export type DesktopResourceReadiness = {
+  ok: boolean;
+  checkedAt: string;
+  mode: "development" | "production";
+  resources: DesktopResourceCheck[];
+};
+
+export type DiagnosticBundleResult = {
+  ok: true;
+  generatedAt: string;
+  zipPath: string;
+  downloadUrl: string;
+  fileName: string;
+  includedFiles: string[];
+  skippedFiles: string[];
+  resourceReadiness: DesktopResourceReadiness;
+};
+
 export type StatusLiteResponse = {
   projectId: string;
   task: TaskRecord;
@@ -593,15 +619,30 @@ export type AppReleaseSummary = {
   assets: AppReleaseAssetSummary[];
 };
 
+export type AppAnnouncementSeverity = "info" | "warning" | "critical";
+
+export type AppAnnouncementSummary = {
+  id: string;
+  title: string;
+  summary: string;
+  severity: AppAnnouncementSeverity;
+  publishedAt: string;
+  markdown: string;
+  sourceUrl?: string;
+};
+
 export type AppUpdateStatus = {
   currentVersion: string;
   currentDisplayVersion: string;
   latestVersion?: string;
   latestRelease?: AppReleaseSummary;
+  announcement?: AppAnnouncementSummary;
+  announcements: AppAnnouncementSummary[];
   releases: AppReleaseSummary[];
   updateAvailable: boolean;
   checkedAt: string;
   repositoryUrl: string;
+  announcementError?: string;
   error?: string;
 };
 
@@ -1277,6 +1318,26 @@ export async function clearFrontendDiagnostics(retention: "all" | "14d" | "30d" 
   if (!res.ok) {
     throw new Error(`Failed to clear frontend diagnostics: ${res.statusText}`);
   }
+}
+
+export async function getDesktopResourceReadiness(): Promise<{ readiness: DesktopResourceReadiness }> {
+  return json<{ readiness: DesktopResourceReadiness }>(
+    await apiFetch("/api/developer/desktop-resources"),
+  );
+}
+
+export async function createDiagnosticBundle(projectId?: string): Promise<DiagnosticBundleResult> {
+  return json<DiagnosticBundleResult>(
+    await apiFetch("/api/developer/diagnostics", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectId }),
+    }),
+  );
+}
+
+export function diagnosticBundleDownloadUrl(downloadUrl: string) {
+  return apiUrl(downloadUrl);
 }
 
 export async function resetDesktopInitialState(confirmText: "重置软件"): Promise<ResetInitialStateResponse> {

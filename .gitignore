@@ -2,6 +2,7 @@ node_modules/
 dist/
 apps/*/dist/
 apps/*/.vite/
+desktop-dist/node-runtime/
 docs/
 local-docs/
 dev-notes/

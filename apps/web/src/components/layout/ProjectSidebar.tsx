@@ -16,6 +16,7 @@ type Props = {
   collapsed: boolean;
   width: number;
   developerMode: boolean;
+  announcementUnread?: boolean;
   onToggleCollapsed: () => void;
   onClearProject: () => void;
   onSelectModule: (module: WorkbenchModule) => void;
@@ -48,7 +49,7 @@ function normalizeSettingsSearchText(value: string) {
     .replace(/[\s_\-()[\]（）/\\:：,.，。"'“”]+/g, "");
 }
 
-export function ProjectSidebar({ projects, selectedProjectId, activeModule, activeSettingsTab, collapsed, width, developerMode, onToggleCollapsed, onClearProject, onSelectModule, onSelectSettingsTab, onExitSettings, onOpenAnnouncement }: Props) {
+export function ProjectSidebar({ projects, selectedProjectId, activeModule, activeSettingsTab, collapsed, width, developerMode, announcementUnread = false, onToggleCollapsed, onClearProject, onSelectModule, onSelectSettingsTab, onExitSettings, onOpenAnnouncement }: Props) {
   const [settingsSearch, setSettingsSearch] = useState("");
   const [disabledPagesOpen, setDisabledPagesOpen] = useState(false);
   
@@ -348,10 +349,13 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
             <button
               type="button"
               title="公告"
-              className="flex h-[44px] w-full cursor-pointer select-none items-center justify-center rounded-lg text-text-muted outline-none transition-colors hover:bg-surface-muted hover:text-text"
+              className="relative flex h-[44px] w-full cursor-pointer select-none items-center justify-center rounded-lg text-text-muted outline-none transition-colors hover:bg-surface-muted hover:text-text"
               onClick={onOpenAnnouncement}
             >
               <Megaphone className="h-[20px] w-[20px] shrink-0" />
+              {announcementUnread ? (
+                <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
+              ) : null}
             </button>
             <button
               type="button"
@@ -376,10 +380,13 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
             <button
               type="button"
               title="公告"
-              className="flex h-[44px] cursor-pointer select-none items-center justify-center rounded-lg text-text-muted outline-none transition-colors hover:bg-surface-muted hover:text-text"
+              className="relative flex h-[44px] cursor-pointer select-none items-center justify-center rounded-lg text-text-muted outline-none transition-colors hover:bg-surface-muted hover:text-text"
               onClick={onOpenAnnouncement}
             >
               <Megaphone className="h-[20px] w-[20px] shrink-0" />
+              {announcementUnread ? (
+                <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
+              ) : null}
             </button>
           </div>
         )}

@@ -51,6 +51,7 @@ function validateVersion(data) {
     "description",
     "announcementTitle",
     "announcementBody",
+    "announcementMarkdown",
   ];
   for (const key of required) {
     if (typeof data[key] !== "string" || !data[key].trim()) {

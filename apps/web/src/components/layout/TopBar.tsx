@@ -36,6 +36,7 @@ type SearchResult =
   | { id: string; type: "task"; title: string; subtitle: string; task: TaskRecord };
 
 const TITLEBAR_DRAG_THRESHOLD_PX = 4;
+const WINDOW_RESIZE_EDGE_GUARD_PX = 8;
 
 function isWindowDragTarget(target: EventTarget | null) {
   return !(
@@ -89,6 +90,13 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
 
   function handleTitlebarPointerDown(event: ReactPointerEvent<HTMLElement>) {
     if (event.button !== 0) return;
+    if (
+      event.clientY <= WINDOW_RESIZE_EDGE_GUARD_PX ||
+      event.clientX <= WINDOW_RESIZE_EDGE_GUARD_PX ||
+      window.innerWidth - event.clientX <= WINDOW_RESIZE_EDGE_GUARD_PX
+    ) {
+      return;
+    }
     if (!isWindowDragTarget(event.target)) return;
     if (event.detail >= 2) return;
     titlebarDragRef.current = {

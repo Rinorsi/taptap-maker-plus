@@ -1,23 +1,41 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-06-27T00:00:00.000Z",
+  "generatedAt": "2026-06-28T00:00:00.000Z",
   "repositoryUrl": "https://github.com/Rinorsi/taptap-maker-plus",
-  "latestVersion": "v99.99",
-  "releases": [
+  "latestVersion": "v0.13.3-alpha",
+  "announcements": [
     {
-      "version": "v99.99",
-      "title": "v99.99 更新检测测试包",
-      "changelog": "仅用于验证静态更新清单、版本列表和指定版本下载安装链路。这个版本不是正式功能版本，测试完成后可以删除。"
+      "id": "alpha-static-update-2026-06-27",
+      "title": "TapTap Maker Plus Alpha 公告",
+      "summary": "欢迎使用 Alpha 版本。这里介绍当前能先用起来的能力、仍在打磨的地方，以及遇到问题怎么反馈。",
+      "severity": "info",
+      "publishedAt": "2026-06-27T00:00:00.000Z",
+      "markdownPath": "announcements/alpha-static-update-2026-06-27.md"
     },
+    {
+      "id": "diagnostic-announcement-test-2026-06-28",
+      "title": "反馈与诊断说明",
+      "summary": "遇到启动、闪退、MCP 或项目识别问题时，可以用诊断包把必要信息整理出来。",
+      "severity": "info",
+      "publishedAt": "2026-06-28T00:00:00.000Z",
+      "markdownPath": "announcements/diagnostic-announcement-test-2026-06-28.md"
+    }
+  ],
+  "releases": [
     {
       "version": "v0.13.3-alpha",
       "title": "v0.13.3-ALPHA 测试包",
-      "changelog": "Alpha 测试版本。用于验证静态更新清单能展示 0.13.3，并支持从 0.13.1 选择指定版本下载安装。"
+      "changelogPath": "release-notes/v0.13.3-alpha.md"
     },
     {
       "version": "v0.13.2-alpha",
       "title": "v0.13.2-ALPHA 测试包",
-      "changelog": "Alpha 测试版本。用于验证 0.13.1 能通过静态更新清单看到 0.13.2，并下载安装对应包。"
+      "changelogPath": "release-notes/v0.13.2-alpha.md"
+    },
+    {
+      "version": "v99.99",
+      "title": "v99.99 更新检测测试包",
+      "changelogPath": "release-notes/v99.99.md"
     }
   ]
 }

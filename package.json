@@ -1,7 +1,7 @@
 {
   "name": "taptap-maker-plus",
   "private": true,
-  "version": "0.13.2-alpha",
+  "version": "0.13.1-alpha",
   "type": "module",
   "workspaces": [
     "apps/*"
@@ -20,7 +20,8 @@
     "verify:assets": "tsx scripts/verify-asset-governance.ts",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build",
-    "verify:desktop": "tsx scripts/verify-desktop-readiness.ts"
+    "verify:desktop": "tsx scripts/verify-desktop-readiness.ts",
+    "publish:update-release": "node scripts/publish-update-release.mjs"
   },
   "devDependencies": {
     "@mastra/core": "^1.45.0",

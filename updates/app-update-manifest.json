@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-06-27T00:00:00.000Z",
+  "repositoryUrl": "https://github.com/Rinorsi/taptap-maker-plus",
+  "latestVersion": "v99.99",
+  "releases": [
+    {
+      "version": "v99.99",
+      "title": "v99.99 更新检测测试包",
+      "changelog": "仅用于验证静态更新清单、版本列表和指定版本下载安装链路。这个版本不是正式功能版本，测试完成后可以删除。"
+    },
+    {
+      "version": "v0.13.3-alpha",
+      "title": "v0.13.3-ALPHA 测试包",
+      "changelog": "Alpha 测试版本。用于验证静态更新清单能展示 0.13.3，并支持从 0.13.1 选择指定版本下载安装。"
+    },
+    {
+      "version": "v0.13.2-alpha",
+      "title": "v0.13.2-ALPHA 测试包",
+      "changelog": "Alpha 测试版本。用于验证 0.13.1 能通过静态更新清单看到 0.13.2，并下载安装对应包。"
+    }
+  ]
+}

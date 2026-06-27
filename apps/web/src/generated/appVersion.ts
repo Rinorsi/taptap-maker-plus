@@ -2,21 +2,21 @@ export const appVersion = {
   "appId": "taptap-maker-plus",
   "productName": "TapTap Maker Plus 桌面端",
   "windowTitle": "TapTap Maker Plus",
-  "displayVersion": "v0.13.2-ALPHA",
-  "packageVersion": "0.13.2-alpha",
+  "displayVersion": "v0.13.1-ALPHA",
+  "packageVersion": "0.13.1-alpha",
   "channel": "ALPHA",
   "publisher": "TapTap Maker",
   "description": "TapTap Maker 本地桌面工作台",
-  "announcementTitle": "v0.13.2-ALPHA 测试公告",
-  "announcementBody": "Alpha 测试版本。本版本用于验证公告入口、关于页、版本列表、指定版本下载安装和 GitHub Releases 更新检测链路。",
+  "announcementTitle": "v0.13.1-ALPHA 测试基准包",
+  "announcementBody": "Alpha 测试版本。本版本用于验证静态更新清单、版本列表、指定版本下载安装和 GitHub Releases 兜底链路。",
   "announcements": [
     {
-      "title": "公告与关于页",
-      "body": "主侧栏底部新增公告按钮，3D 工作室下方新增关于页；设置页不再承载项目介绍类内容。"
+      "title": "静态更新清单",
+      "body": "更新检查优先读取静态清单，减少 GitHub API 限流对版本列表的影响。"
     },
     {
       "title": "版本更新测试",
-      "body": "设置页保留更新检测、版本列表、更新日志和选择版本下载安装能力，用于测试 0.13.1 获取 0.13.2 与 v99.99 测试包。"
+      "body": "设置页保留更新检测、版本列表、更新日志和选择版本下载安装能力，用于测试 0.13.1 获取 0.13.2、0.13.3 与 v99.99 测试包。"
     },
     {
       "title": "已支持能力概览",

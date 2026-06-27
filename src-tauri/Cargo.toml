@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.13.2-alpha"
+version = "0.13.1-alpha"
 description = "TapTap Maker 本地桌面工作台"
 authors = ["TapTap Maker"]
 license = ""

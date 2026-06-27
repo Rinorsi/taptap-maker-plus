@@ -8,6 +8,10 @@ const githubOwner = "Rinorsi";
 const githubRepo = "taptap-maker-plus";
 const githubApiBase = `https://api.github.com/repos/${githubOwner}/${githubRepo}`;
 const githubRepositoryUrl = `https://github.com/${githubOwner}/${githubRepo}`;
+const staticManifestUrls = [
+  `https://cdn.jsdelivr.net/gh/${githubOwner}/${githubRepo}@main/updates/app-update-manifest.json`,
+  `https://raw.githubusercontent.com/${githubOwner}/${githubRepo}/main/updates/app-update-manifest.json`,
+];
 const releaseApiHeaders = {
   "Accept": "application/vnd.github+json",
   "User-Agent": "TapTap-Maker-Plus-Updater",
@@ -74,6 +78,20 @@ type GitHubRelease = {
   assets?: unknown;
 };
 
+type StaticUpdateManifest = {
+  schemaVersion?: unknown;
+  generatedAt?: unknown;
+  repositoryUrl?: unknown;
+  latestVersion?: unknown;
+  releases?: unknown;
+};
+
+type StaticManifestRelease = {
+  version?: unknown;
+  title?: unknown;
+  changelog?: unknown;
+};
+
 export async function checkAppUpdate(): Promise<AppUpdateStatus> {
   const checkedAt = new Date().toISOString();
   try {
@@ -115,11 +133,25 @@ export async function checkAppUpdate(): Promise<AppUpdateStatus> {
 
 export async function listAppReleases(): Promise<AppReleaseSummary[]> {
   if (releasesCache && releasesCache.expiresAt > Date.now()) return releasesCache.releases;
+  const manifestErrorMessages: string[] = [];
+  for (const manifestUrl of staticManifestUrls) {
+    try {
+      const releases = await listStaticManifestReleases(manifestUrl);
+      releasesCache = {
+        expiresAt: Date.now() + releasesCacheTtlMs,
+        releases,
+      };
+      return releases;
+    } catch (error) {
+      manifestErrorMessages.push(`${manifestUrl}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   const response = await fetch(`${githubApiBase}/releases?per_page=20`, {
     headers: releaseApiHeaders,
   });
   if (!response.ok) {
-    throw new Error(formatReleaseFetchError(response.status, response.statusText));
+    const manifestDetails = manifestErrorMessages.length ? `静态更新清单不可用：${manifestErrorMessages.join("；")}；` : "";
+    throw new Error(`${manifestDetails}${formatReleaseFetchError(response.status, response.statusText)}`);
   }
   const data = await response.json() as unknown;
   if (!Array.isArray(data)) throw new Error("GitHub Releases 返回结构不是数组。");
@@ -128,6 +160,36 @@ export async function listAppReleases(): Promise<AppReleaseSummary[]> {
     expiresAt: Date.now() + releasesCacheTtlMs,
     releases,
   };
+  return releases;
+}
+
+async function listStaticManifestReleases(manifestUrl: string): Promise<AppReleaseSummary[]> {
+  const response = await fetch(manifestUrl, {
+    headers: {
+      "Accept": "application/json",
+      "User-Agent": "TapTap-Maker-Plus-Updater",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} ${response.statusText}`);
+  }
+  const data = await response.json() as StaticUpdateManifest;
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("静态更新清单返回结构不是对象。");
+  }
+  if (data.schemaVersion !== 1) {
+    throw new Error("静态更新清单 schemaVersion 不支持。");
+  }
+  if (typeof data.latestVersion !== "string" || !data.latestVersion.trim()) {
+    throw new Error("静态更新清单 latestVersion 缺失或格式不正确。");
+  }
+  if (!Array.isArray(data.releases)) {
+    throw new Error("静态更新清单 releases 不是数组。");
+  }
+  const releases = data.releases.map((release) => normalizeStaticRelease(release)).filter((release) => !release.draft);
+  if (!releases.some((release) => release.tagName === data.latestVersion)) {
+    throw new Error("静态更新清单 latestVersion 未出现在 releases 中。");
+  }
   return releases;
 }
 
@@ -169,6 +231,52 @@ function normalizeRelease(raw: GitHubRelease): AppReleaseSummary {
     draft: raw.draft === true,
     assets: assetsRaw.map((asset) => normalizeAsset(asset as GitHubReleaseAsset)),
   };
+}
+
+function normalizeStaticRelease(raw: unknown): AppReleaseSummary {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("静态更新清单 release 不是对象。");
+  }
+  const source = raw as StaticManifestRelease;
+  const tagName = readString(source.version, "manifest.release.version");
+  const title = readString(source.title, "manifest.release.title");
+  const changelog = readString(source.changelog, "manifest.release.changelog");
+  const asset = buildStaticInstallerAsset(tagName);
+  return {
+    id: stableReleaseId(tagName),
+    tagName,
+    name: title,
+    body: changelog,
+    htmlUrl: `${githubRepositoryUrl}/releases/tag/${encodeURIComponent(tagName)}`,
+    prerelease: true,
+    draft: false,
+    assets: [asset],
+  };
+}
+
+function buildStaticInstallerAsset(tagName: string): AppReleaseAssetSummary {
+  const fileName = `TapTap.Maker.Plus._${installerVersionFromTag(tagName)}_x64-setup.exe`;
+  return {
+    id: stableReleaseId(`${tagName}:installer`),
+    name: fileName,
+    size: 0,
+    browserDownloadUrl: `${githubRepositoryUrl}/releases/download/${encodeURIComponent(tagName)}/${encodeURIComponent(fileName)}`,
+    contentType: "application/x-msdownload",
+  };
+}
+
+function installerVersionFromTag(tagName: string) {
+  const normalized = tagName.replace(/^v/i, "");
+  if (/^\d+\.\d+$/.test(normalized)) return `${normalized}.0-alpha`;
+  return normalized;
+}
+
+function stableReleaseId(value: string) {
+  let hash = 0;
+  for (const character of value) {
+    hash = ((hash * 31) + character.charCodeAt(0)) >>> 0;
+  }
+  return hash || 1;
 }
 
 function normalizeAsset(raw: GitHubReleaseAsset): AppReleaseAssetSummary {
@@ -243,7 +351,11 @@ function sanitizeDownloadName(fileName: string) {
 }
 
 async function downloadFile(url: string, targetPath: string) {
-  const response = await fetch(url, { headers: releaseApiHeaders });
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "TapTap-Maker-Plus-Updater",
+    },
+  });
   if (!response.ok) {
     throw new Error(`下载安装器失败：HTTP ${response.status} ${response.statusText}`);
   }

@@ -4,6 +4,12 @@
   Pop $3
 !macroend
 
+!macro STOP_TAPTAP_NODE_RUNTIME ROOT_PATH
+  nsExec::ExecToStack `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "& { $$target = [System.IO.Path]::GetFullPath('${ROOT_PATH}\node-runtime\node.exe'); Get-Process node -ErrorAction SilentlyContinue | Where-Object { $$_.Path -eq $$target } | Stop-Process -Force }"`
+  Pop $2
+  Pop $3
+!macroend
+
 !macro NSIS_HOOK_PREINSTALL
   Push $0
   Push $1
@@ -11,6 +17,7 @@
   Push $3
 
   !insertmacro STOP_TAPTAP_MAKER_PLUS "$INSTDIR"
+  !insertmacro STOP_TAPTAP_NODE_RUNTIME "$INSTDIR"
 
   ReadRegStr $0 SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\TapTap Maker Plus" "InstallLocation"
   StrCmp $0 "" check_wrong_product
@@ -32,7 +39,7 @@
       ExecWait '$3 /UPDATE /P _?=$0' $2
 
   skip_current_uninstall:
-    RMDir /r /REBOOTOK "$0"
+    RMDir /r "$0"
     DeleteRegKey SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\TapTap Maker Plus"
     DeleteRegKey SHCTX "Software\TapTap Maker\TapTap Maker Plus"
     StrCpy $INSTDIR "$LOCALAPPDATA\TapTap Maker Plus"
@@ -52,7 +59,7 @@
     Goto check_wrong_product_uninstall
 
   cleanup_polluted_manufacturer_location:
-    RMDir /r /REBOOTOK "$0"
+    RMDir /r "$0"
     DeleteRegKey SHCTX "Software\TapTap Maker\TapTap Maker Plus"
     StrCpy $INSTDIR "$LOCALAPPDATA\TapTap Maker Plus"
     SetOutPath $INSTDIR
@@ -77,7 +84,7 @@
       ExecWait '$3 /UPDATE /P _?=$1' $2
 
   skip_wrong_uninstall:
-    RMDir /r /REBOOTOK "$1"
+    RMDir /r "$1"
     DeleteRegKey SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\TapTap Maker Plus 桌面端"
     DeleteRegKey SHCTX "Software\TapTap Maker\TapTap Maker Plus 桌面端"
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "TapTap Maker Plus 桌面端"
@@ -85,9 +92,9 @@
     SetOutPath $INSTDIR
 
   done:
-    RMDir /r /REBOOTOK "$INSTDIR\apps"
-    RMDir /r /REBOOTOK "$INSTDIR\node_modules"
-    RMDir /r /REBOOTOK "$INSTDIR\node-runtime"
+    RMDir /r "$INSTDIR\apps"
+    RMDir /r "$INSTDIR\node_modules"
+    RMDir /r "$INSTDIR\node-runtime"
     Pop $3
     Pop $2
     Pop $1

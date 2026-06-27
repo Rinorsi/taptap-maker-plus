@@ -310,7 +310,7 @@ export async function startAppUpdateDownload(releaseId: number, assetId?: number
     : pickInstallerAsset(release);
   if (!asset) throw new Error(`Release ${release.tagName} 没有可下载的 Windows 安装器资产。`);
 
-  const downloadDir = path.join(config.dataDir, "updates");
+  const downloadDir = path.join(config.workspaceRoot, "updates");
   fs.mkdirSync(downloadDir, { recursive: true });
   const installerPath = path.join(downloadDir, sanitizeDownloadName(asset.name));
   const now = new Date().toISOString();

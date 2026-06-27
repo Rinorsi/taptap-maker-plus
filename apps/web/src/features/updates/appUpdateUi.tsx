@@ -231,9 +231,9 @@ export function AppUpdatePanel({
         {/* Content Details */}
         <div className="flex flex-col gap-3 p-4">
           {selectedRelease ? (
-            <pre className="m-0 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-border-soft/50 bg-surface-app/40 p-3 text-[12px] leading-relaxed text-text-subtle font-sans">
-              {selectedRelease.body || "暂无更新日志"}
-            </pre>
+            <div className="max-h-48 overflow-auto rounded-lg border border-border-soft/50 bg-surface-app/40 p-3">
+              <ReleaseMarkdown content={selectedRelease.body || "暂无更新日志"} compact />
+            </div>
           ) : null}
           {installerAsset ? (
             <div className="flex flex-col gap-1.5 text-[11px] text-text-subtle">
@@ -302,9 +302,9 @@ export function ReleaseHistory({
                 <ExternalLink className="h-4 w-4" />
               </button>
             </div>
-            <p className="m-0 mt-2.5 line-clamp-3 whitespace-pre-wrap text-[11.5px] leading-relaxed text-text-muted">
-              {release.body || "暂无更新日志"}
-            </p>
+            <div className="mt-2.5 line-clamp-4">
+              <ReleaseMarkdown content={release.body || "暂无更新日志"} compact />
+            </div>
           </article>
         ))}
       </div>
@@ -388,4 +388,65 @@ function formatBytes(bytes: number) {
   if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${bytes} B`;
+}
+
+function ReleaseMarkdown({ content, compact = false }: { content: string; compact?: boolean }) {
+  const lines = content.split("\n");
+  return (
+    <div className={cn("flex flex-col text-text-muted", compact ? "gap-2 text-[11.5px] leading-relaxed" : "gap-3 text-[13px] leading-relaxed")}>
+      {lines.map((line, index) => renderMarkdownLine(line, index, compact))}
+    </div>
+  );
+}
+
+function renderMarkdownLine(line: string, index: number, compact: boolean) {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("## ")) {
+    return (
+      <h3 key={index} className={cn("m-0 font-bold text-text", compact ? "text-[13px]" : "text-[16px]")}>
+        {renderInlineMarkdown(trimmed.slice(3))}
+      </h3>
+    );
+  }
+  if (trimmed.startsWith("### ")) {
+    return (
+      <h4 key={index} className={cn("m-0 font-semibold text-text", compact ? "text-[12px]" : "text-[14px]")}>
+        {renderInlineMarkdown(trimmed.slice(4))}
+      </h4>
+    );
+  }
+  if (trimmed.startsWith("* ")) {
+    return (
+      <div key={index} className="flex items-start gap-2">
+        <span className="mt-[0.55em] h-1 w-1 shrink-0 rounded-full bg-brand" />
+        <span className="min-w-0">{renderInlineMarkdown(trimmed.slice(2))}</span>
+      </div>
+    );
+  }
+  if (trimmed.startsWith("> ")) {
+    return (
+      <blockquote key={index} className="m-0 rounded-r-md border-l-2 border-brand/50 bg-brand/5 py-2 pl-3 text-text-subtle">
+        {renderInlineMarkdown(trimmed.slice(2))}
+      </blockquote>
+    );
+  }
+  return (
+    <p key={index} className="m-0">
+      {renderInlineMarkdown(trimmed)}
+    </p>
+  );
+}
+
+function renderInlineMarkdown(text: string) {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean);
+  return parts.map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={index} className="font-bold text-text">{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return <code key={index} className="rounded border border-border-soft bg-surface-muted px-1 py-0.5 font-mono text-[0.92em] text-brand">{part.slice(1, -1)}</code>;
+    }
+    return <span key={index}>{part}</span>;
+  });
 }

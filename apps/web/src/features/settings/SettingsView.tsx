@@ -28,7 +28,8 @@ import {
   Terminal,
   Globe,
   Code,
-  Folder
+  Folder,
+  AlertTriangle
 } from "lucide-react";
 import type { MakerProjectsRootSettings, ProjectSummary, RuntimeSummary, ToolSummary } from "../../api";
 import {
@@ -596,7 +597,7 @@ export function SettingsView({
 
             <div id="settings-general" className="scroll-mt-12 flex flex-col gap-6">
               <SectionHeader title="通用" icon={<Settings />} description="基础应用行为偏好。" />
-              <SettingsGroup>
+              <SettingsGroup preview={<GeneralSettingsPreview prefs={prefs} />}>
                 <SegmentedSetting
                   label="启动时打开"
                   value={prefs.startupPreference}
@@ -1339,7 +1340,93 @@ function CanvasPreview({ prefs }: { prefs: SettingsPreferences }) {
   );
 }
 
+function GeneralSettingsPreview({ prefs }: { prefs: SettingsPreferences }) {
+  const isCompact = prefs.density === "compact";
+  const isLoose = prefs.density === "comfortable";
+  
+  const gap = isCompact ? "gap-1.5" : isLoose ? "gap-3" : "gap-2";
+  const padding = isCompact ? "p-2" : isLoose ? "p-3.5" : "p-2.5";
+  const borderRadius = isCompact ? "rounded-sm" : isLoose ? "rounded-lg" : "rounded-md";
+
+  return (
+    <div className="w-full flex items-center justify-center">
+      {/* Fake Application Window */}
+      <div className={cn("relative w-[90%] aspect-[4/3] bg-surface-panel ring-1 ring-border shadow-sm flex overflow-hidden transition-all duration-500", borderRadius)}>
+        
+        {/* Sidebar */}
+        <div className={cn("w-[28%] h-full border-r border-border-soft flex flex-col bg-surface-app/50 transition-all duration-500", padding, gap)}>
+          {/* Logo mock */}
+          <div className={cn("w-3/4 h-3 bg-text-subtle/30 transition-all duration-500", borderRadius)} />
+          
+          {/* Nav Items */}
+          <div className="flex-1 mt-1 flex flex-col gap-1.5">
+            {/* Startup preference mock */}
+            <div 
+              className={cn(
+                "w-full transition-all duration-500", 
+                isCompact ? "h-2" : isLoose ? "h-4" : "h-3",
+                borderRadius,
+                (prefs.startupPreference !== "last-project") 
+                  ? "bg-brand/20 border border-brand/30 ring-1 ring-brand/10 shadow-[0_0_8px_rgba(0,217,197,0.1)]" 
+                  : "bg-surface-muted/60 border border-transparent"
+              )} 
+            />
+            {/* Workspace preferences mock */}
+            {["assets", "video", "image", "audio", "3d"].map((id) => (
+              <div 
+                key={id}
+                className={cn(
+                  "w-full transition-all duration-500", 
+                  isCompact ? "h-2" : isLoose ? "h-4" : "h-3",
+                  borderRadius,
+                  (prefs.defaultWorkspace === id && prefs.startupPreference === "last-project")
+                    ? "bg-brand/20 border border-brand/30 ring-1 ring-brand/10 shadow-[0_0_8px_rgba(0,217,197,0.1)]" 
+                    : "bg-surface-muted/60 border border-transparent"
+                )} 
+              />
+            ))}
+          </div>
+        </div>
+        
+        {/* Main Content Area */}
+        <div className={cn("flex-1 h-full flex flex-col bg-surface-panel transition-all duration-500", padding, gap)}>
+          {/* Header mock */}
+          <div className={cn("w-1/3 h-2.5 bg-surface-muted transition-all duration-500", borderRadius)} />
+          
+          {/* Content grid */}
+          <div className={cn("flex-1 grid grid-cols-2 transition-all duration-500", gap)}>
+            <div className={cn("bg-surface-app ring-1 ring-border-soft transition-all duration-500", borderRadius)} />
+            <div className={cn("bg-surface-app ring-1 ring-border-soft transition-all duration-500", borderRadius)} />
+            <div className={cn("bg-surface-app ring-1 ring-border-soft transition-all duration-500", borderRadius)} />
+            <div className={cn("bg-surface-app ring-1 ring-border-soft transition-all duration-500", borderRadius)} />
+          </div>
+        </div>
+
+        {/* Modal Overlay for Strict Confirmation */}
+        <div 
+          className={cn(
+            "absolute inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center transition-all duration-300",
+            prefs.confirmationPreference === "strict" ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+          )}
+        >
+          <div className={cn("w-[60%] aspect-video bg-surface-panel ring-1 ring-border flex flex-col justify-center items-center gap-2.5 shadow-popover transform transition-all duration-500", borderRadius, prefs.confirmationPreference === "strict" ? "scale-100 translate-y-0" : "scale-90 translate-y-2")}>
+             <div className="w-8 h-8 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center">
+               <AlertTriangle className="w-4 h-4" />
+             </div>
+             <div className={cn("w-1/2 h-1.5 bg-text transition-all", borderRadius)} />
+             <div className="flex gap-1.5 mt-1">
+                <div className={cn("w-8 h-2 bg-surface-muted transition-all", borderRadius)} />
+                <div className={cn("w-8 h-2 bg-red-500 transition-all", borderRadius)} />
+             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AssetDropPreview({ prefs }: { prefs: SettingsPreferences }) {
+
   const isDark = prefs.themePreference === "dark" || (prefs.themePreference === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const ask = prefs.assetDropBehavior === "ask";
   const scan = prefs.assetReferenceCheck === "scan";

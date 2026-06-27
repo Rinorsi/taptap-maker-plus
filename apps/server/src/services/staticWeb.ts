@@ -14,15 +14,20 @@ export async function registerStaticWeb(app: FastifyInstance) {
     return;
   }
 
+  app.addHook("onSend", async (request, reply, payload) => {
+    if (!request.url.startsWith("/api/")) {
+      reply.header("Cache-Control", "no-store");
+    }
+    return payload;
+  });
+
   await app.register(fastifyStatic, {
     root,
     prefix: "/",
-    maxAge: "30d",
-    immutable: true,
+    maxAge: 0,
+    immutable: false,
     setHeaders: (reply, filePath) => {
-      if (path.basename(filePath) === "index.html") {
-        reply.setHeader("Cache-Control", "no-cache");
-      }
+      reply.setHeader("Cache-Control", "no-store");
     }
   });
 
@@ -30,6 +35,9 @@ export async function registerStaticWeb(app: FastifyInstance) {
     if (request.url.startsWith("/api/") || request.url === "/api") {
       return reply.code(404).send({ error: "Not found" });
     }
-    return reply.type("text/html").sendFile("index.html", { maxAge: 0, immutable: false });
+    return reply
+      .header("Cache-Control", "no-store")
+      .type("text/html")
+      .sendFile("index.html", { maxAge: 0, immutable: false });
   });
 }

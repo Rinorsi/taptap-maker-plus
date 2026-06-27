@@ -654,6 +654,26 @@ export type AppUpdateDownloadResult = {
   downloadedAt: string;
 };
 
+export type AppUpdateDownloadStatus = {
+  id: string;
+  status: "queued" | "downloading" | "downloaded" | "opening" | "opened" | "error";
+  release: AppReleaseSummary;
+  asset: AppReleaseAssetSummary;
+  installerPath: string;
+  downloadedBytes: number;
+  totalBytes?: number;
+  startedAt: string;
+  updatedAt: string;
+  downloadedAt?: string;
+  openedAt?: string;
+  error?: string;
+};
+
+export type OpenExternalUrlResult = {
+  ok: true;
+  url: string;
+};
+
 function readDesktopApiBase() {
   if (typeof window === "undefined") return "";
   const queryValue = new URLSearchParams(window.location.search).get("apiBase");
@@ -728,7 +748,7 @@ export async function listProjects(): Promise<{ projects: ProjectSummary[]; sele
 
 export async function selectProject(projectId: string) {
   return json<{ selectedProjectId: string; project: ProjectSummary }>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/select`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/select`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
   );
 }
 
@@ -743,43 +763,43 @@ export type RemoveProjectResponse = {
 
 export async function removeProjectRecord(projectId: string): Promise<RemoveProjectResponse> {
   return json<RemoveProjectResponse>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/record`, { method: "DELETE" })
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/record`, { method: "DELETE" })
   );
 }
 
 export async function deleteProjectLocalFolder(projectId: string): Promise<RemoveProjectResponse> {
   return json<RemoveProjectResponse>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/local-folder`, { method: "DELETE" })
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/local-folder`, { method: "DELETE" })
   );
 }
 
 export async function startRuntime(projectId: string) {
   return json<{ runtime: RuntimeSummary; tools: ToolSummary[]; toolsListSnapshot?: ToolsListSnapshot }>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/mcp/start`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/mcp/start`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
   );
 }
 
 export async function stopRuntime(projectId: string) {
   return json<{ runtime?: RuntimeSummary }>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/mcp/stop`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/mcp/stop`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
   );
 }
 
 export async function getRuntimeStatus(projectId: string) {
   return json<{ project: ProjectSummary; runtime?: RuntimeSummary; toolsListSnapshot?: ToolsListSnapshot }>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/mcp/status`)
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/mcp/status`)
   );
 }
 
 export async function getProjectHealth(projectId: string) {
   return json<{ health: ProjectHealthSummary }>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/health`)
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/health`)
   );
 }
 
 export async function getStatusLite(projectId: string, args: Record<string, unknown> = {}): Promise<StatusLiteResponse> {
   return json<StatusLiteResponse>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/mcp/status-lite`, {
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/mcp/status-lite`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ toolArgs: args })
@@ -788,12 +808,12 @@ export async function getStatusLite(projectId: string, args: Record<string, unkn
 }
 
 export async function listTools(projectId: string): Promise<{ tools: ToolSummary[]; runtime?: RuntimeSummary; toolsListSnapshot?: ToolsListSnapshot }> {
-  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/tools`));
+  return json(await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/tools`));
 }
 
 export async function refreshTools(projectId: string) {
   return json<{ tools: ToolSummary[]; runtime?: RuntimeSummary; toolsListSnapshot?: ToolsListSnapshot }>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/tools/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/tools/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
   );
 }
 
@@ -818,33 +838,33 @@ function assetListQuery(options?: ListAssetsOptions) {
 }
 
 export async function listAssets(projectId: string, options?: ListAssetsOptions): Promise<AssetSummary[]> {
-  const data = await json<{ assets: AssetSummary[] }>(await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets${assetListQuery(options)}`));
+  const data = await json<{ assets: AssetSummary[] }>(await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/assets${assetListQuery(options)}`));
   return data.assets;
 }
 
 export async function getAssetTree(projectId: string, rootPath = "assets"): Promise<AssetDirectoryNode> {
   const query = new URLSearchParams({ rootPath });
-  const data = await json<{ tree: AssetDirectoryNode }>(await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/tree?${query.toString()}`));
+  const data = await json<{ tree: AssetDirectoryNode }>(await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/assets/tree?${query.toString()}`));
   return data.tree;
 }
 
 export async function scanAssets(projectId: string): Promise<AssetSummary[]> {
   const data = await json<{ assets: AssetSummary[] }>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/scan`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/assets/scan`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
   );
   return data.assets;
 }
 
 export async function rebuildAssetProvenance(projectId: string): Promise<AssetSummary[]> {
   const data = await json<{ ok: true; provenanceCount: number; assets: AssetSummary[] }>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/provenance/rebuild`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/assets/provenance/rebuild`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
   );
   return data.assets;
 }
 
 export async function scanAssetReferences(projectId: string, relativePaths: string[], signal?: AbortSignal): Promise<AssetReferenceScanResult[]> {
   const data = await json<{ ok: true; results: AssetReferenceScanResult[] }>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/references/scan`, {
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/assets/references/scan`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ relativePaths }),
@@ -855,17 +875,17 @@ export async function scanAssetReferences(projectId: string, relativePaths: stri
 }
 
 export async function listModelPackages(projectId: string): Promise<{ packages: ModelPackageSummary[] }> {
-  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages`));
+  return json(await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages`));
 }
 
 export async function organizeModelPackage(projectId: string, packageId: string): Promise<{ packages: ModelPackageSummary[] }> {
-  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages/${encodeURIComponent(packageId)}/organize`, {
+  return json(await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages/${encodeURIComponent(packageId)}/organize`, {
     method: "POST"
   }));
 }
 
 export async function bindModelPackage(projectId: string, packageId: string, mdlPath: string): Promise<{ packages: ModelPackageSummary[] }> {
-  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages/${encodeURIComponent(packageId)}/bind`, {
+  return json(await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages/${encodeURIComponent(packageId)}/bind`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ mdlPath })
@@ -873,19 +893,19 @@ export async function bindModelPackage(projectId: string, packageId: string, mdl
 }
 
 export async function discardModelPackage(projectId: string, packageId: string): Promise<{ packages: ModelPackageSummary[] }> {
-  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages/${encodeURIComponent(packageId)}/discard`, {
+  return json(await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages/${encodeURIComponent(packageId)}/discard`, {
     method: "POST"
   }));
 }
 
 export async function restoreModelPackage(projectId: string, packageId: string): Promise<{ packages: ModelPackageSummary[] }> {
-  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages/${encodeURIComponent(packageId)}/restore`, {
+  return json(await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages/${encodeURIComponent(packageId)}/restore`, {
     method: "POST"
   }));
 }
 
 export async function updateModelPackageResource(projectId: string, packageId: string, action: "add" | "remove"): Promise<{ packages: ModelPackageSummary[] }> {
-  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages/${encodeURIComponent(packageId)}/resource`, {
+  return json(await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages/${encodeURIComponent(packageId)}/resource`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action })
@@ -897,7 +917,7 @@ export async function batchModelPackageAction(
   packageIds: string[],
   action: "organize" | "discard" | "restore" | "add_to_resource" | "remove_from_resource"
 ): Promise<{ ok: boolean; results: { id: string; ok: boolean; error?: string }[]; packages: ModelPackageSummary[] }> {
-  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages/batch`, {
+  return json(await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/model-packages/batch`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ packageIds, action })
@@ -905,7 +925,7 @@ export async function batchModelPackageAction(
 }
 
 export async function convertMdlToGltf(projectId: string, relativePath: string): Promise<MdlToGltfResult> {
-  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/model-convert/mdl-to-gltf`, {
+  return json(await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/model-convert/mdl-to-gltf`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ relativePath })
@@ -913,7 +933,7 @@ export async function convertMdlToGltf(projectId: string, relativePath: string):
 }
 
 export async function inspectMdl(projectId: string, relativePath: string): Promise<{ ok: true; info: MdlModelInfo }> {
-  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/model-convert/mdl-info`, {
+  return json(await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/model-convert/mdl-info`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ relativePath })
@@ -921,12 +941,12 @@ export async function inspectMdl(projectId: string, relativePath: string): Promi
 }
 
 export async function listGenerations(projectId: string): Promise<{ generations: GenerationRecord[] }> {
-  return json(await fetch(`/api/projects/${encodeURIComponent(projectId)}/generations`));
+  return json(await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/generations`));
 }
 
 export async function deleteAssets(projectId: string, relativePaths: string[]): Promise<AssetSummary[]> {
   const data = await json<{ assets: AssetSummary[] }>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/delete`, {
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/assets/delete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ relativePaths })
@@ -942,7 +962,7 @@ export async function moveAssetsWithResult(
   updateReferences = false
 ): Promise<AssetMutationResponse> {
   return json<AssetMutationResponse>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/move`, {
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/assets/move`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ relativePaths, targetFolder, updateReferences })
@@ -957,7 +977,7 @@ export async function moveAssets(projectId: string, relativePaths: string[], tar
 
 export async function copyAssets(projectId: string, relativePaths: string[], targetFolder: string): Promise<AssetSummary[]> {
   const data = await json<{ assets: AssetSummary[] }>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/copy`, {
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/assets/copy`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ relativePaths, targetFolder })
@@ -968,7 +988,7 @@ export async function copyAssets(projectId: string, relativePaths: string[], tar
 
 export async function openLocalAssetPath(projectId: string, relativePath: string, mode: "file" | "directory" = "file"): Promise<void> {
   await json<{ ok: true }>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/open-local`, {
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/assets/open-local`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ relativePath, mode })
@@ -983,7 +1003,7 @@ export async function renameAssetWithResult(
   updateReferences = false
 ): Promise<AssetMutationResponse> {
   return json<AssetMutationResponse>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/rename`, {
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/assets/rename`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ relativePath, newName, updateReferences })
@@ -998,7 +1018,7 @@ export async function renameAsset(projectId: string, relativePath: string, newNa
 
 export async function createAssetFolder(projectId: string, parentFolder: string, name: string): Promise<AssetMutationResponse> {
   return json<AssetMutationResponse>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/folders/create`, {
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/assets/folders/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ parentFolder, name })
@@ -1013,7 +1033,7 @@ export async function renameAssetFolder(
   updateReferences = false
 ): Promise<AssetMutationResponse> {
   return json<AssetMutationResponse>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/folders/rename`, {
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/assets/folders/rename`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ directoryPath, newName, updateReferences })
@@ -1028,7 +1048,7 @@ export async function moveAssetFolder(
   updateReferences = false
 ): Promise<AssetMutationResponse> {
   return json<AssetMutationResponse>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/folders/move`, {
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/assets/folders/move`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ directoryPath, targetFolder, updateReferences })
@@ -1038,7 +1058,7 @@ export async function moveAssetFolder(
 
 export async function deleteAssetFolder(projectId: string, directoryPath: string): Promise<AssetMutationResponse> {
   return json<AssetMutationResponse>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/folders/delete`, {
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/assets/folders/delete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ directoryPath })
@@ -1048,7 +1068,7 @@ export async function deleteAssetFolder(projectId: string, directoryPath: string
 
 export async function copyAssetFolder(projectId: string, directoryPath: string, targetFolder: string): Promise<AssetMutationResponse> {
   return json<AssetMutationResponse>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/folders/copy`, {
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/assets/folders/copy`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ directoryPath, targetFolder })
@@ -1058,7 +1078,7 @@ export async function copyAssetFolder(projectId: string, directoryPath: string, 
 
 export async function importAsset(projectId: string, fileName: string, targetFolder: string, dataUrl: string): Promise<AssetSummary[]> {
   const data = await json<{ assets: AssetSummary[] }>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/import`, {
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/assets/import`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ fileName, targetFolder, dataUrl })
@@ -1069,7 +1089,7 @@ export async function importAsset(projectId: string, fileName: string, targetFol
 
 export async function importLocalAssetPaths(projectId: string, sourcePaths: string[], targetFolder: string): Promise<AssetSummary[]> {
   const data = await json<{ assets: AssetSummary[] }>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/assets/import-local-paths`, {
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/assets/import-local-paths`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sourcePaths, targetFolder })
@@ -1080,19 +1100,19 @@ export async function importLocalAssetPaths(projectId: string, sourcePaths: stri
 
 export async function listTasks(projectId?: string): Promise<TaskRecord[]> {
   const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
-  const data = await json<{ tasks: TaskRecord[] }>(await fetch(`/api/tasks${query}`));
+  const data = await json<{ tasks: TaskRecord[] }>(await apiFetch(`/api/tasks${query}`));
   return data.tasks;
 }
 
 export async function clearTasks(projectId?: string): Promise<TaskRecord[]> {
   const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
-  const data = await json<{ tasks: TaskRecord[] }>(await fetch(`/api/tasks${query}`, { method: "DELETE" }));
+  const data = await json<{ tasks: TaskRecord[] }>(await apiFetch(`/api/tasks${query}`, { method: "DELETE" }));
   return data.tasks;
 }
 
 export async function callTool(projectId: string, toolName: string, toolArgs: Record<string, unknown>) {
   return json<{ task: TaskRecord; generation?: GenerationRecord; result?: unknown; text?: string; assetsIndexed: number }>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/tools/${encodeURIComponent(toolName)}/call`, {
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/tools/${encodeURIComponent(toolName)}/call`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ toolArgs })
@@ -1101,18 +1121,18 @@ export async function callTool(projectId: string, toolName: string, toolArgs: Re
 }
 
 export async function listWorkflows(projectId: string): Promise<WorkflowGraphRecord[]> {
-  const data = await json<{ workflows: WorkflowGraphRecord[] }>(await fetch(`/api/projects/${encodeURIComponent(projectId)}/workflows`));
+  const data = await json<{ workflows: WorkflowGraphRecord[] }>(await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/workflows`));
   return data.workflows;
 }
 
 export async function listWorkflowRuns(projectId: string): Promise<WorkflowRunRecord[]> {
-  const data = await json<{ runs: WorkflowRunRecord[] }>(await fetch(`/api/projects/${encodeURIComponent(projectId)}/workflow-runs`));
+  const data = await json<{ runs: WorkflowRunRecord[] }>(await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/workflow-runs`));
   return data.runs;
 }
 
 export async function runWorkflow(projectId: string, graph: MakerWorkflowGraph, nodeIds: string[], name?: string, workflowId?: string) {
   return json<{ run: WorkflowRunRecord; runs: WorkflowRunRecord[]; tasks: TaskRecord[] }>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/workflow-runs`, {
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/workflow-runs`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ graph, nodeIds, name, workflowId })
@@ -1122,12 +1142,12 @@ export async function runWorkflow(projectId: string, graph: MakerWorkflowGraph, 
 
 export async function deleteWorkflowRun(projectId: string, runId: string) {
   return json<{ ok: true; runs: WorkflowRunRecord[] }>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/workflow-runs/${encodeURIComponent(runId)}`, { method: "DELETE" })
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/workflow-runs/${encodeURIComponent(runId)}`, { method: "DELETE" })
   );
 }
 
 export async function getBuildLogs(projectId: string): Promise<ProjectBuildLogsSummary> {
-  const data = await json<{ logs: ProjectBuildLogsSummary }>(await fetch(`/api/projects/${encodeURIComponent(projectId)}/build/logs`));
+  const data = await json<{ logs: ProjectBuildLogsSummary }>(await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/build/logs`));
   return data.logs;
 }
 
@@ -1143,7 +1163,7 @@ export async function getAgentContext(projectId?: string, page?: AgentPageState)
     if (page.selection.type === "asset") params.set("assetRelativePath", page.selection.relativePath);
   }
   const query = params.toString();
-  const data = await json<{ context: AgentContextSnapshot }>(await fetch(`/api/agent/context${query ? `?${query}` : ""}`));
+  const data = await json<{ context: AgentContextSnapshot }>(await apiFetch(`/api/agent/context${query ? `?${query}` : ""}`));
   return data.context;
 }
 
@@ -1358,8 +1378,8 @@ export async function listAppReleases(): Promise<{ releases: AppReleaseSummary[]
   return json<{ releases: AppReleaseSummary[] }>(await apiFetch("/api/app/releases"));
 }
 
-export async function downloadAppUpdate(releaseId: number, assetId?: number, release?: AppReleaseSummary): Promise<AppUpdateDownloadResult> {
-  return json<AppUpdateDownloadResult>(
+export async function downloadAppUpdate(releaseId: number, assetId?: number, release?: AppReleaseSummary): Promise<AppUpdateDownloadStatus> {
+  return json<AppUpdateDownloadStatus>(
     await apiFetch("/api/app/update/download", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1368,9 +1388,25 @@ export async function downloadAppUpdate(releaseId: number, assetId?: number, rel
   );
 }
 
+export async function getAppUpdateDownloadStatus(downloadId: string): Promise<AppUpdateDownloadStatus> {
+  return json<AppUpdateDownloadStatus>(
+    await apiFetch(`/api/app/update/downloads/${encodeURIComponent(downloadId)}`),
+  );
+}
+
+export async function openExternalUrl(url: string): Promise<OpenExternalUrlResult> {
+  return json<OpenExternalUrlResult>(
+    await apiFetch("/api/app/open-external", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    }),
+  );
+}
+
 export async function saveWorkflow(projectId: string, name: string, graph: MakerWorkflowGraph, id?: string) {
   return json<{ workflow: WorkflowGraphRecord; workflows: WorkflowGraphRecord[] }>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/workflows`, {
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/workflows`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, name, graph })
@@ -1380,7 +1416,7 @@ export async function saveWorkflow(projectId: string, name: string, graph: Maker
 
 export async function deleteWorkflow(projectId: string, workflowId: string) {
   return json<{ ok: true; workflows: WorkflowGraphRecord[] }>(
-    await fetch(`/api/projects/${encodeURIComponent(projectId)}/workflows/${encodeURIComponent(workflowId)}`, { method: "DELETE" })
+    await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/workflows/${encodeURIComponent(workflowId)}`, { method: "DELETE" })
   );
 }
 
@@ -1388,20 +1424,20 @@ export async function deleteWorkflow(projectId: string, workflowId: string) {
 export type CanvasFlowSummary = { id: string; name: string; mtimeMs: number };
 
 export async function listFlows(projectId: string): Promise<CanvasFlowSummary[]> {
-  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/flows`);
+  const res = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/flows`);
   if (!res.ok) throw new Error(`Failed to list flows: ${res.statusText}`);
   const flows = (await res.json()).flows as Array<{ id?: string; name: string; mtimeMs: number }>;
   return flows.map((flow) => ({ id: flow.id ?? flow.name, name: flow.name, mtimeMs: flow.mtimeMs }));
 }
 
 export async function getFlow(projectId: string, name: string): Promise<any> {
-  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/flows/${encodeURIComponent(name)}`);
+  const res = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/flows/${encodeURIComponent(name)}`);
   if (!res.ok) throw new Error(`Failed to get flow: ${res.statusText}`);
   return (await res.json()).data;
 }
 
 export async function saveFlow(projectId: string, name: string, data: any): Promise<{ id: string; name: string; mtimeMs?: number }> {
-  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/flows`, {
+  const res = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/flows`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, data }),
@@ -1411,7 +1447,7 @@ export async function saveFlow(projectId: string, name: string, data: any): Prom
 }
 
 export async function autoSaveFlow(projectId: string, data: any): Promise<void> {
-  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/flows/auto-save`, {
+  const res = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/flows/auto-save`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ data }),
@@ -1420,12 +1456,12 @@ export async function autoSaveFlow(projectId: string, data: any): Promise<void> 
 }
 
 export async function deleteFlow(projectId: string, name: string): Promise<void> {
-  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/flows/${encodeURIComponent(name)}`, { method: "DELETE" });
+  const res = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/flows/${encodeURIComponent(name)}`, { method: "DELETE" });
   if (!res.ok) throw new Error(`Failed to delete flow: ${res.statusText}`);
 }
 
 export async function renameFlow(projectId: string, name: string, nextName: string): Promise<void> {
-  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/flows/${encodeURIComponent(name)}`, {
+  const res = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/flows/${encodeURIComponent(name)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name: nextName }),
@@ -1446,6 +1482,6 @@ export type CreditRecord = {
 
 export async function listCredits(projectId?: string): Promise<CreditRecord[]> {
   const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
-  const data = await json<{ credits: CreditRecord[] }>(await fetch(`/api/credits${query}`));
+  const data = await json<{ credits: CreditRecord[] }>(await apiFetch(`/api/credits${query}`));
   return data.credits;
 }

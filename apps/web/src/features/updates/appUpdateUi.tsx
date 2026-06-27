@@ -3,6 +3,9 @@ import { Download, ExternalLink, History, RefreshCw, Sparkles } from "lucide-rea
 import {
   checkAppUpdate,
   downloadAppUpdate,
+  getAppUpdateDownloadStatus,
+  openExternalUrl,
+  type AppUpdateDownloadStatus,
   type AppReleaseSummary,
   type AppUpdateStatus,
 } from "../../api";
@@ -19,10 +22,12 @@ export type AppUpdateUiState = {
   loading: boolean;
   downloading: boolean;
   notice: string;
+  downloadStatus?: AppUpdateDownloadStatus;
   selectedReleaseId?: string;
   setSelectedReleaseId: (releaseId: string) => void;
   refresh: () => Promise<void>;
   downloadSelected: () => Promise<void>;
+  openRelease: (release: AppReleaseSummary) => Promise<void>;
 };
 
 export function useAppUpdateUi(forceDeveloperTest = false): AppUpdateUiState {
@@ -31,11 +36,12 @@ export function useAppUpdateUi(forceDeveloperTest = false): AppUpdateUiState {
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [notice, setNotice] = useState("");
+  const [downloadStatus, setDownloadStatus] = useState<AppUpdateDownloadStatus>();
   const [selectedReleaseId, setSelectedReleaseId] = useState<string>();
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    setNotice("正在检查 GitHub Releases...");
+    setNotice("正在检查远端更新清单...");
     try {
       const statusResponse = await checkAppUpdate();
       const nextStatus = forceDeveloperTest
@@ -60,7 +66,7 @@ export function useAppUpdateUi(forceDeveloperTest = false): AppUpdateUiState {
         setStatus(nextStatus);
         setReleases([nextStatus.latestRelease!]);
         setSelectedReleaseId(String(nextStatus.latestRelease!.id));
-        setNotice("开发者模式测试更新已启用；真实 GitHub Releases 暂时无法获取。");
+        setNotice("开发者模式测试更新已启用；真实远端更新清单暂时无法获取。");
       } else {
         setNotice(error instanceof Error ? error.message : String(error));
       }
@@ -80,11 +86,20 @@ export function useAppUpdateUi(forceDeveloperTest = false): AppUpdateUiState {
       return;
     }
     setDownloading(true);
-    setNotice("正在下载安装器，完成后会打开安装程序...");
+    setDownloadStatus(undefined);
+    const installerAsset = selectedRelease.assets.find((asset) => /\.exe$/i.test(asset.name));
+    setNotice(`正在下载安装器 ${installerAsset?.name ?? selectedRelease.tagName}，保存到软件数据目录 updates，完成后会自动打开安装程序...`);
     try {
-      const installerAsset = selectedRelease.assets.find((asset) => /\.exe$/i.test(asset.name));
-      const result = await downloadAppUpdate(selectedRelease.id, installerAsset?.id, selectedRelease);
-      setNotice(`安装器已下载：${result.installerPath}`);
+      const initialStatus = await downloadAppUpdate(selectedRelease.id, installerAsset?.id, selectedRelease);
+      setDownloadStatus(initialStatus);
+      setNotice(formatDownloadNotice(initialStatus));
+      let currentStatus = initialStatus;
+      while (currentStatus.status !== "opened" && currentStatus.status !== "error") {
+        await delay(500);
+        currentStatus = await getAppUpdateDownloadStatus(initialStatus.id);
+        setDownloadStatus(currentStatus);
+        setNotice(formatDownloadNotice(currentStatus));
+      }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
@@ -92,11 +107,20 @@ export function useAppUpdateUi(forceDeveloperTest = false): AppUpdateUiState {
     }
   }, [releases, selectedReleaseId, status?.latestRelease]);
 
+  const openRelease = useCallback(async (release: AppReleaseSummary) => {
+    try {
+      await openExternalUrl(release.htmlUrl);
+      setNotice(`已用系统浏览器打开：${release.htmlUrl}`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  return { status, releases, loading, downloading, notice, selectedReleaseId, setSelectedReleaseId, refresh, downloadSelected };
+  return { status, releases, loading, downloading, notice, downloadStatus, selectedReleaseId, setSelectedReleaseId, refresh, downloadSelected, openRelease };
 }
 
 export function VersionPill({
@@ -147,6 +171,7 @@ export function AppUpdatePanel({
     label: `${release.tagName}${release.id === latestRelease?.id ? " · 最新" : ""}`,
   }));
   const selectedIsCurrent = selectedRelease ? normalizeVersion(selectedRelease.tagName) === normalizeVersion(appVersion.packageVersion) : false;
+  const downloadProgress = state.downloadStatus ? formatDownloadProgress(state.downloadStatus) : "";
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -198,7 +223,7 @@ export function AppUpdatePanel({
               className={cn("h-8 px-4", state.status?.updateAvailable ? "shadow-[0_0_15px_rgba(0,217,197,0.2)]" : "")}
             >
               <Download className="mr-1.5 h-3.5 w-3.5" />
-              {state.downloading ? "下载中..." : selectedIsCurrent ? "覆盖安装" : "安装更新"}
+              {state.downloading ? (downloadProgress || "正在下载") : selectedIsCurrent ? "覆盖安装" : "安装更新"}
             </Button>
           </div>
         </div>
@@ -211,24 +236,37 @@ export function AppUpdatePanel({
             </pre>
           ) : null}
           {installerAsset ? (
-            <div className="flex items-center gap-2">
-              <span className="flex h-5 items-center rounded bg-surface-muted px-1.5 text-[10px] font-bold text-text-muted uppercase tracking-wider">
-                安装器
-              </span>
-              <span className="truncate text-[11px] text-text-subtle" title={installerAsset.name}>
-                {installerAsset.name}
-              </span>
+            <div className="flex flex-col gap-1.5 text-[11px] text-text-subtle">
+              <div className="flex items-center gap-2">
+                <span className="flex h-5 items-center rounded bg-surface-muted px-1.5 text-[10px] font-bold uppercase tracking-wider text-text-muted">
+                  安装器
+                </span>
+                <span className="truncate" title={installerAsset.name}>
+                  {installerAsset.name}
+                </span>
+              </div>
+              {state.downloadStatus ? (
+                <div className="truncate" title={state.downloadStatus.installerPath}>
+                  保存位置：{state.downloadStatus.installerPath}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
       </div>
 
-      <ReleaseHistory releases={state.releases} />
+      <ReleaseHistory releases={state.releases} onOpenRelease={state.openRelease} />
     </div>
   );
 }
 
-export function ReleaseHistory({ releases }: { releases: AppReleaseSummary[] }) {
+export function ReleaseHistory({
+  releases,
+  onOpenRelease,
+}: {
+  releases: AppReleaseSummary[];
+  onOpenRelease?: (release: AppReleaseSummary) => void | Promise<void>;
+}) {
   if (!releases.length) {
     return (
       <div className="rounded-xl border border-border-soft bg-surface-app/50 p-4 text-xs text-text-muted text-center">
@@ -249,26 +287,20 @@ export function ReleaseHistory({ releases }: { releases: AppReleaseSummary[] }) 
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-[13px] font-bold text-text">{release.name || release.tagName}</span>
-                  {!release.publishedAt && (
-                    <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[9px] font-bold text-text-muted">
-                      未发布
-                    </span>
-                  )}
                 </div>
                 <div className="mt-1 text-[11px] text-text-subtle">
                   {release.tagName}
                   {release.publishedAt && ` · ${formatDateTime(release.publishedAt)}`}
                 </div>
               </div>
-              <a
-                href={release.htmlUrl}
-                target="_blank"
-                rel="noreferrer"
+              <button
+                type="button"
+                onClick={() => void onOpenRelease?.(release)}
                 className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-text-muted hover:bg-surface-muted hover:text-text transition-colors"
-                title="打开 GitHub Release"
+                title="用系统浏览器打开版本页面"
               >
                 <ExternalLink className="h-4 w-4" />
-              </a>
+              </button>
             </div>
             <p className="m-0 mt-2.5 line-clamp-3 whitespace-pre-wrap text-[11.5px] leading-relaxed text-text-muted">
               {release.body || "暂无更新日志"}
@@ -329,4 +361,31 @@ function formatDateTime(value: string) {
 
 function normalizeVersion(value: string) {
   return value.replace(/^v/i, "").toLowerCase();
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function formatDownloadNotice(status: AppUpdateDownloadStatus) {
+  if (status.status === "error") return status.error ?? "下载安装器失败。";
+  if (status.status === "opened") return `安装器已下载并启动：${status.installerPath}`;
+  if (status.status === "opening") return `下载完成，正在打开安装器：${status.installerPath}`;
+  if (status.status === "downloaded") return `安装器已下载：${status.installerPath}`;
+  return `正在下载到：${status.installerPath}${formatDownloadProgress(status) ? `（${formatDownloadProgress(status)}）` : ""}`;
+}
+
+function formatDownloadProgress(status: AppUpdateDownloadStatus) {
+  if (status.totalBytes && status.totalBytes > 0) {
+    const percent = Math.min(100, Math.round((status.downloadedBytes / status.totalBytes) * 100));
+    return `${percent}%`;
+  }
+  if (status.downloadedBytes > 0) return `${formatBytes(status.downloadedBytes)}`;
+  return "";
+}
+
+function formatBytes(bytes: number) {
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${bytes} B`;
 }

@@ -243,11 +243,11 @@ export function WelcomeView({
         type="button"
         onClick={onOpenVersionHistory}
         disabled={!onOpenVersionHistory}
-        className="absolute bottom-6 left-1/2 z-[140] -translate-x-1/2 select-none rounded-full px-3 py-1 opacity-35 transition-opacity hover:bg-surface-panel hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
+        className="absolute bottom-6 left-1/2 z-[140] -translate-x-1/2 select-none rounded-full px-3 py-1 opacity-70 transition-opacity hover:bg-surface-panel hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
         title="查看版本列表"
       >
-        <span className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-text">
-          Maker Plus {appVersion.displayVersion}
+        <span className="text-[11px] font-mono font-bold text-text">
+          当前版本 {appVersion.displayVersion}
         </span>
         {appUpdateAvailable ? (
           <span className="ml-2 inline-flex items-center rounded-full bg-brand px-1.5 py-0.5 text-[9px] font-bold tracking-normal text-white">

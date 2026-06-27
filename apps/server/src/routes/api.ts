@@ -53,7 +53,7 @@ import { buildAssetDirectoryTree, listProjectAssetDirectories } from "../service
 import { rebuildAssetProvenance } from "../services/assetProvenance.js";
 import { runtimeManager } from "../services/mcpRuntime.js";
 import { getMcpPackageUpdateStatus, installMcpPackage, uninstallMcpPackage } from "../services/mcpPackageManager.js";
-import { checkAppUpdate, downloadAndOpenAppUpdate, listAppReleases } from "../services/appUpdateManager.js";
+import { checkAppUpdate, downloadAndOpenAppUpdate, getAppUpdateDownloadStatus, listAppReleases, openExternalUrl, startAppUpdateDownload } from "../services/appUpdateManager.js";
 import { executeToolCall, syncCreditRecordsFromTasks } from "../services/toolExecution.js";
 import { buildAgentContext } from "../agent/contextBuilder.js";
 import { appVersion } from "../generated/appVersion.js";
@@ -104,6 +104,10 @@ const appUpdateDownloadSchema = z.object({
       contentType: z.string().optional()
     }))
   }).optional()
+});
+
+const openExternalUrlSchema = z.object({
+  url: z.string().url()
 });
 
 const onboardingTargetDirSchema = z.object({
@@ -720,7 +724,35 @@ export async function registerApiRoutes(app: FastifyInstance) {
     const parsed = appUpdateDownloadSchema.safeParse(request.body ?? {});
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
     try {
+      return await startAppUpdateDownload(parsed.data.releaseId, parsed.data.assetId, parsed.data.release);
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{ Body: unknown }>("/api/app/update/download-sync", async (request, reply) => {
+    const parsed = appUpdateDownloadSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
       return await downloadAndOpenAppUpdate(parsed.data.releaseId, parsed.data.assetId, parsed.data.release);
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.get<{ Params: { downloadId: string } }>("/api/app/update/downloads/:downloadId", async (request, reply) => {
+    try {
+      return getAppUpdateDownloadStatus(request.params.downloadId);
+    } catch (error) {
+      return reply.code(404).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{ Body: unknown }>("/api/app/open-external", async (request, reply) => {
+    const parsed = openExternalUrlSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
+      return openExternalUrl(parsed.data.url);
     } catch (error) {
       return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
     }

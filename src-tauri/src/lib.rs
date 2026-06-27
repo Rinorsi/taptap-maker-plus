@@ -14,7 +14,7 @@ use std::{
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-use tauri::{LogicalSize, Manager, RunEvent, Url};
+use tauri::{LogicalSize, Manager, RunEvent, Url, WebviewWindowBuilder};
 
 const SERVER_HOST: &str = "127.0.0.1";
 const SERVER_PORT_NUMBER: u16 = 8787;
@@ -29,6 +29,7 @@ const WEB_IDENTITY_NAME: &str = r#"name="taptap-maker-plus""#;
 const WEB_IDENTITY_CONTENT: &str = r#"content="web""#;
 const MIN_WINDOW_LOGICAL_WIDTH: f64 = 1366.0;
 const MIN_WINDOW_LOGICAL_HEIGHT: f64 = 768.0;
+const APP_PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 static APP_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
@@ -149,6 +150,98 @@ fn install_panic_logger() {
     let log_path = log_dir.join("desktop-crash.log");
     append_log(&log_path, &format!("panic: {panic_info}"));
   }));
+}
+
+fn maintain_webview_cache(app: &tauri::App) {
+  let Ok(app_data_dir) = app.path().app_data_dir() else {
+    return;
+  };
+  let log_path = app_data_dir.join("desktop.log");
+  let Ok(app_local_data_dir) = app.path().app_local_data_dir() else {
+    append_log(&log_path, "unable to resolve app local data dir for webview cache maintenance");
+    return;
+  };
+  let marker_path = app_local_data_dir.join("webview-cache-version.txt");
+  let previous_version = fs::read_to_string(&marker_path).unwrap_or_default();
+  if previous_version.trim() == APP_PACKAGE_VERSION {
+    return;
+  }
+
+  append_log(
+    &log_path,
+    &format!(
+      "webview cache version changed from '{}' to '{}'; clearing regenerated cache directories",
+      previous_version.trim(),
+      APP_PACKAGE_VERSION
+    ),
+  );
+
+  let webview_root = app_local_data_dir.join("EBWebView");
+  let relative_paths = [
+    Path::new("Default").join("Cache"),
+    Path::new("Default").join("Code Cache"),
+    Path::new("Default").join("Service Worker").join("CacheStorage"),
+    Path::new("Default").join("Service Worker").join("ScriptCache"),
+    Path::new("Default").join("GPUCache"),
+    Path::new("Default").join("DawnCache"),
+    Path::new("Default").join("blob_storage"),
+    PathBuf::from("Cache"),
+    PathBuf::from("Code Cache"),
+    PathBuf::from("GPUCache"),
+    PathBuf::from("GrShaderCache"),
+    PathBuf::from("ShaderCache"),
+    PathBuf::from("component_crx_cache"),
+  ];
+
+  for relative_path in relative_paths {
+    remove_webview_cache_path(&app_local_data_dir, &webview_root.join(relative_path), &log_path);
+  }
+
+  if let Err(error) = fs::create_dir_all(&app_local_data_dir) {
+    append_log(&log_path, &format!("failed to create app local data dir: {error}"));
+    return;
+  }
+  if let Err(error) = fs::write(&marker_path, APP_PACKAGE_VERSION) {
+    append_log(&log_path, &format!("failed to write webview cache version marker: {error}"));
+  }
+}
+
+fn remove_webview_cache_path(base_dir: &Path, target_path: &Path, log_path: &Path) {
+  if !target_path.exists() {
+    return;
+  }
+
+  let Ok(base_dir) = base_dir.canonicalize() else {
+    append_log(log_path, "failed to canonicalize app local data dir before cache cleanup");
+    return;
+  };
+  let Ok(canonical_target) = target_path.canonicalize() else {
+    append_log(
+      log_path,
+      &format!("failed to canonicalize webview cache path {}", target_path.display()),
+    );
+    return;
+  };
+  if !canonical_target.starts_with(&base_dir) {
+    append_log(
+      log_path,
+      &format!("refused to remove webview cache path outside app local data dir: {}", canonical_target.display()),
+    );
+    return;
+  }
+
+  let result = if canonical_target.is_dir() {
+    fs::remove_dir_all(&canonical_target)
+  } else {
+    fs::remove_file(&canonical_target)
+  };
+  match result {
+    Ok(()) => append_log(log_path, &format!("removed webview cache path {}", canonical_target.display())),
+    Err(error) => append_log(
+      log_path,
+      &format!("failed to remove webview cache path {}: {error}", canonical_target.display()),
+    ),
+  }
 }
 
 fn normalize_windows_path(path: PathBuf) -> PathBuf {
@@ -371,7 +464,7 @@ Content-Type: application/json
 
 #[tauri::command]
 fn open_devtools(app: tauri::AppHandle) -> Result<(), String> {
-  let Some(window) = app.get_webview_window("main") else {
+  let Some(_window) = app.get_webview_window("main") else {
     return Err("Unable to find main window".to_string());
   };
 
@@ -435,6 +528,17 @@ pub fn run() {
         let _ = fs::create_dir_all(&app_data_dir);
         let _ = APP_DATA_DIR.set(app_data_dir);
       }
+      maintain_webview_cache(app);
+      let window_config = app
+        .config()
+        .app
+        .windows
+        .first()
+        .ok_or_else(|| tauri::Error::Io(std::io::Error::new(
+          std::io::ErrorKind::Other,
+          "Missing main window config",
+        )))?;
+      WebviewWindowBuilder::from_config(app.handle(), window_config)?.build()?;
       if let Some(window) = app.get_webview_window("main") {
         let _ = window.set_min_size(Some(LogicalSize::new(
           MIN_WINDOW_LOGICAL_WIDTH,
@@ -487,9 +591,9 @@ pub fn run() {
         }
         let api_base = format!("http://{SERVER_HOST}:{}", server_launch.port);
         let target_url = if cfg!(debug_assertions) {
-          format!("{DEV_WEB_URL}?apiBase={api_base}")
+          format!("{DEV_WEB_URL}?apiBase={api_base}&appVersion={APP_PACKAGE_VERSION}")
         } else {
-          format!("{api_base}?apiBase={api_base}")
+          format!("{api_base}?apiBase={api_base}&appVersion={APP_PACKAGE_VERSION}")
         };
         let window_app_handle = app_handle.clone();
         let _ = app_handle.run_on_main_thread(move || {

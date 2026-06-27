@@ -8,6 +8,7 @@ import { findManifestRelease, readUpdateManifest } from "./read-update-manifest.
 const scriptPath = fileURLToPath(import.meta.url);
 const workspaceRoot = path.dirname(path.dirname(scriptPath));
 const version = process.argv[2];
+const appVersion = JSON.parse(fs.readFileSync(path.join(workspaceRoot, "app-version.json"), "utf8"));
 
 if (!version) {
   throw new Error("Usage: node scripts/publish-update-release.mjs <version>");
@@ -22,7 +23,7 @@ const installerPath = path.join(
   "release",
   "bundle",
   "nsis",
-  `TapTap Maker Plus 桌面端_${installerVersionFromTag(version)}_x64-setup.exe`,
+  `${appVersion.productName}_${installerVersionFromTag(version)}_x64-setup.exe`,
 );
 
 if (!fs.existsSync(installerPath)) {
@@ -31,6 +32,8 @@ if (!fs.existsSync(installerPath)) {
 
 const notesPath = path.join(os.tmpdir(), `taptap-maker-plus-${installerVersionFromTag(version)}-notes.md`);
 fs.writeFileSync(notesPath, `${release.changelog.trim()}\n`, "utf8");
+const uploadInstallerPath = path.join(os.tmpdir(), installerAssetNameFromTag(version));
+fs.copyFileSync(installerPath, uploadInstallerPath);
 
 const view = spawnSync("gh", ["release", "view", version, "--repo", "Rinorsi/taptap-maker-plus"], {
   cwd: workspaceRoot,
@@ -43,13 +46,14 @@ if (view.status === 0) {
   runGh(["release", "create", version, "--repo", "Rinorsi/taptap-maker-plus", "--target", "main", "--title", release.title, "--notes-file", notesPath, "--prerelease"]);
 }
 
-runGh(["release", "upload", version, installerPath, "--repo", "Rinorsi/taptap-maker-plus", "--clobber"]);
+runGh(["release", "upload", version, uploadInstallerPath, "--repo", "Rinorsi/taptap-maker-plus", "--clobber"]);
 
 console.log(JSON.stringify({
   ok: true,
   version,
   title: release.title,
   installerPath,
+  uploadInstallerPath,
   size: fs.statSync(installerPath).size,
 }, null, 2));
 
@@ -68,4 +72,8 @@ function installerVersionFromTag(tagName) {
   const normalized = tagName.replace(/^v/i, "");
   if (/^\d+\.\d+$/.test(normalized)) return `${normalized}.0-alpha`;
   return normalized;
+}
+
+function installerAssetNameFromTag(tagName) {
+  return `TapTap.Maker.Plus._${installerVersionFromTag(tagName)}_x64-setup.exe`;
 }

@@ -65,6 +65,21 @@ export type AppUpdateStatus = {
   error?: string;
 };
 
+export type AppUpdateDownloadStatus = {
+  id: string;
+  status: "queued" | "downloading" | "downloaded" | "opening" | "opened" | "error";
+  release: AppReleaseSummary;
+  asset: AppReleaseAssetSummary;
+  installerPath: string;
+  downloadedBytes: number;
+  totalBytes?: number;
+  startedAt: string;
+  updatedAt: string;
+  downloadedAt?: string;
+  openedAt?: string;
+  error?: string;
+};
+
 type ReadAppUpdateManifestResult = {
   latestVersion?: string;
   releases: AppReleaseSummary[];
@@ -84,6 +99,8 @@ let releasesCache:
       announcementError?: string;
     }
   | undefined;
+
+const updateDownloads = new Map<string, AppUpdateDownloadStatus>();
 
 type GitHubReleaseAsset = {
   id?: unknown;
@@ -280,6 +297,11 @@ async function readStaticManifest(manifestUrl: string): Promise<ReadAppUpdateMan
 }
 
 export async function downloadAndOpenAppUpdate(releaseId: number, assetId?: number, releaseFallback?: AppReleaseSummary) {
+  const task = await startAppUpdateDownload(releaseId, assetId, releaseFallback);
+  return await waitForAppUpdateDownload(task.id);
+}
+
+export async function startAppUpdateDownload(releaseId: number, assetId?: number, releaseFallback?: AppReleaseSummary) {
   const releases = await listAppReleases().catch(() => releaseFallback ? [releaseFallback] : []);
   const release = releases.find((item) => item.id === releaseId) ?? (releaseFallback?.id === releaseId ? releaseFallback : undefined);
   if (!release) throw new Error(`找不到 Release：${releaseId}`);
@@ -291,15 +313,92 @@ export async function downloadAndOpenAppUpdate(releaseId: number, assetId?: numb
   const downloadDir = path.join(config.dataDir, "updates");
   fs.mkdirSync(downloadDir, { recursive: true });
   const installerPath = path.join(downloadDir, sanitizeDownloadName(asset.name));
-  await downloadFile(asset.browserDownloadUrl, installerPath);
-  openInstaller(installerPath);
-  return {
-    ok: true,
+  const now = new Date().toISOString();
+  const task: AppUpdateDownloadStatus = {
+    id: createDownloadId(release.tagName, asset.id),
+    status: "queued",
     release,
     asset,
     installerPath,
-    downloadedAt: new Date().toISOString(),
+    downloadedBytes: 0,
+    totalBytes: asset.size > 0 ? asset.size : undefined,
+    startedAt: now,
+    updatedAt: now,
   };
+  updateDownloads.set(task.id, task);
+  void runAppUpdateDownload(task, asset.browserDownloadUrl);
+  return task;
+}
+
+export function getAppUpdateDownloadStatus(downloadId: string) {
+  const status = updateDownloads.get(downloadId);
+  if (!status) throw new Error(`找不到下载任务：${downloadId}`);
+  return status;
+}
+
+export function openExternalUrl(url: string) {
+  const parsed = new URL(url);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("只能打开 http 或 https 链接。");
+  }
+  openUrl(parsed.toString());
+  return {
+    ok: true,
+    url: parsed.toString(),
+  };
+}
+
+async function waitForAppUpdateDownload(downloadId: string) {
+  while (true) {
+    const status = getAppUpdateDownloadStatus(downloadId);
+    if (status.status === "opened") {
+      return {
+        ok: true,
+        release: status.release,
+        asset: status.asset,
+        installerPath: status.installerPath,
+        downloadedAt: status.downloadedAt ?? status.updatedAt,
+      };
+    }
+    if (status.status === "error") {
+      throw new Error(status.error ?? "下载安装器失败。");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
+async function runAppUpdateDownload(task: AppUpdateDownloadStatus, url: string) {
+  try {
+    updateDownloadTask(task.id, { status: "downloading" });
+    await downloadFile(url, task.installerPath, (downloadedBytes, totalBytes) => {
+      updateDownloadTask(task.id, { downloadedBytes, totalBytes });
+    });
+    updateDownloadTask(task.id, {
+      status: "downloaded",
+      downloadedAt: new Date().toISOString(),
+    });
+    updateDownloadTask(task.id, { status: "opening" });
+    openInstaller(task.installerPath);
+    updateDownloadTask(task.id, {
+      status: "opened",
+      openedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    updateDownloadTask(task.id, {
+      status: "error",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function updateDownloadTask(downloadId: string, patch: Partial<AppUpdateDownloadStatus>) {
+  const current = updateDownloads.get(downloadId);
+  if (!current) return;
+  updateDownloads.set(downloadId, {
+    ...current,
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 function normalizeRelease(raw: GitHubRelease): AppReleaseSummary {
@@ -495,7 +594,7 @@ function sanitizeDownloadName(fileName: string) {
   return sanitized;
 }
 
-async function downloadFile(url: string, targetPath: string) {
+async function downloadFile(url: string, targetPath: string, onProgress?: (downloadedBytes: number, totalBytes?: number) => void) {
   const response = await fetch(url, {
     headers: {
       "User-Agent": "TapTap-Maker-Plus-Updater",
@@ -504,8 +603,43 @@ async function downloadFile(url: string, targetPath: string) {
   if (!response.ok) {
     throw new Error(`下载安装器失败：HTTP ${response.status} ${response.statusText}`);
   }
-  const buffer = Buffer.from(await response.arrayBuffer());
-  fs.writeFileSync(targetPath, buffer);
+  const totalHeader = response.headers.get("content-length");
+  const parsedTotalBytes = totalHeader ? Number(totalHeader) : undefined;
+  const total = parsedTotalBytes !== undefined && Number.isFinite(parsedTotalBytes) && parsedTotalBytes > 0 ? parsedTotalBytes : undefined;
+  const tempPath = `${targetPath}.download`;
+  const body = response.body;
+  if (!body) throw new Error("下载安装器失败：响应体为空。");
+  const file = fs.createWriteStream(tempPath);
+  const reader = body.getReader();
+  let downloadedBytes = 0;
+  try {
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      const chunk = Buffer.from(result.value);
+      downloadedBytes += chunk.length;
+      if (!file.write(chunk)) {
+        await new Promise<void>((resolve, reject) => {
+          file.once("drain", resolve);
+          file.once("error", reject);
+        });
+      }
+      onProgress?.(downloadedBytes, total);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  await new Promise<void>((resolve, reject) => {
+    file.end((error?: Error | null) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+  fs.renameSync(tempPath, targetPath);
+}
+
+function createDownloadId(tagName: string, assetId: number) {
+  return `${Date.now()}-${stableReleaseId(`${tagName}:${assetId}`)}`;
 }
 
 function openInstaller(installerPath: string) {
@@ -518,4 +652,16 @@ function openInstaller(installerPath: string) {
     return;
   }
   spawn("xdg-open", [installerPath], { detached: true, stdio: "ignore" }).unref();
+}
+
+function openUrl(url: string) {
+  if (process.platform === "win32") {
+    spawn("rundll32.exe", ["url.dll,FileProtocolHandler", url], { detached: true, stdio: "ignore" }).unref();
+    return;
+  }
+  if (process.platform === "darwin") {
+    spawn("open", [url], { detached: true, stdio: "ignore" }).unref();
+    return;
+  }
+  spawn("xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
 }

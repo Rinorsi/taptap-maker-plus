@@ -84,6 +84,7 @@ function syncTauriConfig() {
   data.version = version.packageVersion;
   if (data.app?.windows?.[0]) {
     data.app.windows[0].title = version.windowTitle;
+    data.app.windows[0].create = false;
   }
   data.bundle = {
     ...data.bundle,
@@ -95,6 +96,7 @@ function syncTauriConfig() {
         installerIcon: "icons/icon.ico",
         uninstallerIcon: "icons/icon.ico",
         installMode: "currentUser",
+        installerHooks: "nsis/installer-hooks.nsh",
         languages: ["SimpChinese"],
         displayLanguageSelector: false,
         startMenuFolder: "TapTap Maker Plus"

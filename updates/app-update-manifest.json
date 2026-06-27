@@ -28,9 +28,9 @@
       "changelogPath": "release-notes/v0.13.3-alpha.md"
     },
     {
-      "version": "v0.13.2-alpha",
-      "title": "v0.13.2-ALPHA 测试包",
-      "changelogPath": "release-notes/v0.13.2-alpha.md"
+      "version": "v0.13.1-alpha",
+      "title": "v0.13.1-ALPHA 覆盖更新测试包",
+      "changelogPath": "release-notes/v0.13.1-alpha.md"
     }
   ]
 }

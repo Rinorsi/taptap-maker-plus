@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "TapTap Maker Plus 桌面端",
+  "productName": "TapTap Maker Plus",
   "version": "0.13.3-alpha",
   "identifier": "com.taptap.makerplus",
   "build": {
@@ -14,6 +14,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "TapTap Maker Plus",
         "url": "desktop-loading.html",
         "width": 1600,
@@ -54,6 +55,7 @@
         "installerIcon": "icons/icon.ico",
         "uninstallerIcon": "icons/icon.ico",
         "installMode": "currentUser",
+        "installerHooks": "nsis/installer-hooks.nsh",
         "languages": [
           "SimpChinese"
         ],

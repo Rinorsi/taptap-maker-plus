@@ -712,12 +712,12 @@ function sendAssetFile(reply: FastifyReply, filePath: string, range?: string) {
 export async function registerApiRoutes(app: FastifyInstance) {
   app.get("/api/health", async () => ({ ok: true, name: appVersion.appId, version: appVersion.displayVersion, packageVersion: appVersion.packageVersion }));
 
-  app.get("/api/app/releases", async () => {
-    return { releases: await listAppReleases() };
+  app.get<{ Querystring: { force?: string } }>("/api/app/releases", async (request) => {
+    return { releases: await listAppReleases({ forceRefresh: request.query.force === "1" }) };
   });
 
-  app.get("/api/app/update", async () => {
-    return { status: await checkAppUpdate() };
+  app.get<{ Querystring: { force?: string } }>("/api/app/update", async (request) => {
+    return { status: await checkAppUpdate({ forceRefresh: request.query.force === "1" }) };
   });
 
   app.post<{ Body: unknown }>("/api/app/update/download", async (request, reply) => {

@@ -147,10 +147,10 @@ type StaticManifestAnnouncement = {
   markdownPath?: unknown;
 };
 
-export async function checkAppUpdate(): Promise<AppUpdateStatus> {
+export async function checkAppUpdate(options: { forceRefresh?: boolean } = {}): Promise<AppUpdateStatus> {
   const checkedAt = new Date().toISOString();
   try {
-    const manifest = await readAppUpdateManifest();
+    const manifest = await readAppUpdateManifest(options);
     const releases = manifest.releases;
     const latestRelease = manifest.latestVersion
       ? releases.find((release) => release.tagName === manifest.latestVersion)
@@ -198,18 +198,18 @@ export async function checkAppUpdate(): Promise<AppUpdateStatus> {
   }
 }
 
-export async function listAppReleases(): Promise<AppReleaseSummary[]> {
-  return (await readAppUpdateManifest()).releases;
+export async function listAppReleases(options: { forceRefresh?: boolean } = {}): Promise<AppReleaseSummary[]> {
+  return (await readAppUpdateManifest(options)).releases;
 }
 
-async function readAppUpdateManifest(): Promise<{
+async function readAppUpdateManifest(options: { forceRefresh?: boolean } = {}): Promise<{
   latestVersion?: string;
   releases: AppReleaseSummary[];
   announcement?: AppAnnouncementSummary;
   announcements: AppAnnouncementSummary[];
   announcementError?: string;
 }> {
-  if (releasesCache && releasesCache.expiresAt > Date.now()) {
+  if (!options.forceRefresh && releasesCache && releasesCache.expiresAt > Date.now()) {
     return {
       latestVersion: releasesCache.latestVersion,
       releases: releasesCache.releases,

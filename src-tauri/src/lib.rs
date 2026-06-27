@@ -464,7 +464,7 @@ Content-Type: application/json
 
 #[tauri::command]
 fn open_devtools(app: tauri::AppHandle) -> Result<(), String> {
-  let Some(_window) = app.get_webview_window("main") else {
+  let Some(window) = app.get_webview_window("main") else {
     return Err("Unable to find main window".to_string());
   };
 

@@ -43,7 +43,7 @@ export function useAppUpdateUi(forceDeveloperTest = false): AppUpdateUiState {
     setLoading(true);
     setNotice("正在检查远端更新清单...");
     try {
-      const statusResponse = await checkAppUpdate();
+      const statusResponse = await checkAppUpdate(true);
       const nextStatus = forceDeveloperTest
         ? createDeveloperTestUpdateStatus(statusResponse.status)
         : statusResponse.status;
@@ -174,84 +174,98 @@ export function AppUpdatePanel({
   const downloadProgress = state.downloadStatus ? formatDownloadProgress(state.downloadStatus) : "";
 
   return (
-    <div className="flex min-w-0 flex-col gap-4">
-      <div className="flex flex-col overflow-hidden rounded-xl border border-border-soft bg-surface-panel shadow-sm">
+    <div className="flex min-w-0 flex-col gap-6">
+      <div className="flex flex-col overflow-hidden rounded-panel bg-surface-panel shadow-sm ring-1 ring-border-soft">
+        
         {/* Top Header Row */}
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border-soft bg-surface-app/40 px-4 py-3">
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-2">
-              <span className="text-[13px] font-bold text-text">当前版本 {appVersion.displayVersion}</span>
-              {state.status?.updateAvailable ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 border border-brand/30 px-2 py-0.5 text-[10px] font-bold text-brand shadow-[0_0_10px_rgba(0,217,197,0.1)]">
-                  <Sparkles className="w-3 h-3" />
-                  新版本 {state.status.latestVersion}
-                </span>
-              ) : state.status?.error ? (
-                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-500">
-                  检查受限
-                </span>
-              ) : (
-                <span className="rounded-full border border-border-soft bg-surface-muted px-2 py-0.5 text-[10px] font-medium text-text-subtle">
-                  已是最新
-                </span>
-              )}
+        <div className="flex flex-wrap items-center justify-between gap-4 p-5 md:p-6 border-b border-border-soft">
+          <div className="flex items-start gap-4">
+            <div className="flex items-center justify-center h-12 w-12 rounded-xl bg-surface-app ring-1 ring-border-soft shadow-sm shrink-0">
+              <Download className="h-6 w-6 text-brand" />
             </div>
-            <p className="m-0 text-[11px] text-text-muted">
-              {state.notice || appVersion.announcementBody}
-            </p>
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[15px] font-bold text-text">当前版本 {appVersion.displayVersion}</span>
+                {state.status?.updateAvailable ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 border border-brand/20 px-2 py-0.5 text-[10px] font-bold text-brand">
+                    <Sparkles className="w-3 h-3" />
+                    可更新
+                  </span>
+                ) : state.status?.error ? (
+                  <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-500">
+                    检查受限
+                  </span>
+                ) : (
+                  <span className="rounded-full border border-border-soft bg-surface-muted px-2 py-0.5 text-[10px] font-medium text-text-subtle">
+                    已是最新
+                  </span>
+                )}
+              </div>
+              <p className="m-0 text-[12px] text-text-muted">
+                {state.notice || appVersion.announcementBody}
+              </p>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             {releaseOptions.length ? (
               <SelectField
                 id="app-update-release"
                 value={state.selectedReleaseId ?? releaseOptions[0].value}
                 options={releaseOptions}
                 onChange={state.setSelectedReleaseId}
-                className="w-[140px] h-8 text-xs"
+                className="w-[150px] text-xs"
                 ariaLabel="选择软件版本"
               />
             ) : null}
-            <Button variant="outline" size="sm" onClick={() => void state.refresh()} disabled={state.loading} className="h-8 px-3">
-              <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", state.loading ? "animate-spin" : "")} />
+            <Button variant="outline" onClick={() => void state.refresh()} disabled={state.loading}>
+              <RefreshCw className={cn("mr-1.5 h-4 w-4", state.loading ? "animate-spin" : "")} />
               检查更新
             </Button>
             <Button
-              size="sm"
               onClick={() => void state.downloadSelected()}
               disabled={!selectedRelease || !installerAsset || state.downloading}
-              className={cn("h-8 px-4", state.status?.updateAvailable ? "shadow-[0_0_15px_rgba(0,217,197,0.2)]" : "")}
+              className={cn("px-5", state.status?.updateAvailable ? "shadow-[0_0_15px_rgba(0,217,197,0.2)]" : "")}
             >
-              <Download className="mr-1.5 h-3.5 w-3.5" />
-              {state.downloading ? (downloadProgress || "正在下载") : selectedIsCurrent ? "覆盖安装" : "安装更新"}
+              <Download className="mr-1.5 h-4 w-4" />
+              {state.downloading ? (downloadProgress || "正在下载") : selectedIsCurrent ? "覆盖安装" : "下载更新"}
             </Button>
           </div>
         </div>
 
         {/* Content Details */}
-        <div className="flex flex-col gap-3 p-4">
+        <div className="flex flex-col p-6 bg-surface-app/20">
           {selectedRelease ? (
-            <div className="max-h-48 overflow-auto rounded-lg border border-border-soft/50 bg-surface-app/40 p-3">
-              <ReleaseMarkdown content={selectedRelease.body || "暂无更新日志"} compact />
-            </div>
-          ) : null}
-          {installerAsset ? (
-            <div className="flex flex-col gap-1.5 text-[11px] text-text-subtle">
-              <div className="flex items-center gap-2">
-                <span className="flex h-5 items-center rounded bg-surface-muted px-1.5 text-[10px] font-bold uppercase tracking-wider text-text-muted">
-                  安装器
-                </span>
-                <span className="truncate" title={installerAsset.name}>
-                  {installerAsset.name}
-                </span>
+            <div className="flex flex-col gap-4">
+              <div>
+                <h4 className="text-[13px] font-bold text-text mb-2 flex items-center gap-2">
+                  <span className="w-1 h-3 rounded-full bg-brand"></span>
+                  {selectedRelease.name || selectedRelease.tagName}
+                </h4>
+                <div className="rounded-xl bg-surface-panel p-4 ring-1 ring-border-soft/50 shadow-sm max-h-64 overflow-y-auto scrollbar-thin">
+                  <ReleaseMarkdown content={selectedRelease.body || "暂无更新日志"} skipFirstHeading={selectedRelease.name || selectedRelease.tagName} compact />
+                </div>
               </div>
-              {state.downloadStatus ? (
-                <div className="truncate" title={state.downloadStatus.installerPath}>
-                  保存位置：{state.downloadStatus.installerPath}
+              
+              {installerAsset ? (
+                <div className="flex items-center gap-2 text-[12px] text-text-subtle bg-surface-muted/50 rounded-lg p-2.5 px-4 ring-1 ring-border-soft/30">
+                  <span className="font-bold uppercase tracking-wider text-text-muted">
+                    安装包
+                  </span>
+                  <span className="truncate flex-1" title={installerAsset.name}>
+                    {installerAsset.name}
+                  </span>
+                  {state.downloadStatus && (
+                    <span className="truncate text-text-muted shrink-0 max-w-[200px]" title={state.downloadStatus.installerPath}>
+                      保存位置：{state.downloadStatus.installerPath}
+                    </span>
+                  )}
                 </div>
               ) : null}
             </div>
-          ) : null}
+          ) : (
+             <div className="text-center text-[12px] text-text-muted py-4">请选择一个版本查看详情</div>
+          )}
         </div>
       </div>
 
@@ -269,41 +283,45 @@ export function ReleaseHistory({
 }) {
   if (!releases.length) {
     return (
-      <div className="rounded-xl border border-border-soft bg-surface-app/50 p-4 text-xs text-text-muted text-center">
+      <div className="rounded-panel border border-border-soft bg-surface-app/50 p-6 text-[13px] text-text-muted text-center">
         暂无历史版本。发布 GitHub Release 后这里会自动显示版本记录。
       </div>
     );
   }
   return (
-    <div className="rounded-xl border border-border-soft bg-surface-panel overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-border-soft bg-surface-app/40 px-4 py-2.5 text-[12px] font-semibold text-text">
+    <div className="rounded-panel border border-border-soft bg-surface-panel overflow-hidden shadow-sm">
+      <div className="flex items-center gap-2 border-b border-border-soft bg-surface-app/40 px-6 py-4 text-[14px] font-bold text-text">
         <History className="h-4 w-4 text-text-muted" />
         历史版本
       </div>
-      <div className="max-h-64 overflow-auto">
+      <div className="max-h-80 overflow-y-auto scrollbar-thin p-2">
         {releases.map((release) => (
-          <article key={`${release.id}-${release.tagName}`} className="border-b border-border-soft/50 px-4 py-3.5 last:border-b-0 hover:bg-surface-app/20 transition-colors">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="truncate text-[13px] font-bold text-text">{release.name || release.tagName}</span>
+          <article key={`${release.id}-${release.tagName}`} className="relative pl-6 pr-4 py-4 before:absolute before:left-[11px] before:top-6 before:bottom-[-16px] before:w-[2px] before:bg-border-soft last:before:hidden hover:bg-surface-app/30 rounded-lg transition-colors group">
+            <div className="absolute left-[7px] top-[22px] w-[10px] h-[10px] rounded-full border-[2px] border-surface-panel bg-brand ring-1 ring-border-soft group-hover:scale-110 transition-transform"></div>
+            
+            <div className="flex items-start justify-between gap-4 ml-4">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-3">
+                  <span className="truncate text-[14px] font-bold text-text">{release.name || release.tagName}</span>
+                  <span className="text-[12px] font-mono text-text-subtle bg-surface-muted px-2 py-0.5 rounded-md border border-border-soft">
+                    {release.tagName}
+                  </span>
                 </div>
-                <div className="mt-1 text-[11px] text-text-subtle">
-                  {release.tagName}
-                  {release.publishedAt && ` · ${formatDateTime(release.publishedAt)}`}
+                <div className="mt-1 text-[12px] text-text-muted">
+                  {release.publishedAt ? formatDateTime(release.publishedAt) : "未知时间"}
+                </div>
+                <div className="mt-3 bg-surface-app/50 rounded-xl p-4 ring-1 ring-border-soft/50">
+                  <ReleaseMarkdown content={release.body || "暂无更新日志"} skipFirstHeading={release.name || release.tagName} compact />
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => void onOpenRelease?.(release)}
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-text-muted hover:bg-surface-muted hover:text-text transition-colors"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-text-muted hover:bg-surface-muted hover:text-text transition-colors ring-1 ring-border-soft bg-surface-panel shadow-sm"
                 title="用系统浏览器打开版本页面"
               >
                 <ExternalLink className="h-4 w-4" />
               </button>
-            </div>
-            <div className="mt-2.5 line-clamp-4">
-              <ReleaseMarkdown content={release.body || "暂无更新日志"} compact />
             </div>
           </article>
         ))}
@@ -390,11 +408,19 @@ function formatBytes(bytes: number) {
   return `${bytes} B`;
 }
 
-function ReleaseMarkdown({ content, compact = false }: { content: string; compact?: boolean }) {
+function ReleaseMarkdown({ content, compact = false, skipFirstHeading }: { content: string; compact?: boolean; skipFirstHeading?: string }) {
   const lines = content.split("\n");
+  let skippedHeading = false;
+
   return (
-    <div className={cn("flex flex-col text-text-muted", compact ? "gap-2 text-[11.5px] leading-relaxed" : "gap-3 text-[13px] leading-relaxed")}>
-      {lines.map((line, index) => renderMarkdownLine(line, index, compact))}
+    <div className={cn("flex flex-col text-text-muted", compact ? "gap-2 text-[12px] leading-relaxed" : "gap-3 text-[13px] leading-relaxed")}>
+      {lines.map((line, index) => {
+        if (skipFirstHeading && !skippedHeading && line.trim().startsWith("## ") && line.includes(skipFirstHeading)) {
+          skippedHeading = true;
+          return null;
+        }
+        return renderMarkdownLine(line, index, compact);
+      })}
     </div>
   );
 }

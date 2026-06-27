@@ -118,7 +118,7 @@ import { useAppUpdateUi } from "../features/updates/appUpdateUi";
 import { appVersion } from "../generated/appVersion";
 
 const DEFAULT_PROJECT_MODULE: WorkbenchModule = defaultWorkspaceToModule("assets");
-const DEFAULT_SETTINGS_TAB: SettingsTab = "workspaces";
+const DEFAULT_SETTINGS_TAB: SettingsTab = "general";
 const NODE_PRESET_DRAG_MIME = "application/reactflow";
 const NODE_PRESET_TEXT_PREFIX = "taptap-node-preset:";
 const BOOTSTRAP_RETRY_DELAYS_MS = [800, 1200, 1800, 2600, 3600];

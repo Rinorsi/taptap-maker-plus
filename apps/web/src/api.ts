@@ -1370,12 +1370,12 @@ export async function resetDesktopInitialState(confirmText: "重置软件"): Pro
   );
 }
 
-export async function checkAppUpdate(): Promise<{ status: AppUpdateStatus }> {
-  return json<{ status: AppUpdateStatus }>(await apiFetch("/api/app/update"));
+export async function checkAppUpdate(forceRefresh = false): Promise<{ status: AppUpdateStatus }> {
+  return json<{ status: AppUpdateStatus }>(await apiFetch(`/api/app/update${forceRefresh ? "?force=1" : ""}`));
 }
 
-export async function listAppReleases(): Promise<{ releases: AppReleaseSummary[] }> {
-  return json<{ releases: AppReleaseSummary[] }>(await apiFetch("/api/app/releases"));
+export async function listAppReleases(forceRefresh = false): Promise<{ releases: AppReleaseSummary[] }> {
+  return json<{ releases: AppReleaseSummary[] }>(await apiFetch(`/api/app/releases${forceRefresh ? "?force=1" : ""}`));
 }
 
 export async function downloadAppUpdate(releaseId: number, assetId?: number, release?: AppReleaseSummary): Promise<AppUpdateDownloadStatus> {

@@ -47,7 +47,7 @@ function parseCliJson(stdout: string): unknown | undefined {
 
 async function runMakerCli(args: string[], options: { cwd?: string; timeout?: number; input?: string } = {}): Promise<MakerCliResult> {
   await fs.mkdir(config.makerNpmCacheDir, { recursive: true });
-  const result = await execa("npm.cmd", ["exec", "--yes", "--package", config.makerPackage, "--", "taptap-maker", ...args], {
+  const result = await execa(config.npmCommand, ["exec", "--yes", "--package", config.makerPackage, "--", "taptap-maker", ...args], {
     cwd: options.cwd ?? config.workspaceRoot,
     env: {
       ...process.env,

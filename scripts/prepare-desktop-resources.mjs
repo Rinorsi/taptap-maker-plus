@@ -11,6 +11,13 @@ const requiredRuntimePaths = [
   "apps/web/dist"
 ];
 
+const bundledNodeRuntimePaths = [
+  "node.exe",
+  "npm.cmd",
+  "npx.cmd",
+  "node_modules/npm"
+];
+
 const optionalBundledReadOnlyPaths = [
   "docs/help",
   "docs/templates",
@@ -52,11 +59,29 @@ function copyPackage(packagePath) {
   copyRelative(relativePath);
 }
 
+function copyBundledNodeRuntime() {
+  const nodeExecutable = process.execPath;
+  const nodeRoot = path.dirname(nodeExecutable);
+  const runtimeRoot = path.join(outputRoot, "node-runtime");
+  fs.mkdirSync(runtimeRoot, { recursive: true });
+
+  for (const relativePath of bundledNodeRuntimePaths) {
+    const source = path.join(nodeRoot, relativePath);
+    const target = path.join(runtimeRoot, relativePath);
+    if (!fs.existsSync(source)) {
+      throw new Error(`Missing bundled Node runtime source: ${source}`);
+    }
+    fs.cpSync(source, target, { recursive: true, dereference: true });
+  }
+}
+
 fs.rmSync(outputRoot, { recursive: true, force: true });
 
 for (const relativePath of requiredRuntimePaths) {
   copyRelative(relativePath);
 }
+
+copyBundledNodeRuntime();
 
 const bundledReadOnlyPaths = [];
 const skippedReadOnlyPaths = [];
@@ -81,6 +106,7 @@ for (const dependencyPath of dependencyPaths) {
 console.log(JSON.stringify({
   ok: true,
   outputRoot: path.relative(workspaceRoot, outputRoot).replaceAll(path.sep, "/"),
+  bundledNodeRuntime: path.relative(workspaceRoot, path.join(outputRoot, "node-runtime")).replaceAll(path.sep, "/"),
   dependencies: dependencyPaths.length,
   bundledReadOnlyPaths,
   skippedReadOnlyPaths

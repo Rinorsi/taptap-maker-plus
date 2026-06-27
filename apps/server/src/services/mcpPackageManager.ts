@@ -136,7 +136,7 @@ export async function installMcpPackage(packageSpec: string): Promise<McpPackage
   const packageName = extractPackageName(nextPackageSpec);
   const resolvedVersion = await readPackageVersion(nextPackageSpec);
   const installedAt = new Date().toISOString();
-  const result = await execa("npm.cmd", ["exec", "--yes", "--package", nextPackageSpec, "--", "taptap-maker", "--help"], {
+  const result = await execa(config.npmCommand, ["exec", "--yes", "--package", nextPackageSpec, "--", "taptap-maker", "--help"], {
     env: {
       ...process.env,
       npm_config_cache: config.makerNpmCacheDir,
@@ -292,7 +292,7 @@ async function readLatestVersion(packageName: string) {
 }
 
 async function readPackageVersions(packageName: string) {
-  const result = await execa("npm.cmd", ["view", packageName, "versions", "--json"], {
+  const result = await execa(config.npmCommand, ["view", packageName, "versions", "--json"], {
     env: process.env,
     timeout: 30_000
   });
@@ -313,7 +313,7 @@ function parseStoredVersions(value?: string) {
 }
 
 async function readPackageVersion(packageSpec: string) {
-  const result = await execa("npm.cmd", ["view", packageSpec, "version", "--json"], {
+  const result = await execa(config.npmCommand, ["view", packageSpec, "version", "--json"], {
     env: process.env,
     timeout: 30_000
   });

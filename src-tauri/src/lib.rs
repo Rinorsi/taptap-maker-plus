@@ -91,6 +91,7 @@ impl DesktopServer {
       .env("NODE_ENV", if cfg!(debug_assertions) { "development" } else { "production" })
       .env("TAPTAP_WORKSPACE_ROOT", &workspace_root)
       .env("TAPTAP_WEB_DIST_DIR", workspace_root.join("apps").join("web").join("dist"))
+      .env("TAPTAP_NODE_RUNTIME_DIR", workspace_root.join("node-runtime"))
       .env("TAPTAP_MAKER_PROJECTS_ROOT", maker_projects_root())
       .env("TAPTAP_DESKTOP_PARENT_PID", std::process::id().to_string())
       .env("TAPTAP_DATA_DIR", &app_data_dir)
@@ -181,7 +182,8 @@ fn server_command(workspace_root: &Path) -> Command {
     return command;
   }
 
-  let mut command = Command::new("node");
+  let node_exe = workspace_root.join("node-runtime").join(if cfg!(windows) { "node.exe" } else { "node" });
+  let mut command = Command::new(node_exe);
   command.arg(workspace_root.join("apps").join("server").join("dist").join("index.js"));
   hide_command_window(&mut command);
   command

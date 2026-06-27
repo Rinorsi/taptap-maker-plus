@@ -82,7 +82,7 @@ class SdkMcpClient {
     const client = new Client({ name: appVersion.appId, version: appVersion.packageVersion }, { capabilities: {} });
     const transport = new StdioClientTransport({
       command: "cmd.exe",
-      args: ["/d", "/s", "/c", "npx.cmd", "-y", "-p", config.makerPackage, "taptap-maker"],
+      args: ["/d", "/s", "/c", config.npxCommand, "-y", "-p", config.makerPackage, "taptap-maker"],
       cwd: this.project.rootPath,
       env: buildMcpEnv(),
       stderr: "pipe"

@@ -277,6 +277,11 @@ function requireTauriConfig(rootPackage: JsonObject, tauriCliPackage: JsonObject
   requireFile(path.join(desktopDistDir, "apps", "server", "dist", "index.js"));
   requireFile(path.join(desktopDistDir, "apps", "server", "package.json"));
   requireFile(path.join(desktopDistDir, "apps", "web", "dist", "index.html"));
+  requireFile(path.join(desktopDistDir, "node-runtime", "node.exe"));
+  requireFile(path.join(desktopDistDir, "node-runtime", "npm.cmd"));
+  requireFile(path.join(desktopDistDir, "node-runtime", "npx.cmd"));
+  requireFile(path.join(desktopDistDir, "node-runtime", "node_modules", "npm", "bin", "npm-cli.js"));
+  requireFile(path.join(desktopDistDir, "node-runtime", "node_modules", "npm", "bin", "npx-cli.js"));
   for (const relativePath of optionalBundledReadOnlyPaths) {
     const sourcePath = path.join(workspaceRoot, relativePath);
     const outputPath = path.join(desktopDistDir, relativePath);
@@ -301,7 +306,7 @@ function requireTauriConfig(rootPackage: JsonObject, tauriCliPackage: JsonObject
   const tauriLibPath = path.join(tauriSrcDir, "lib.rs");
   requireFile(tauriLibPath);
   const tauriLib = fs.readFileSync(tauriLibPath, "utf8");
-  for (const requiredText of ["DesktopServer", "resource_dir", "find_available_local_port", "make_desktop_instance_token", "wait_for_desktop_server_identity", "wait_for_dev_desktop_identity", "TAPTAP_WORKSPACE_ROOT", "TAPTAP_WEB_DIST_DIR", "TAPTAP_MAKER_PROJECTS_ROOT", "TAPTAP_DESKTOP_PARENT_PID", "TAPTAP_DATA_DIR", "TAPTAP_MAKER_NPM_CACHE_DIR", "TAPTAP_MCP_LOG_DIR", "TAPTAP_SERVER_PORT", "TAPTAP_DESKTOP_INSTANCE_TOKEN", "RunEvent::Exit", "RunEvent::ExitRequested"]) {
+  for (const requiredText of ["DesktopServer", "resource_dir", "find_available_local_port", "make_desktop_instance_token", "wait_for_desktop_server_identity", "wait_for_dev_desktop_identity", "TAPTAP_WORKSPACE_ROOT", "TAPTAP_WEB_DIST_DIR", "TAPTAP_NODE_RUNTIME_DIR", "TAPTAP_MAKER_PROJECTS_ROOT", "TAPTAP_DESKTOP_PARENT_PID", "TAPTAP_DATA_DIR", "TAPTAP_MAKER_NPM_CACHE_DIR", "TAPTAP_MCP_LOG_DIR", "TAPTAP_SERVER_PORT", "TAPTAP_DESKTOP_INSTANCE_TOKEN", "RunEvent::Exit", "RunEvent::ExitRequested"]) {
     if (!tauriLib.includes(requiredText)) {
       throw new Error(`${relative(tauriLibPath)} does not reference ${requiredText}`);
     }
@@ -381,6 +386,7 @@ console.log(JSON.stringify({
     webDist: relative(webDistIndex),
     desktopLoading: relative(webDistDesktopLoading),
     desktopDist: relative(desktopDistDir),
+    nodeRuntime: relative(path.join(desktopDistDir, "node-runtime", "node.exe")),
     webAssets
   },
   maker: {

@@ -31,11 +31,6 @@
       "version": "v0.13.2-alpha",
       "title": "v0.13.2-ALPHA 测试包",
       "changelogPath": "release-notes/v0.13.2-alpha.md"
-    },
-    {
-      "version": "v99.99",
-      "title": "v99.99 更新检测测试包",
-      "changelogPath": "release-notes/v99.99.md"
     }
   ]
 }

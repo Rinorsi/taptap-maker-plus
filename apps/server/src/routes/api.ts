@@ -387,6 +387,14 @@ function withRuntime(project: ProjectSummary) {
   };
 }
 
+async function indexProjectAssets(project: ProjectSummary) {
+  const assets = await scanProjectAssets(project);
+  return {
+    assetsIndexed: assets.length,
+    assets: listAssets(project.id)
+  };
+}
+
 function getMakerProjectsRootSettings() {
   const storedRoot = getAppSetting("maker_projects_root");
   const rootPath = config.makerProjectsRoot;
@@ -870,10 +878,13 @@ export async function registerApiRoutes(app: FastifyInstance) {
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
     try {
       const result = await initMakerCloudProject(parsed.data.appId, parsed.data.targetDir);
+      const indexed = await indexProjectAssets(result.project);
       return {
         cli: result.cli,
         project: withRuntime(result.project),
         targetDir: result.targetDir,
+        assetsIndexed: indexed.assetsIndexed,
+        assets: indexed.assets,
         projects: listProjects().map((project) => withRuntime(project)),
         selectedProjectId: getSelectedProjectId()
       };
@@ -887,12 +898,15 @@ export async function registerApiRoutes(app: FastifyInstance) {
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
     try {
       const result = await bindExistingMakerProject(parsed.data.targetDir);
+      const indexed = await indexProjectAssets(result.project);
       return {
         cli: result.cli,
         project: withRuntime(result.project),
         targetDir: result.targetDir,
         doctorPassed: result.doctorPassed,
         warning: result.warning,
+        assetsIndexed: indexed.assetsIndexed,
+        assets: indexed.assets,
         projects: listProjects().map((project) => withRuntime(project)),
         selectedProjectId: getSelectedProjectId()
       };
@@ -929,7 +943,8 @@ export async function registerApiRoutes(app: FastifyInstance) {
   app.post<{ Params: { projectId: string } }>("/api/projects/:projectId/select", async (request) => {
     const project = requireProject(request.params.projectId);
     setSelectedProject(project.id);
-    return { selectedProjectId: project.id, project: withRuntime(project) };
+    const indexed = await indexProjectAssets(project);
+    return { selectedProjectId: project.id, project: withRuntime(project), assetsIndexed: indexed.assetsIndexed, assets: indexed.assets };
   });
 
   app.delete<{ Params: { projectId: string } }>("/api/projects/:projectId/record", async (request) => {
@@ -1044,9 +1059,9 @@ export async function registerApiRoutes(app: FastifyInstance) {
 
   app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/assets/scan", async (request) => {
     const project = requireProject(request.params.projectId);
-    const assets = await scanProjectAssets(project);
+    const indexed = await indexProjectAssets(project);
     const provenance = rebuildAssetProvenance(project);
-    return { assets: listAssets(project.id), count: assets.length, provenanceCount: provenance.length };
+    return { assets: indexed.assets, count: indexed.assetsIndexed, provenanceCount: provenance.length };
   });
 
   app.post<{ Params: { projectId: string }; Body: unknown }>("/api/projects/:projectId/assets/references/scan", async (request, reply) => {

@@ -492,6 +492,8 @@ export type OnboardingProjectResult = {
   targetDir?: string;
   doctorPassed?: boolean;
   warning?: string;
+  assetsIndexed?: number;
+  assets?: AssetSummary[];
   projects: ProjectSummary[];
   selectedProjectId?: string;
 };

@@ -573,6 +573,45 @@ export type ResetInitialStateResponse = {
   };
 };
 
+export type AppReleaseAssetSummary = {
+  id: number;
+  name: string;
+  size: number;
+  browserDownloadUrl: string;
+  contentType?: string;
+};
+
+export type AppReleaseSummary = {
+  id: number;
+  tagName: string;
+  name: string;
+  body: string;
+  htmlUrl: string;
+  publishedAt?: string;
+  prerelease: boolean;
+  draft: boolean;
+  assets: AppReleaseAssetSummary[];
+};
+
+export type AppUpdateStatus = {
+  currentVersion: string;
+  currentDisplayVersion: string;
+  latestVersion?: string;
+  latestRelease?: AppReleaseSummary;
+  updateAvailable: boolean;
+  checkedAt: string;
+  repositoryUrl: string;
+  error?: string;
+};
+
+export type AppUpdateDownloadResult = {
+  ok: true;
+  release: AppReleaseSummary;
+  asset: AppReleaseAssetSummary;
+  installerPath: string;
+  downloadedAt: string;
+};
+
 function readDesktopApiBase() {
   if (typeof window === "undefined") return "";
   const queryValue = new URLSearchParams(window.location.search).get("apiBase");
@@ -1245,6 +1284,24 @@ export async function resetDesktopInitialState(confirmText: "重置软件"): Pro
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ confirmText }),
+    }),
+  );
+}
+
+export async function checkAppUpdate(): Promise<{ status: AppUpdateStatus }> {
+  return json<{ status: AppUpdateStatus }>(await apiFetch("/api/app/update"));
+}
+
+export async function listAppReleases(): Promise<{ releases: AppReleaseSummary[] }> {
+  return json<{ releases: AppReleaseSummary[] }>(await apiFetch("/api/app/releases"));
+}
+
+export async function downloadAppUpdate(releaseId: number, assetId?: number): Promise<AppUpdateDownloadResult> {
+  return json<AppUpdateDownloadResult>(
+    await apiFetch("/api/app/update/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ releaseId, assetId }),
     }),
   );
 }

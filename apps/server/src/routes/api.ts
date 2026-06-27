@@ -53,6 +53,7 @@ import { buildAssetDirectoryTree, listProjectAssetDirectories } from "../service
 import { rebuildAssetProvenance } from "../services/assetProvenance.js";
 import { runtimeManager } from "../services/mcpRuntime.js";
 import { getMcpPackageUpdateStatus, installMcpPackage, uninstallMcpPackage } from "../services/mcpPackageManager.js";
+import { checkAppUpdate, downloadAndOpenAppUpdate, listAppReleases } from "../services/appUpdateManager.js";
 import { executeToolCall, syncCreditRecordsFromTasks } from "../services/toolExecution.js";
 import { buildAgentContext } from "../agent/contextBuilder.js";
 import { appVersion } from "../generated/appVersion.js";
@@ -80,6 +81,11 @@ const makerProjectsRootSchema = z.object({
 
 const mcpPackageInstallSchema = z.object({
   packageSpec: z.string().min(1)
+});
+
+const appUpdateDownloadSchema = z.object({
+  releaseId: z.number().int(),
+  assetId: z.number().int().optional()
 });
 
 const onboardingTargetDirSchema = z.object({
@@ -675,6 +681,24 @@ function sendAssetFile(reply: FastifyReply, filePath: string, range?: string) {
 
 export async function registerApiRoutes(app: FastifyInstance) {
   app.get("/api/health", async () => ({ ok: true, name: appVersion.appId, version: appVersion.displayVersion, packageVersion: appVersion.packageVersion }));
+
+  app.get("/api/app/releases", async () => {
+    return { releases: await listAppReleases() };
+  });
+
+  app.get("/api/app/update", async () => {
+    return { status: await checkAppUpdate() };
+  });
+
+  app.post<{ Body: unknown }>("/api/app/update/download", async (request, reply) => {
+    const parsed = appUpdateDownloadSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
+      return await downloadAndOpenAppUpdate(parsed.data.releaseId, parsed.data.assetId);
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
 
   app.get("/api/settings/preferences", async (): Promise<AppSettingsPreferencesResponse> => {
     return getAppSettingsPreferences();

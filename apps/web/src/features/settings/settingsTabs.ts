@@ -6,6 +6,7 @@ import {
   Cpu,
   FolderCog,
   Grid3X3,
+  Info,
   Images,
   Keyboard,
   MonitorCog,
@@ -30,6 +31,7 @@ export type SettingsTab =
   | "tasks"
   | "runtime"
   | "logs"
+  | "about"
   | "developer";
 
 export const settingsTabs: Array<{ id: SettingsTab; label: string; icon: LucideIcon; keywords: string[] }> = [
@@ -46,5 +48,6 @@ export const settingsTabs: Array<{ id: SettingsTab; label: string; icon: LucideI
   { id: "browser", label: "浏览器", icon: MonitorCog, keywords: ["Chromium", "DevTools", "浏览器", "同源策略", "CORS", "缓存", "硬性重新加载", "右键菜单", "原生菜单"] },
   { id: "permissions", label: "权限", icon: Shield, keywords: ["权限", "工作区访问", "工作区访问策略", "自动执行", "确认机制", "工具权限", "执行终端命令", "终端命令", "总是询问", "管理策略"] },
   { id: "logs", label: "日志与通知", icon: Bell, keywords: ["日志", "通知", "诊断", "高级诊断报告", "诊断报告", "诊断包", "导出诊断包", "本地运行日志", "日志缓存", "清空日志", "保留策略", "14 天", "运行记录"] },
+  { id: "about", label: "关于", icon: Info, keywords: ["关于", "软件版本", "版本历史", "更新", "检查版本", "更新日志", "公告", "免责声明", "许可证", "MIT", "开发组", "云诺羲Rinorsi", "邮箱", "Rinorsi@163.com"] },
   { id: "developer", label: "开发者", icon: Bug, keywords: ["开发者模式", "调试日志", "系统级调试日志", "Chromium DevTools", "Open Devtools", "检查器", "重置软件", "恢复初始", "初始状态", "未绑定", "清空项目列表", "项目列表", "任务资产索引", "设置偏好", "停止 MCP runtime", "确认重置", "输入重置软件"] },
 ];

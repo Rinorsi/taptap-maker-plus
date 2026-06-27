@@ -21,7 +21,8 @@
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build",
     "verify:desktop": "tsx scripts/verify-desktop-readiness.ts",
-    "publish:update-release": "node scripts/publish-update-release.mjs"
+    "publish:update-release": "node scripts/publish-update-release.mjs",
+    "set:version-from-manifest": "node scripts/set-app-version-from-manifest.mjs"
   },
   "devDependencies": {
     "@mastra/core": "^1.45.0",

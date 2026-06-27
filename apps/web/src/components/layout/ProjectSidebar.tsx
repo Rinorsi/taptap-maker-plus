@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { useMemo, useState } from "react";
-import { ArrowLeft, Menu, FolderSync, LayoutDashboard, Home, Image as ImageIcon, Video, Music, Box, Hammer, Settings2, GitBranch, Activity, Bot, Search, ChevronDown } from "lucide-react";
+import { ArrowLeft, Menu, FolderSync, LayoutDashboard, Home, Image as ImageIcon, Video, Music, Box, Hammer, Settings2, GitBranch, Activity, Bot, Search, ChevronDown, Info, Megaphone } from "lucide-react";
 import type { ProjectSummary, TaskRecord } from "../../api";
 import { workbenchRoutes, type WorkbenchModule } from "../../app/routes";
 import { AppContextMenu } from "../../commands";
@@ -22,6 +22,7 @@ type Props = {
   onSelectSettingsTab: (tab: SettingsTab) => void;
   onExitSettings: () => void;
   onScanProjects: () => void;
+  onOpenAnnouncement: () => void;
 };
 
 const moduleIcons: Record<string, React.ElementType> = {
@@ -33,6 +34,7 @@ const moduleIcons: Record<string, React.ElementType> = {
   "studio-video": Video,
   "studio-music": Music,
   "studio-3d": Box,
+  "about": Info,
   "workflow": GitBranch,
   "build": Hammer,
   "runs": Activity,
@@ -46,7 +48,7 @@ function normalizeSettingsSearchText(value: string) {
     .replace(/[\s_\-()[\]（）/\\:：,.，。"'“”]+/g, "");
 }
 
-export function ProjectSidebar({ projects, selectedProjectId, activeModule, activeSettingsTab, collapsed, width, developerMode, onToggleCollapsed, onClearProject, onSelectModule, onSelectSettingsTab, onExitSettings }: Props) {
+export function ProjectSidebar({ projects, selectedProjectId, activeModule, activeSettingsTab, collapsed, width, developerMode, onToggleCollapsed, onClearProject, onSelectModule, onSelectSettingsTab, onExitSettings, onOpenAnnouncement }: Props) {
   const [settingsSearch, setSettingsSearch] = useState("");
   const [disabledPagesOpen, setDisabledPagesOpen] = useState(false);
   
@@ -225,7 +227,7 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
               {workbenchRoutes.map((route) => {
                 if (route.id === "settings") return null;
                 if (route.developerOnly) return null;
-                const isHomeOrSettings = route.id === "home";
+                const isHomeOrSettings = route.id === "home" || route.id === "about";
                 
                 // 双状态逻辑核心：
                 // 如果未打开项目，则完全不渲染那些与项目相关的模块，保持界面纯净
@@ -341,18 +343,46 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
           </div>
         ) : null}
 
-        <button
-          type="button"
-          title="设置"
-          className={cn(
-            "flex w-full cursor-pointer select-none items-center rounded-lg text-text-muted outline-none transition-colors hover:bg-surface-muted hover:text-text",
-            collapsed ? "h-[44px] justify-center p-0" : "gap-3 px-3 py-[10px]",
-          )}
-          onClick={() => onSelectModule("settings")}
-        >
-          <Settings2 className="h-[20px] w-[20px] shrink-0" />
-          {!collapsed ? <span className="truncate text-[14px]">设置</span> : null}
-        </button>
+        {collapsed ? (
+          <div className="flex flex-col gap-1">
+            <button
+              type="button"
+              title="公告"
+              className="flex h-[44px] w-full cursor-pointer select-none items-center justify-center rounded-lg text-text-muted outline-none transition-colors hover:bg-surface-muted hover:text-text"
+              onClick={onOpenAnnouncement}
+            >
+              <Megaphone className="h-[20px] w-[20px] shrink-0" />
+            </button>
+            <button
+              type="button"
+              title="设置"
+              className="flex h-[44px] w-full cursor-pointer select-none items-center justify-center rounded-lg text-text-muted outline-none transition-colors hover:bg-surface-muted hover:text-text"
+              onClick={() => onSelectModule("settings")}
+            >
+              <Settings2 className="h-[20px] w-[20px] shrink-0" />
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-[1fr_44px] gap-1">
+            <button
+              type="button"
+              title="设置"
+              className="flex w-full cursor-pointer select-none items-center rounded-lg px-3 py-[10px] text-text-muted outline-none transition-colors hover:bg-surface-muted hover:text-text"
+              onClick={() => onSelectModule("settings")}
+            >
+              <Settings2 className="h-[20px] w-[20px] shrink-0" />
+              <span className="ml-3 truncate text-[14px]">设置</span>
+            </button>
+            <button
+              type="button"
+              title="公告"
+              className="flex h-[44px] cursor-pointer select-none items-center justify-center rounded-lg text-text-muted outline-none transition-colors hover:bg-surface-muted hover:text-text"
+              onClick={onOpenAnnouncement}
+            >
+              <Megaphone className="h-[20px] w-[20px] shrink-0" />
+            </button>
+          </div>
+        )}
       </div>
     </motion.aside>
   );

@@ -39,6 +39,11 @@ const Model3DStudio = lazy(() =>
     default: module.Model3DStudio,
   })),
 );
+const AboutView = lazy(() =>
+  import("../../features/about/AboutView").then((module) => ({
+    default: module.AboutView,
+  })),
+);
 const BuildCenter = lazy(() =>
   import("../../features/build/BuildCenter").then((module) => ({
     default: module.BuildCenter,
@@ -280,6 +285,9 @@ export function WorkbenchViewport(props: Props) {
           onScanReferences={props.onScanAssetReferences}
           onImportAssets={props.onImportAssets}
         />
+      ) : null}
+      {props.activeModule === "about" ? (
+        <AboutView />
       ) : null}
       {props.activeModule === "build" ? (
         <BuildCenter

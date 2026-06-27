@@ -598,6 +598,7 @@ export type AppUpdateStatus = {
   currentDisplayVersion: string;
   latestVersion?: string;
   latestRelease?: AppReleaseSummary;
+  releases: AppReleaseSummary[];
   updateAvailable: boolean;
   checkedAt: string;
   repositoryUrl: string;
@@ -1296,12 +1297,12 @@ export async function listAppReleases(): Promise<{ releases: AppReleaseSummary[]
   return json<{ releases: AppReleaseSummary[] }>(await apiFetch("/api/app/releases"));
 }
 
-export async function downloadAppUpdate(releaseId: number, assetId?: number): Promise<AppUpdateDownloadResult> {
+export async function downloadAppUpdate(releaseId: number, assetId?: number, release?: AppReleaseSummary): Promise<AppUpdateDownloadResult> {
   return json<AppUpdateDownloadResult>(
     await apiFetch("/api/app/update/download", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ releaseId, assetId }),
+      body: JSON.stringify({ releaseId, assetId, release }),
     }),
   );
 }

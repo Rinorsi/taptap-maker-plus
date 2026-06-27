@@ -39,11 +39,20 @@ export type AppUpdateStatus = {
   currentDisplayVersion: string;
   latestVersion?: string;
   latestRelease?: AppReleaseSummary;
+  releases: AppReleaseSummary[];
   updateAvailable: boolean;
   checkedAt: string;
   repositoryUrl: string;
   error?: string;
 };
+
+const releasesCacheTtlMs = 10 * 60 * 1000;
+let releasesCache:
+  | {
+      expiresAt: number;
+      releases: AppReleaseSummary[];
+    }
+  | undefined;
 
 type GitHubReleaseAsset = {
   id?: unknown;
@@ -74,6 +83,7 @@ export async function checkAppUpdate(): Promise<AppUpdateStatus> {
       return {
         currentVersion: appVersion.packageVersion,
         currentDisplayVersion: appVersion.displayVersion,
+        releases,
         updateAvailable: false,
         checkedAt,
         repositoryUrl: githubRepositoryUrl,
@@ -85,6 +95,7 @@ export async function checkAppUpdate(): Promise<AppUpdateStatus> {
       currentDisplayVersion: appVersion.displayVersion,
       latestVersion: latestRelease.tagName,
       latestRelease,
+      releases,
       updateAvailable: compareVersions(latestRelease.tagName, appVersion.packageVersion) > 0,
       checkedAt,
       repositoryUrl: githubRepositoryUrl,
@@ -93,6 +104,7 @@ export async function checkAppUpdate(): Promise<AppUpdateStatus> {
     return {
       currentVersion: appVersion.packageVersion,
       currentDisplayVersion: appVersion.displayVersion,
+      releases: releasesCache?.releases ?? [],
       updateAvailable: false,
       checkedAt,
       repositoryUrl: githubRepositoryUrl,
@@ -102,20 +114,26 @@ export async function checkAppUpdate(): Promise<AppUpdateStatus> {
 }
 
 export async function listAppReleases(): Promise<AppReleaseSummary[]> {
+  if (releasesCache && releasesCache.expiresAt > Date.now()) return releasesCache.releases;
   const response = await fetch(`${githubApiBase}/releases?per_page=20`, {
     headers: releaseApiHeaders,
   });
   if (!response.ok) {
-    throw new Error(`无法获取 GitHub Releases：HTTP ${response.status} ${response.statusText}`);
+    throw new Error(formatReleaseFetchError(response.status, response.statusText));
   }
   const data = await response.json() as unknown;
   if (!Array.isArray(data)) throw new Error("GitHub Releases 返回结构不是数组。");
-  return data.map(normalizeRelease).filter((release) => !release.draft);
+  const releases = data.map(normalizeRelease).filter((release) => !release.draft);
+  releasesCache = {
+    expiresAt: Date.now() + releasesCacheTtlMs,
+    releases,
+  };
+  return releases;
 }
 
-export async function downloadAndOpenAppUpdate(releaseId: number, assetId?: number) {
-  const releases = await listAppReleases();
-  const release = releases.find((item) => item.id === releaseId);
+export async function downloadAndOpenAppUpdate(releaseId: number, assetId?: number, releaseFallback?: AppReleaseSummary) {
+  const releases = await listAppReleases().catch(() => releaseFallback ? [releaseFallback] : []);
+  const release = releases.find((item) => item.id === releaseId) ?? (releaseFallback?.id === releaseId ? releaseFallback : undefined);
   if (!release) throw new Error(`找不到 Release：${releaseId}`);
   const asset = assetId
     ? release.assets.find((item) => item.id === assetId)
@@ -188,6 +206,13 @@ function readNumber(value: unknown, key: string) {
     throw new Error(`GitHub Release 字段 ${key} 缺失或格式不正确。`);
   }
   return value;
+}
+
+function formatReleaseFetchError(status: number, statusText: string) {
+  if (status === 403) {
+    return "GitHub Releases 检查频率过高，暂时被 GitHub 限流。请稍后再试；如果已经打开过本页，会优先显示上次缓存的版本记录。";
+  }
+  return `无法获取 GitHub Releases：HTTP ${status} ${statusText}`;
 }
 
 function compareVersions(left: string, right: string) {

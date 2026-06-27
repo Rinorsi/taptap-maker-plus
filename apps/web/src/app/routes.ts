@@ -1,4 +1,4 @@
-export type WorkbenchModule = "home" | "assets" | "studio-canvas" | "studio-image" | "studio-video" | "studio-music" | "studio-3d" | "workflow" | "build" | "runs" | "agent" | "settings";
+export type WorkbenchModule = "home" | "assets" | "studio-canvas" | "studio-image" | "studio-video" | "studio-music" | "studio-3d" | "about" | "workflow" | "build" | "runs" | "agent" | "settings";
 
 export type WorkbenchRoute = {
   id: WorkbenchModule;
@@ -21,6 +21,7 @@ export const workbenchRoutes: WorkbenchRoute[] = [
   { id: "studio-video", label: "视频工作室", shortLabel: "视频" },
   { id: "studio-music", label: "音频工作室", shortLabel: "作曲" },
   { id: "studio-3d", label: "3D 工作室", shortLabel: "3D" },
+  { id: "about", label: "关于", shortLabel: "关于" },
   { id: "runs", label: "运行记录", shortLabel: "记录", developerOnly: true, hiddenPageNote: "未开发完的隐藏页面，禁止使用" },
   { id: "build", label: "构建中心", shortLabel: "构建", developerOnly: true, hiddenPageNote: "未开发完的隐藏页面，禁止使用" },
   { id: "agent", label: "助手上下文", shortLabel: "助手", developerOnly: true, hiddenPageNote: "未开发完的隐藏页面，禁止使用" },

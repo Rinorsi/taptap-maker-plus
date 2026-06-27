@@ -3,11 +3,11 @@ import { Download, ExternalLink, History, RefreshCw, Sparkles } from "lucide-rea
 import {
   checkAppUpdate,
   downloadAppUpdate,
-  listAppReleases,
   type AppReleaseSummary,
   type AppUpdateStatus,
 } from "../../api";
 import { Button } from "../../components/ui/Button";
+import { SelectField } from "../../components/ui/SelectField";
 import { appVersion } from "../../generated/appVersion";
 import { cn } from "../../lib/utils";
 
@@ -19,8 +19,10 @@ export type AppUpdateUiState = {
   loading: boolean;
   downloading: boolean;
   notice: string;
+  selectedReleaseId?: string;
+  setSelectedReleaseId: (releaseId: string) => void;
   refresh: () => Promise<void>;
-  downloadLatest: () => Promise<void>;
+  downloadSelected: () => Promise<void>;
 };
 
 export function useAppUpdateUi(forceDeveloperTest = false): AppUpdateUiState {
@@ -29,26 +31,35 @@ export function useAppUpdateUi(forceDeveloperTest = false): AppUpdateUiState {
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [notice, setNotice] = useState("");
+  const [selectedReleaseId, setSelectedReleaseId] = useState<string>();
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setNotice("正在检查 GitHub Releases...");
     try {
-      const [statusResponse, releasesResponse] = await Promise.all([
-        checkAppUpdate(),
-        listAppReleases().catch(() => ({ releases: [] as AppReleaseSummary[] })),
-      ]);
+      const statusResponse = await checkAppUpdate();
       const nextStatus = forceDeveloperTest
         ? createDeveloperTestUpdateStatus(statusResponse.status)
         : statusResponse.status;
       setStatus(nextStatus);
-      setReleases(forceDeveloperTest ? [nextStatus.latestRelease!, ...releasesResponse.releases] : releasesResponse.releases);
+      const nextReleases = forceDeveloperTest ? [nextStatus.latestRelease!, ...statusResponse.status.releases] : nextStatus.releases;
+      setReleases(nextReleases);
+      setSelectedReleaseId((current) =>
+        current && nextReleases.some((release) => String(release.id) === current)
+          ? current
+          : nextStatus.latestRelease
+            ? String(nextStatus.latestRelease.id)
+            : nextReleases[0]
+              ? String(nextReleases[0].id)
+              : undefined,
+      );
       setNotice(nextStatus.error ?? (nextStatus.updateAvailable ? `检测到新版本 ${nextStatus.latestVersion}` : "当前已是最新版本"));
     } catch (error) {
       if (forceDeveloperTest) {
         const nextStatus = createDeveloperTestUpdateStatus();
         setStatus(nextStatus);
         setReleases([nextStatus.latestRelease!]);
+        setSelectedReleaseId(String(nextStatus.latestRelease!.id));
         setNotice("开发者模式测试更新已启用；真实 GitHub Releases 暂时无法获取。");
       } else {
         setNotice(error instanceof Error ? error.message : String(error));
@@ -58,33 +69,34 @@ export function useAppUpdateUi(forceDeveloperTest = false): AppUpdateUiState {
     }
   }, [forceDeveloperTest]);
 
-  const downloadLatest = useCallback(async () => {
-    const latestRelease = status?.latestRelease;
-    if (!latestRelease) {
+  const downloadSelected = useCallback(async () => {
+    const selectedRelease = releases.find((release) => String(release.id) === selectedReleaseId) ?? status?.latestRelease;
+    if (!selectedRelease) {
       setNotice("没有可下载的版本。");
       return;
     }
-    if (latestRelease.id < 0) {
+    if (selectedRelease.id < 0) {
       setNotice("开发者模式测试版本只用于验证提示，不提供安装包下载。");
       return;
     }
     setDownloading(true);
     setNotice("正在下载安装器，完成后会打开安装程序...");
     try {
-      const result = await downloadAppUpdate(latestRelease.id);
+      const installerAsset = selectedRelease.assets.find((asset) => /\.exe$/i.test(asset.name));
+      const result = await downloadAppUpdate(selectedRelease.id, installerAsset?.id, selectedRelease);
       setNotice(`安装器已下载：${result.installerPath}`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
       setDownloading(false);
     }
-  }, [status?.latestRelease]);
+  }, [releases, selectedReleaseId, status?.latestRelease]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  return { status, releases, loading, downloading, notice, refresh, downloadLatest };
+  return { status, releases, loading, downloading, notice, selectedReleaseId, setSelectedReleaseId, refresh, downloadSelected };
 }
 
 export function VersionPill({
@@ -125,7 +137,16 @@ export function AppUpdatePanel({
   compact?: boolean;
 }) {
   const latestRelease = state.status?.latestRelease;
-  const installerAsset = useMemo(() => latestRelease?.assets.find((asset) => /\.exe$/i.test(asset.name)), [latestRelease]);
+  const selectedRelease = useMemo(
+    () => state.releases.find((release) => String(release.id) === state.selectedReleaseId) ?? latestRelease,
+    [latestRelease, state.releases, state.selectedReleaseId],
+  );
+  const installerAsset = useMemo(() => selectedRelease?.assets.find((asset) => /\.exe$/i.test(asset.name)), [selectedRelease]);
+  const releaseOptions = state.releases.map((release) => ({
+    value: String(release.id),
+    label: `${release.tagName}${release.id === latestRelease?.id ? " · 最新" : ""}`,
+  }));
+  const selectedIsCurrent = selectedRelease ? normalizeVersion(selectedRelease.tagName) === normalizeVersion(appVersion.packageVersion) : false;
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
@@ -137,6 +158,10 @@ export function AppUpdatePanel({
               <span className="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold text-white">
                 新版本 {state.status.latestVersion}
               </span>
+            ) : state.status?.error ? (
+              <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-500">
+                检查受限
+              </span>
             ) : (
               <span className="rounded-full border border-border-soft bg-surface-muted px-2 py-0.5 text-[10px] font-medium text-text-subtle">
                 已检查
@@ -146,9 +171,9 @@ export function AppUpdatePanel({
           <p className="m-0 mt-2 text-xs leading-relaxed text-text-muted">
             {state.notice || appVersion.announcementBody}
           </p>
-          {latestRelease ? (
+          {selectedRelease ? (
             <pre className="mt-3 max-h-36 overflow-auto whitespace-pre-wrap rounded-lg border border-border-soft bg-surface-panel p-3 text-xs leading-relaxed text-text">
-              {latestRelease.body || "暂无更新日志"}
+              {selectedRelease.body || "暂无更新日志"}
             </pre>
           ) : null}
           {installerAsset ? (
@@ -158,17 +183,27 @@ export function AppUpdatePanel({
           ) : null}
         </div>
         <div className="flex shrink-0 flex-wrap items-start gap-2 md:flex-col">
+          {releaseOptions.length ? (
+            <SelectField
+              id="app-update-release"
+              value={state.selectedReleaseId ?? releaseOptions[0].value}
+              options={releaseOptions}
+              onChange={state.setSelectedReleaseId}
+              className="w-[180px]"
+              ariaLabel="选择软件版本"
+            />
+          ) : null}
           <Button variant="outline" size="sm" onClick={() => void state.refresh()} disabled={state.loading}>
             <RefreshCw className={cn("mr-1 h-3.5 w-3.5", state.loading ? "animate-spin" : "")} />
             检查版本
           </Button>
           <Button
             size="sm"
-            onClick={() => void state.downloadLatest()}
-            disabled={!state.status?.updateAvailable || state.downloading}
+            onClick={() => void state.downloadSelected()}
+            disabled={!selectedRelease || !installerAsset || state.downloading}
           >
             <Download className="mr-1 h-3.5 w-3.5" />
-            {state.downloading ? "下载中" : "下载更新"}
+            {state.downloading ? "下载中" : selectedIsCurrent ? "覆盖安装" : "安装"}
           </Button>
         </div>
       </div>
@@ -237,6 +272,7 @@ export function createDeveloperTestUpdateStatus(base?: AppUpdateStatus): AppUpda
     currentDisplayVersion: appVersion.displayVersion,
     latestVersion: latestRelease.tagName,
     latestRelease,
+    releases: [latestRelease],
     updateAvailable: true,
     checkedAt: base?.checkedAt ?? new Date().toISOString(),
     repositoryUrl: base?.repositoryUrl ?? repositoryUrl,
@@ -247,4 +283,8 @@ function formatDateTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
+}
+
+function normalizeVersion(value: string) {
+  return value.replace(/^v/i, "").toLowerCase();
 }

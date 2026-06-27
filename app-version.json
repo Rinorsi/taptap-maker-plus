@@ -2,21 +2,25 @@
   "appId": "taptap-maker-plus",
   "productName": "TapTap Maker Plus 桌面端",
   "windowTitle": "TapTap Maker Plus",
-  "displayVersion": "v0.13.1-ALPHA",
-  "packageVersion": "0.13.1-alpha",
+  "displayVersion": "v0.13.2-ALPHA",
+  "packageVersion": "0.13.2-alpha",
   "channel": "ALPHA",
   "publisher": "TapTap Maker",
   "description": "TapTap Maker 本地桌面工作台",
-  "announcementTitle": "v0.13.1-ALPHA",
-  "announcementBody": "Alpha 测试版本。本版本接入 GitHub Releases 更新检测、版本历史、关于页和安装器下载入口。",
+  "announcementTitle": "v0.13.2-ALPHA 测试公告",
+  "announcementBody": "Alpha 测试版本。本版本用于验证公告入口、关于页、版本列表、指定版本下载安装和 GitHub Releases 更新检测链路。",
   "announcements": [
     {
-      "title": "更新检测",
-      "body": "首页版本号和设置关于页会从 GitHub Releases 检查新版本、展示更新日志和历史版本。"
+      "title": "公告与关于页",
+      "body": "主侧栏底部新增公告按钮，3D 工作室下方新增关于页；设置页不再承载项目介绍类内容。"
     },
     {
-      "title": "Alpha 测试",
-      "body": "当前仍处于 Alpha 测试阶段，请在重要项目上保留独立备份。"
+      "title": "版本更新测试",
+      "body": "设置页保留更新检测、版本列表、更新日志和选择版本下载安装能力，用于测试 0.13.1 获取 0.13.2 与 v99.99 测试包。"
+    },
+    {
+      "title": "已支持能力概览",
+      "body": "本地项目绑定、MCP 包管理、素材库扫描、图像/视频/音频/3D 工作室、视频多模态画布、任务记录和右侧 Inspector 已进入 Alpha 可测范围。"
     }
   ]
 }

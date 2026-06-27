@@ -69,8 +69,7 @@ import {
   type SettingsPreferences
 } from "./preferences";
 import { McpPackageManager } from "./McpPackageManager";
-import { appVersion } from "../../generated/appVersion";
-import { AppUpdatePanel, useAppUpdateUi, VersionPill } from "../updates/appUpdateUi";
+import { AppUpdatePanel, useAppUpdateUi } from "../updates/appUpdateUi";
 
 type Props = {
   project?: ProjectSummary;
@@ -880,6 +879,12 @@ export function SettingsView({
               <SettingsGroup>
                 <McpPackageManager busy={busy} />
               </SettingsGroup>
+              <SettingsGroup>
+                <div className="p-4">
+                  <SectionHeader title="软件更新" icon={<Download />} description="检查 GitHub Releases，选择版本并下载安装器覆盖安装。" />
+                  <AppUpdatePanel state={updateState} />
+                </div>
+              </SettingsGroup>
             </div>
 
             {/* Logs */}
@@ -905,39 +910,8 @@ export function SettingsView({
               </SettingsGroup>
             </div>
 
-            {/* About */}
-            <div id="settings-about" className="scroll-mt-12 flex flex-col gap-6 order-[14]">
-              <SectionHeader title="关于" icon={<Info />} description="软件版本、更新历史与项目信息。" />
-              <SettingsGroup>
-                <SettingContainer
-                  label="软件版本"
-                  description={`${appVersion.displayVersion} · ${appVersion.channel} · ${appVersion.announcementBody}`}
-                >
-                  <VersionPill status={updateState.status} onClick={() => void updateState.refresh()} />
-                </SettingContainer>
-                <SettingContainer
-                  label="项目介绍"
-                  description="TapTap Maker Plus 是面向 TapTap Maker 项目的本地桌面工作台，用于管理项目、素材、MCP Runtime、生成任务和多模态工作室。"
-                />
-                <SettingContainer
-                  label="免责声明"
-                  description="当前处于 Alpha 测试阶段，功能、数据结构和更新流程仍会调整。请在重要项目上保留独立备份。"
-                />
-                <SettingContainer label="许可证" description="MIT License" />
-                <SettingContainer
-                  label="开发组成员"
-                  description="云诺羲Rinorsi · Rinorsi@163.com"
-                />
-              </SettingsGroup>
-              <SettingsGroup>
-                <div className="p-4">
-                  <AppUpdatePanel state={updateState} />
-                </div>
-              </SettingsGroup>
-            </div>
-
             {/* Developer */}
-            <div id="settings-developer" className="scroll-mt-12 flex flex-col gap-6 order-[15]">
+            <div id="settings-developer" className="scroll-mt-12 flex flex-col gap-6 order-[14]">
               <SectionHeader title="开发者" icon={<Bug />} description="供开发者或高级用户使用的实验性功能。" />
               <SettingsGroup>
                 <SwitchSetting label="启用开发者模式" description="开启后将记录更详尽的系统级调试日志" checked={developerMode} onChange={(val) => setDeveloperModeEnabled(val)} />

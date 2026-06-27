@@ -13,11 +13,9 @@ import {
   Video,
   XCircle,
 } from "lucide-react";
-import { useEffect, useState } from "react";
 import type { AssetSummary, ProjectSummary, RuntimeSummary, TaskRecord, ToolSummary } from "../../api";
 import type { WorkbenchModule } from "../../app/routes";
-import { isDeveloperModeEnabled } from "../../lib/developerMode";
-import { AppUpdatePanel, useAppUpdateUi, VersionPill } from "../updates/appUpdateUi";
+import { appVersion } from "../../generated/appVersion";
 
 type Props = {
   projects: ProjectSummary[];
@@ -65,8 +63,6 @@ export function WelcomeView({
   onOpenModule,
   busy,
 }: Props) {
-  const updateState = useAppUpdateUi(isDeveloperModeEnabled());
-  const [versionPanelOpen, setVersionPanelOpen] = useState(false);
   const selectedProject =
     projects.find((project) => project.id === selectedProjectId);
   const selectedProjectTasks = selectedProject
@@ -84,15 +80,6 @@ export function WelcomeView({
   const failedTaskCount = selectedProjectTasks.filter(
     (task) => task.status === "failed",
   ).length;
-
-  useEffect(() => {
-    const latestVersion = updateState.status?.latestVersion;
-    if (!updateState.status?.updateAvailable || !latestVersion) return;
-    const storageKey = `taptap.updatePromptSeen.${latestVersion}`;
-    if (localStorage.getItem(storageKey) === "true") return;
-    localStorage.setItem(storageKey, "true");
-    setVersionPanelOpen(true);
-  }, [updateState.status?.latestVersion, updateState.status?.updateAvailable]);
 
   return (
     <div className="relative flex h-full w-full items-center justify-center overflow-y-auto text-text">
@@ -246,40 +233,11 @@ export function WelcomeView({
       </div>
       
       {/* Footer Version */}
-      <div className="absolute bottom-6 left-1/2 z-20 -translate-x-1/2 select-none">
-        <VersionPill
-          status={updateState.status}
-          onClick={() => setVersionPanelOpen(true)}
-          className={updateState.status?.updateAvailable ? "opacity-100" : "opacity-35 hover:opacity-100"}
-        />
+      <div className="pointer-events-none absolute bottom-6 left-1/2 -translate-x-1/2 select-none opacity-25">
+        <span className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-text">
+          Maker Plus {appVersion.displayVersion}
+        </span>
       </div>
-      {versionPanelOpen ? (
-        <div className="absolute inset-0 z-40 flex items-center justify-center bg-surface-app/70 px-5 backdrop-blur-sm">
-          <div className="w-full max-w-2xl rounded-xl border border-border bg-surface-panel p-4 shadow-xl">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="m-0 text-base font-bold text-text">
-                  {updateState.status?.updateAvailable
-                    ? `检测到最新版本 ${updateState.status.latestVersion}`
-                    : "版本历史"}
-                </h2>
-                <p className="m-0 mt-1 text-xs text-text-subtle">
-                  版本信息来自 GitHub Releases。
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setVersionPanelOpen(false)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-control text-text-muted hover:bg-surface-muted hover:text-text"
-                title="关闭"
-              >
-                <XCircle className="h-4 w-4" />
-              </button>
-            </div>
-            <AppUpdatePanel state={updateState} />
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

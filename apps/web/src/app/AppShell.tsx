@@ -1,4 +1,4 @@
-import { Terminal, FolderSync, Search, Settings, Moon, Sun, PanelLeft, PanelRight, RefreshCw, Copy, Trash2, Eye, Save, Play, Code, ClipboardList, Scan, Edit2, Move, ExternalLink, Image, FolderOpen, Download, Crosshair, Check } from "lucide-react";
+import { Terminal, FolderSync, Search, Settings, Moon, Sun, PanelLeft, PanelRight, RefreshCw, Copy, Trash2, Eye, Save, Play, Code, ClipboardList, Scan, Edit2, Move, ExternalLink, Image, FolderOpen, Download, Crosshair, Check, XCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -112,8 +112,10 @@ import {
   subscribeDeveloperMode,
 } from "../lib/developerMode";
 import { FirstRunOnboarding } from "../features/onboarding/FirstRunOnboarding";
+import { appVersion } from "../generated/appVersion";
 
 const DEFAULT_PROJECT_MODULE: WorkbenchModule = defaultWorkspaceToModule("assets");
+const DEFAULT_SETTINGS_TAB: SettingsTab = "workspaces";
 const NODE_PRESET_DRAG_MIME = "application/reactflow";
 const NODE_PRESET_TEXT_PREFIX = "taptap-node-preset:";
 const BOOTSTRAP_RETRY_DELAYS_MS = [800, 1200, 1800, 2600, 3600];
@@ -218,7 +220,7 @@ export function AppShell() {
     const hasProject = localStorage.getItem("taptap.selectedProjectId");
     return resolveInitialModule(Boolean(hasProject));
   });
-  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("appearance");
+  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>(DEFAULT_SETTINGS_TAB);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState(
     () => localStorage.getItem("taptap.selectedProjectId") ?? "",
@@ -235,6 +237,7 @@ export function AppShell() {
   const [settingsPreferenceVersion, setSettingsPreferenceVersion] = useState(0);
   const [developerModeEnabled, setDeveloperModeEnabledState] = useState(() => isDeveloperModeEnabled());
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [announcementOpen, setAnnouncementOpen] = useState(false);
   const themeCinemaTargetRef = useRef<"light" | "dark" | undefined>(undefined);
   const startupPromptedRef = useRef(false);
   const onboardingDismissedRef = useRef(
@@ -787,7 +790,7 @@ export function AppShell() {
     setRightPanelTab("status");
     setActiveModule("home");
     setLastNonSettingsModule("home");
-    setActiveSettingsTab("appearance");
+    setActiveSettingsTab(DEFAULT_SETTINGS_TAB);
     setSidebarCollapsed(false);
     setSidebarWidth(240);
     setInspectorMinimized(false);
@@ -4010,6 +4013,7 @@ export function AppShell() {
               onSelectSettingsTab={setActiveSettingsTab}
               onExitSettings={exitSettings}
               onScanProjects={handleScanProjects}
+              onOpenAnnouncement={() => setAnnouncementOpen(true)}
             />
             {!effectiveSidebarCollapsed && !isSettingsModule && (
               <div
@@ -4206,8 +4210,58 @@ export function AppShell() {
         />
         <PromptDialog config={promptConfig} />
         <ConfirmDialog config={confirmConfig} />
+        {announcementOpen ? (
+          <AnnouncementDialog onClose={() => setAnnouncementOpen(false)} />
+        ) : null}
       </div>
     </CommandProvider>
+  );
+}
+
+function AnnouncementDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 px-5 backdrop-blur-sm">
+      <div className="w-full max-w-2xl rounded-xl border border-border bg-surface-panel p-5 shadow-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-wide text-brand">公告</div>
+            <h2 className="m-0 mt-1 text-xl font-bold text-text">{appVersion.announcementTitle}</h2>
+            <p className="m-0 mt-2 text-sm leading-relaxed text-text-muted">{appVersion.announcementBody}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-text-muted hover:bg-surface-muted hover:text-text"
+            title="关闭公告"
+          >
+            <XCircle className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          {appVersion.announcements.map((item) => (
+            <article key={item.title} className="rounded-lg border border-border-soft bg-surface-app/65 p-4">
+              <h3 className="m-0 text-sm font-bold text-text">{item.title}</h3>
+              <p className="m-0 mt-2 text-xs leading-relaxed text-text-muted">{item.body}</p>
+            </article>
+          ))}
+        </div>
+        <div className="mt-5 rounded-lg border border-border-soft bg-surface-app/65 p-4">
+          <h3 className="m-0 text-sm font-bold text-text">当前支持的主要内容</h3>
+          <p className="m-0 mt-2 text-xs leading-relaxed text-text-muted">
+            本地 Maker 项目绑定、MCP 包安装/卸载与运行时管理、素材库扫描与引用治理、图像/视频/音频/3D 工作室、视频多模态画布、任务记录和右侧 Inspector 状态面板。
+          </p>
+        </div>
+        <div className="mt-5 flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 items-center justify-center rounded-control bg-brand px-4 text-sm font-bold text-white hover:bg-brand-strong"
+          >
+            我知道了
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

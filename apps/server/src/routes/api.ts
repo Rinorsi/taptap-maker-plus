@@ -56,7 +56,7 @@ import { getMcpPackageUpdateStatus, installMcpPackage, uninstallMcpPackage } fro
 import { executeToolCall, syncCreditRecordsFromTasks } from "../services/toolExecution.js";
 import { buildAgentContext } from "../agent/contextBuilder.js";
 import { appVersion } from "../generated/appVersion.js";
-import { bindExistingMakerProject, initMakerCloudProject, listMakerCloudProjects, loginMaker, scanExistingMakerProjects, setMakerToken } from "../services/makerOnboarding.js";
+import { bindExistingMakerProject, initMakerCloudProject, listMakerCloudProjects, loginMaker, resolveMakerCloudProjectTargetDir, scanExistingMakerProjects, setMakerToken } from "../services/makerOnboarding.js";
 import { getProjectBuildLogs } from "../services/projectLogs.js";
 import { scanModelPackages, organizeModelPackage, bindModelPackage, discardModelPackage, restoreModelPackage, updateResourceTable, runModelPackageBatchAction } from "../services/modelPackage.js";
 import { convertMdlToGltf, inspectMdlFile } from "../services/urhoMdl.js";
@@ -88,6 +88,12 @@ const onboardingTargetDirSchema = z.object({
 
 const onboardingCloudProjectInitSchema = z.object({
   appId: z.string().min(1),
+  targetDir: z.string().min(1).optional()
+});
+
+const onboardingCloudProjectPreviewSchema = z.object({
+  appId: z.string().min(1),
+  projectName: z.string().min(1),
   targetDir: z.string().min(1).optional()
 });
 
@@ -677,8 +683,16 @@ export async function registerApiRoutes(app: FastifyInstance) {
   });
 
   app.post("/api/settings/maker-projects-root/confirm", async () => {
+    setAppSetting("maker_projects_root", config.makerProjectsRoot);
     setAppSetting("maker_projects_root_confirmed", config.makerProjectsRoot);
-    return { settings: getMakerProjectsRootSettings() };
+    const projects = await scanMakerProjects(config.makerProjectsRoot);
+    const projectIds = new Set(projects.map((project) => project.id));
+    const storedSelectedProjectId = getSelectedProjectId();
+    const selectedProjectId = storedSelectedProjectId && projectIds.has(storedSelectedProjectId)
+      ? storedSelectedProjectId
+      : undefined;
+    if (storedSelectedProjectId && !selectedProjectId) clearSelectedProject();
+    return { settings: getMakerProjectsRootSettings(), selectedProjectId, projects: projects.map((project) => withRuntime(project)) };
   });
 
   app.put<{ Body: unknown }>("/api/settings/maker-projects-root", async (request, reply) => {
@@ -690,6 +704,7 @@ export async function registerApiRoutes(app: FastifyInstance) {
     }
     setAppSetting("maker_projects_root", nextRoot);
     setMakerProjectsRoot(nextRoot);
+    setAppSetting("maker_projects_root_confirmed", nextRoot);
     const projects = await scanMakerProjects(nextRoot);
     const projectIds = new Set(projects.map((project) => project.id));
     const storedSelectedProjectId = getSelectedProjectId();
@@ -819,6 +834,20 @@ export async function registerApiRoutes(app: FastifyInstance) {
     }
   });
 
+  app.post<{ Body: unknown }>("/api/onboarding/projects/init-cloud/preview", async (request, reply) => {
+    const parsed = onboardingCloudProjectPreviewSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
+      return {
+        appId: parsed.data.appId,
+        projectName: parsed.data.projectName,
+        targetDir: resolveMakerCloudProjectTargetDir(parsed.data.projectName, parsed.data.targetDir)
+      };
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   app.post<{ Body: unknown }>("/api/onboarding/projects/scan", async (request, reply) => {
     const parsed = onboardingScanSchema.safeParse(request.body ?? {});
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
@@ -844,6 +873,7 @@ export async function registerApiRoutes(app: FastifyInstance) {
       return {
         cli: result.cli,
         project: withRuntime(result.project),
+        targetDir: result.targetDir,
         projects: listProjects().map((project) => withRuntime(project)),
         selectedProjectId: getSelectedProjectId()
       };
@@ -860,6 +890,9 @@ export async function registerApiRoutes(app: FastifyInstance) {
       return {
         cli: result.cli,
         project: withRuntime(result.project),
+        targetDir: result.targetDir,
+        doctorPassed: result.doctorPassed,
+        warning: result.warning,
         projects: listProjects().map((project) => withRuntime(project)),
         selectedProjectId: getSelectedProjectId()
       };

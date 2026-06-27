@@ -43,7 +43,9 @@ const storedMakerProjectsRoot = getAppSetting("maker_projects_root");
 if (storedMakerProjectsRoot) setMakerProjectsRoot(storedMakerProjectsRoot);
 loadStoredMakerPackage();
 if (getAppSetting("maker_projects_root_confirmed") === config.makerProjectsRoot) {
-  await scanMakerProjects();
+  await scanMakerProjects().catch((error) => {
+    app.log.error(error, "failed to scan Maker projects during startup");
+  });
 }
 
 process.once("SIGINT", () => {

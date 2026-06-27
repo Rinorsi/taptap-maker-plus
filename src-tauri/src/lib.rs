@@ -493,10 +493,11 @@ pub fn run() {
           wait_for_desktop_server_identity(SERVER_HOST, server_launch.port, &server_launch.instance_token)
         };
         let target_url = if target_ready {
+          let api_base = format!("http://{SERVER_HOST}:{}", server_launch.port);
           if cfg!(debug_assertions) {
-            DEV_WEB_URL.to_string()
+            format!("{DEV_WEB_URL}?apiBase={api_base}")
           } else {
-            format!("http://{SERVER_HOST}:{}", server_launch.port)
+            format!("{api_base}?apiBase={api_base}")
           }
         } else {
           return;

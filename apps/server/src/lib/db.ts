@@ -267,11 +267,13 @@ function summarizeInput(input: unknown): string {
 }
 
 export function upsertProject(project: ProjectSummary) {
+  sqlite.prepare("DELETE FROM projects WHERE (id = @id OR root_path = @rootPath) AND id != @id").run(project);
   sqlite.prepare(`
     INSERT INTO projects (id, name, root_path, maker_project_id, config_path, created_at, updated_at, last_scanned_at)
     VALUES (@id, @name, @rootPath, @makerProjectId, @configPath, @createdAt, @updatedAt, @lastScannedAt)
-    ON CONFLICT(root_path) DO UPDATE SET
+    ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
+      root_path = excluded.root_path,
       maker_project_id = excluded.maker_project_id,
       config_path = excluded.config_path,
       created_at = excluded.created_at,

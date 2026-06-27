@@ -489,6 +489,9 @@ export type MakerCliResult = {
 export type OnboardingProjectResult = {
   cli: MakerCliResult;
   project: ProjectSummary;
+  targetDir?: string;
+  doctorPassed?: boolean;
+  warning?: string;
   projects: ProjectSummary[];
   selectedProjectId?: string;
 };
@@ -504,6 +507,12 @@ export type MakerCloudProject = {
   pinnedAt?: string | null;
   stage?: string;
   gameType?: string;
+};
+
+export type OnboardingCloudProjectPreview = {
+  appId: string;
+  projectName: string;
+  targetDir: string;
 };
 
 export type ProjectHealthSummary = {
@@ -562,13 +571,63 @@ export type ResetInitialStateResponse = {
   };
 };
 
+function readDesktopApiBase() {
+  if (typeof window === "undefined") return "";
+  const queryValue = new URLSearchParams(window.location.search).get("apiBase");
+  if (queryValue?.startsWith("http://127.0.0.1:") || queryValue?.startsWith("http://localhost:")) {
+    window.sessionStorage.setItem("taptap.apiBase", queryValue);
+    return queryValue;
+  }
+  return window.sessionStorage.getItem("taptap.apiBase") ?? "";
+}
+
+let apiBase = readDesktopApiBase();
+
+function apiUrl(path: string) {
+  if (!apiBase || !path.startsWith("/api/")) return path;
+  return `${apiBase}${path}`;
+}
+
+async function discoverDesktopApiBase() {
+  if (typeof window === "undefined") return "";
+  for (let port = 8787; port <= 8827; port += 1) {
+    const base = `http://127.0.0.1:${port}`;
+    try {
+      const response = await fetch(`${base}/api/desktop/readiness`, { cache: "no-store" });
+      if (!response.ok) continue;
+      const data = await response.json() as { appId?: unknown };
+      if (data.appId !== "taptap-maker-plus") continue;
+      apiBase = base;
+      window.sessionStorage.setItem("taptap.apiBase", base);
+      return base;
+    } catch {
+      // Try the next local port.
+    }
+  }
+  return "";
+}
+
+async function apiFetch(path: string, init?: RequestInit) {
+  try {
+    return await fetch(apiUrl(path), init);
+  } catch (error) {
+    if (path.startsWith("/api/") && await discoverDesktopApiBase()) {
+      return fetch(apiUrl(path), init);
+    }
+    if (path.startsWith("/api/")) {
+      throw new Error(`本地服务未连接，无法访问 ${path}。请确认桌面端本地服务已启动。${error instanceof Error ? ` 原始错误：${error.message}` : ""}`);
+    }
+    throw error;
+  }
+}
+
 const json = async <T>(response: Response): Promise<T> => {
   if (!response.ok) throw new Error(await response.text());
   return response.json() as Promise<T>;
 };
 
 export function assetPreviewUrl(projectId: string, relativePath: string) {
-  return `/api/projects/${encodeURIComponent(projectId)}/assets/preview?relativePath=${encodeURIComponent(relativePath)}`;
+  return apiUrl(`/api/projects/${encodeURIComponent(projectId)}/assets/preview?relativePath=${encodeURIComponent(relativePath)}`);
 }
 
 export async function scanProjects(): Promise<{
@@ -577,11 +636,11 @@ export async function scanProjects(): Promise<{
   onboardingRequired?: boolean;
   settings?: MakerProjectsRootSettings;
 }> {
-  return json(await fetch("/api/projects/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }));
+  return json(await apiFetch("/api/projects/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }));
 }
 
 export async function listProjects(): Promise<{ projects: ProjectSummary[]; selectedProjectId?: string }> {
-  return json(await fetch("/api/projects"));
+  return json(await apiFetch("/api/projects"));
 }
 
 export async function selectProject(projectId: string) {
@@ -1006,16 +1065,16 @@ export async function getAgentContext(projectId?: string, page?: AgentPageState)
 }
 
 export async function getDesktopReadiness(): Promise<DesktopReadiness> {
-  return json<DesktopReadiness>(await fetch("/api/desktop/readiness"));
+  return json<DesktopReadiness>(await apiFetch("/api/desktop/readiness"));
 }
 
 export async function getSettingsPreferences(): Promise<AppSettingsPreferencesResponse> {
-  return json<AppSettingsPreferencesResponse>(await fetch("/api/settings/preferences"));
+  return json<AppSettingsPreferencesResponse>(await apiFetch("/api/settings/preferences"));
 }
 
 export async function saveSettingsPreferences(preferences: Record<string, unknown>): Promise<AppSettingsPreferencesResponse> {
   return json<AppSettingsPreferencesResponse>(
-    await fetch("/api/settings/preferences", {
+    await apiFetch("/api/settings/preferences", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ preferences }),
@@ -1024,12 +1083,12 @@ export async function saveSettingsPreferences(preferences: Record<string, unknow
 }
 
 export async function getMakerProjectsRootSettings(): Promise<MakerProjectsRootSettingsResponse> {
-  return json<MakerProjectsRootSettingsResponse>(await fetch("/api/settings/maker-projects-root"));
+  return json<MakerProjectsRootSettingsResponse>(await apiFetch("/api/settings/maker-projects-root"));
 }
 
 export async function saveMakerProjectsRootSettings(rootPath: string): Promise<MakerProjectsRootSettingsResponse> {
   return json<MakerProjectsRootSettingsResponse>(
-    await fetch("/api/settings/maker-projects-root", {
+    await apiFetch("/api/settings/maker-projects-root", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rootPath }),
@@ -1039,7 +1098,7 @@ export async function saveMakerProjectsRootSettings(rootPath: string): Promise<M
 
 export async function confirmMakerProjectsRootSettings(): Promise<MakerProjectsRootSettingsResponse> {
   return json<MakerProjectsRootSettingsResponse>(
-    await fetch("/api/settings/maker-projects-root/confirm", {
+    await apiFetch("/api/settings/maker-projects-root/confirm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
@@ -1048,12 +1107,12 @@ export async function confirmMakerProjectsRootSettings(): Promise<MakerProjectsR
 }
 
 export async function getMcpPackageStatus(check = false): Promise<{ status: McpPackageUpdateStatus }> {
-  return json<{ status: McpPackageUpdateStatus }>(await fetch(`/api/mcp/package${check ? "?check=true" : ""}`));
+  return json<{ status: McpPackageUpdateStatus }>(await apiFetch(`/api/mcp/package${check ? "?check=true" : ""}`));
 }
 
 export async function installMcpPackage(packageSpec: string): Promise<McpPackageInstallResult> {
   return json<McpPackageInstallResult>(
-    await fetch("/api/mcp/package/install", {
+    await apiFetch("/api/mcp/package/install", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ packageSpec }),
@@ -1063,7 +1122,7 @@ export async function installMcpPackage(packageSpec: string): Promise<McpPackage
 
 export async function uninstallMcpPackage(): Promise<McpPackageUninstallResult> {
   return json<McpPackageUninstallResult>(
-    await fetch("/api/mcp/package/uninstall", {
+    await apiFetch("/api/mcp/package/uninstall", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
@@ -1073,7 +1132,7 @@ export async function uninstallMcpPackage(): Promise<McpPackageUninstallResult> 
 
 export async function loginMakerOnboarding(): Promise<{ cli: MakerCliResult }> {
   return json<{ cli: MakerCliResult }>(
-    await fetch("/api/onboarding/login", {
+    await apiFetch("/api/onboarding/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
@@ -1083,7 +1142,7 @@ export async function loginMakerOnboarding(): Promise<{ cli: MakerCliResult }> {
 
 export async function setMakerTokenOnboarding(token: string): Promise<{ cli: MakerCliResult }> {
   return json<{ cli: MakerCliResult }>(
-    await fetch("/api/onboarding/token", {
+    await apiFetch("/api/onboarding/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token }),
@@ -1092,18 +1151,18 @@ export async function setMakerTokenOnboarding(token: string): Promise<{ cli: Mak
 }
 
 export async function getMakerTokenOnboarding(): Promise<{ token: string }> {
-  return json<{ token: string }>(await fetch("/api/onboarding/token"));
+  return json<{ token: string }>(await apiFetch("/api/onboarding/token"));
 }
 
 export async function listMakerCloudProjects(): Promise<{ cli: MakerCliResult; projects: MakerCloudProject[] }> {
   return json<{ cli: MakerCliResult; projects: MakerCloudProject[] }>(
-    await fetch("/api/onboarding/cloud-projects"),
+    await apiFetch("/api/onboarding/cloud-projects"),
   );
 }
 
 export async function scanOnboardingProjects(rootDir?: string): Promise<{ projects: ProjectSummary[]; selectedProjectId?: string }> {
   return json<{ projects: ProjectSummary[]; selectedProjectId?: string }>(
-    await fetch("/api/onboarding/projects/scan", {
+    await apiFetch("/api/onboarding/projects/scan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rootDir }),
@@ -1113,7 +1172,7 @@ export async function scanOnboardingProjects(rootDir?: string): Promise<{ projec
 
 export async function initOnboardingProject(targetDir: string): Promise<OnboardingProjectResult> {
   return json<OnboardingProjectResult>(
-    await fetch("/api/onboarding/projects/init", {
+    await apiFetch("/api/onboarding/projects/init", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ targetDir }),
@@ -1123,7 +1182,7 @@ export async function initOnboardingProject(targetDir: string): Promise<Onboardi
 
 export async function initCloudOnboardingProject(appId: string, targetDir?: string): Promise<OnboardingProjectResult> {
   return json<OnboardingProjectResult>(
-    await fetch("/api/onboarding/projects/init-cloud", {
+    await apiFetch("/api/onboarding/projects/init-cloud", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ appId, targetDir }),
@@ -1131,9 +1190,19 @@ export async function initCloudOnboardingProject(appId: string, targetDir?: stri
   );
 }
 
+export async function previewCloudOnboardingProject(appId: string, projectName: string, targetDir?: string): Promise<OnboardingCloudProjectPreview> {
+  return json<OnboardingCloudProjectPreview>(
+    await apiFetch("/api/onboarding/projects/init-cloud/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ appId, projectName, targetDir }),
+    }),
+  );
+}
+
 export async function bindExistingOnboardingProject(targetDir: string): Promise<OnboardingProjectResult> {
   return json<OnboardingProjectResult>(
-    await fetch("/api/onboarding/projects/bind-existing", {
+    await apiFetch("/api/onboarding/projects/bind-existing", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ targetDir }),
@@ -1143,12 +1212,12 @@ export async function bindExistingOnboardingProject(targetDir: string): Promise<
 
 export async function listFrontendDiagnostics() {
   return json<FrontendDiagnosticsResponse>(
-    await fetch("/api/developer/frontend-diagnostics"),
+    await apiFetch("/api/developer/frontend-diagnostics"),
   );
 }
 
 export async function appendFrontendDiagnostics(entries: FrontendDiagnosticEntry[]) {
-  const res = await fetch("/api/developer/frontend-diagnostics", {
+  const res = await apiFetch("/api/developer/frontend-diagnostics", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ entries }),
@@ -1160,7 +1229,7 @@ export async function appendFrontendDiagnostics(entries: FrontendDiagnosticEntry
 
 export async function clearFrontendDiagnostics(retention: "all" | "14d" | "30d" | "100mb" = "all") {
   const query = retention === "all" ? "" : `?retention=${encodeURIComponent(retention)}`;
-  const res = await fetch(`/api/developer/frontend-diagnostics${query}`, {
+  const res = await apiFetch(`/api/developer/frontend-diagnostics${query}`, {
     method: "DELETE",
   });
   if (!res.ok) {
@@ -1170,7 +1239,7 @@ export async function clearFrontendDiagnostics(retention: "all" | "14d" | "30d" 
 
 export async function resetDesktopInitialState(confirmText: "重置软件"): Promise<ResetInitialStateResponse> {
   return json<ResetInitialStateResponse>(
-    await fetch("/api/developer/reset-initial-state", {
+    await apiFetch("/api/developer/reset-initial-state", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ confirmText }),

@@ -1,10 +1,9 @@
 import { useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { CheckCircle2, ChevronDown, FolderSearch, LogIn, PackageCheck, Plus, RefreshCw, X, AlertTriangle, Cloud, Info } from "lucide-react";
+import { CheckCircle2, ChevronDown, FolderSearch, LogIn, PackageCheck, Plus, RefreshCw, X, AlertTriangle, Cloud, Info, type LucideIcon } from "lucide-react";
 import { motion } from "framer-motion";
 import {
   bindExistingOnboardingProject,
-  confirmMakerProjectsRootSettings,
   getMakerTokenOnboarding,
   getMakerProjectsRootSettings,
   getMcpPackageStatus,
@@ -12,6 +11,7 @@ import {
   installMcpPackage,
   listMakerCloudProjects,
   loginMakerOnboarding,
+  previewCloudOnboardingProject,
   saveMakerProjectsRootSettings,
   setMakerTokenOnboarding,
   type MakerCloudProject,
@@ -31,11 +31,12 @@ type Props = {
   onSelectProject: (projectId: string) => void;
 };
 
-type StepState = "idle" | "working" | "done" | "error";
+type StepState = "idle" | "attention" | "working" | "done" | "error";
 
 type InitPrompt = {
   targetDir: string;
   message: string;
+  configExists?: boolean;
 };
 
 export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChanged, onSelectProject }: Props) {
@@ -45,6 +46,7 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
   const [packageStatus, setPackageStatus] = useState<McpPackageUpdateStatus>();
   const [selectedPackageVersion, setSelectedPackageVersion] = useState("");
   const [packageState, setPackageState] = useState<StepState>("idle");
+  const [packageStatusRequested, setPackageStatusRequested] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [rootState, setRootState] = useState<StepState>("idle");
   const [loginState, setLoginState] = useState<StepState>("idle");
@@ -53,7 +55,10 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
   const [manualTokenOpen, setManualTokenOpen] = useState(false);
   const [cloudProjects, setCloudProjects] = useState<MakerCloudProject[]>([]);
   const [selectedCloudProjectId, setSelectedCloudProjectId] = useState("");
+  const [cloudProjectTargetDir, setCloudProjectTargetDir] = useState("");
+  const [cloudProjectPreviewState, setCloudProjectPreviewState] = useState<StepState>("idle");
   const [notice, setNotice] = useState("");
+  const [serviceError, setServiceError] = useState("");
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [initPrompt, setInitPrompt] = useState<InitPrompt>();
 
@@ -64,13 +69,14 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
       .then((response) => {
         if (cancelled) return;
         setRootSettings(response.settings);
-        setRootDraft(response.settings.rootPath);
-        setProjectDirDraft(response.settings.rootPath);
+        setRootDraft(response.settings.confirmed ? response.settings.rootPath : "");
+        setProjectDirDraft(response.settings.confirmed ? response.settings.rootPath : "");
         setRootState(response.settings.confirmed ? "done" : "idle");
       })
       .catch((error) => {
         if (!cancelled) {
           setNotice(error instanceof Error ? error.message : String(error));
+          setServiceError(error instanceof Error ? error.message : String(error));
           setRootState("error");
         }
       });
@@ -80,9 +86,10 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
   }, [isOpen]);
 
   useEffect(() => {
-    if (!isOpen || packageStatus || packageState === "working") return;
+    if (!isOpen || packageStatusRequested || packageStatus || packageState === "working") return;
+    setPackageStatusRequested(true);
     void refreshPackageStatus();
-  }, [isOpen, packageStatus, packageState]);
+  }, [isOpen, packageStatusRequested, packageStatus, packageState]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -97,14 +104,53 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
     };
   }, [isOpen]);
 
-  if (!isOpen) return null;
-
   const working = busy || rootState === "working" || packageState === "working" || loginState === "working" || projectState === "working";
   const hasBoundProject = projects.length > 0 || projectState === "done";
   const canEnterWorkbench = rootState === "done" && packageState === "done" && loginState === "done" && hasBoundProject;
   const packageVersions = packageStatus?.availableVersions ?? [];
   const packageVersionOptions = [...packageVersions].reverse();
   const installButtonLabel = packageStatus?.localInstalled ? "重装" : "安装";
+  const selectedCloudProject = cloudProjects.find((project) => project.id === selectedCloudProjectId);
+  const selectedCloudProjectName = selectedCloudProject?.name ?? "";
+  const confirmedRootPath = rootSettings?.confirmed ? rootSettings.rootPath : "";
+  const rootDisplayState: StepState = rootState === "done" || rootState === "working"
+    ? rootState
+    : rootDraft ? "attention" : "idle";
+  const packageDisplayState: StepState = packageState === "error" && !packageStatus ? "attention" : packageState;
+  const rootStatusLabel = rootState === "error" ? "保存失败" : rootDraft ? "未保存" : "未选择";
+  const processSteps = [
+    { id: "root", icon: FolderSearch, label: "发现项目", desc: rootState === "done" ? rootDraft : "选择目录后自动保存为项目总目录", state: rootDisplayState, idleLabel: rootStatusLabel },
+    { id: "package", icon: PackageCheck, label: "依赖解析", desc: packageStatus?.localInstalled ? `本地 MCP ${packageStatus.currentVersion ?? "已安装"}` : "校验并安装核心 MCP 工具包", state: packageDisplayState },
+    { id: "login", icon: LogIn, label: "账号鉴权", desc: loginState === "done" ? "Maker 账号已完成鉴权" : "登录 Maker 或保存 Token", state: loginState },
+    { id: "project", icon: CheckCircle2, label: "环境就绪", desc: hasBoundProject ? "已绑定 Maker 游戏项目" : "绑定本地项目或拉取云端项目", state: projectState },
+  ];
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!selectedCloudProjectId || !selectedCloudProjectName) {
+      setCloudProjectTargetDir("");
+      setCloudProjectPreviewState("idle");
+      return;
+    }
+    let cancelled = false;
+    setCloudProjectPreviewState("working");
+    previewCloudOnboardingProject(selectedCloudProjectId, selectedCloudProjectName)
+      .then((response) => {
+        if (cancelled) return;
+        setCloudProjectTargetDir(response.targetDir);
+        setCloudProjectPreviewState("done");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setCloudProjectTargetDir(error instanceof Error ? error.message : String(error));
+        setCloudProjectPreviewState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, selectedCloudProjectId, selectedCloudProjectName]);
+
+  if (!isOpen) return null;
 
   function requestClose() {
     onClose();
@@ -153,31 +199,33 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
     setRootState("working");
     setNotice("正在确认 Maker 项目总目录...");
     try {
-      const saved = nextRoot === rootSettings?.rootPath
-        ? await confirmMakerProjectsRootSettings()
-        : await saveMakerProjectsRootSettings(nextRoot);
-      const confirmed = saved.settings.confirmed ? saved : await confirmMakerProjectsRootSettings();
-      setRootSettings(confirmed.settings);
-      setRootDraft(confirmed.settings.rootPath);
-      setProjectDirDraft(confirmed.settings.rootPath);
+      const saved = await saveMakerProjectsRootSettings(nextRoot);
+      setRootSettings(saved.settings);
+      setRootDraft(saved.settings.rootPath);
+      setProjectDirDraft("");
       if (saved.projects) {
         setProjects(saved.projects);
         onProjectsChanged(saved.projects, saved.selectedProjectId);
         if (saved.selectedProjectId) setProjectState("done");
       }
       setRootState("done");
-      setNotice(`已确认项目总目录：${confirmed.settings.rootPath}`);
+      setServiceError("");
+      setNotice(`已确认项目总目录：${saved.settings.rootPath}`);
     } catch (error) {
       setRootState("error");
-      setNotice(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      setNotice(message);
+      if (message.includes("本地服务未连接")) setServiceError(message);
     }
   }
 
   async function refreshPackageStatus() {
     setPackageState("working");
+    setPackageStatusRequested(true);
     setNotice("正在检查 @taptap/maker 云端版本...");
     try {
       const response = await getMcpPackageStatus(true);
+      setServiceError("");
       const status = response.status;
       setPackageStatus(status);
       setSelectedPackageVersion(status.latestVersion ?? status.availableVersions.at(-1) ?? status.currentVersion ?? "");
@@ -195,7 +243,10 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
         : "本地 MCP 未安装，请选择云端版本后安装。");
     } catch (error) {
       setPackageState("error");
-      setNotice(error instanceof Error ? error.message : String(error));
+      setPackageStatus(undefined);
+      const message = error instanceof Error ? error.message : String(error);
+      setNotice(message);
+      if (message.includes("本地服务未连接")) setServiceError(message);
     }
   }
 
@@ -279,8 +330,8 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
     try {
       const rootResponse = await getMakerProjectsRootSettings();
       setRootSettings(rootResponse.settings);
-      setRootDraft(rootResponse.settings.rootPath);
-      setProjectDirDraft((current) => current || rootResponse.settings.rootPath);
+      setRootDraft(rootResponse.settings.confirmed ? rootResponse.settings.rootPath : "");
+      setProjectDirDraft((current) => current);
       setRootState(rootResponse.settings.confirmed ? "done" : "idle");
       if (rootResponse.projects) {
         setProjects(rootResponse.projects);
@@ -295,7 +346,7 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
   }
 
   async function handleChooseProjectDirectory() {
-    const selected = await chooseDirectory("选择单个游戏项目目录", projectDirDraft || rootSettings?.rootPath);
+    const selected = await chooseDirectory("选择单个游戏项目目录", projectDirDraft || confirmedRootPath || rootSettings?.defaultRootPath);
     if (!selected) return;
     setProjectDirDraft(selected);
     setInitPrompt(undefined);
@@ -311,14 +362,21 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
       onProjectsChanged(response.projects, response.selectedProjectId);
       onSelectProject(response.project.id);
       setProjectState("done");
-      setNotice(`检测到完整 Maker 项目，已自动绑定：${response.project.name}`);
+      setNotice(response.doctorPassed === false && response.warning
+        ? `已根据 .maker-mcp/config.json 绑定项目：${response.project.name}；Maker doctor 返回警告：${response.warning}`
+        : `检测到完整 Maker 项目，已自动绑定：${response.project.name}`);
     } catch (error) {
       setProjectState("idle");
+      const message = error instanceof Error ? error.message : String(error);
+      const configExists = message.includes(".maker-mcp/config.json") ? false : undefined;
       setInitPrompt({
         targetDir,
-        message: error instanceof Error ? error.message : String(error),
+        message,
+        configExists,
       });
-      setNotice("这个目录还不是完整 Maker 项目。请选择云端项目拉取到该目录，或刷新云端项目列表。");
+      setNotice(configExists === false
+        ? "这个目录缺少 .maker-mcp/config.json。请选择有效项目目录，或从云端拉取项目。"
+        : `项目目录检测失败：${message}`);
       if (!cloudProjects.length) {
         await refreshCloudProjects().catch((cloudError) => {
           setNotice(cloudError instanceof Error ? cloudError.message : String(cloudError));
@@ -337,6 +395,7 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
       setProjects(response.projects);
       onProjectsChanged(response.projects, response.selectedProjectId);
       onSelectProject(response.project.id);
+      setCloudProjectTargetDir(response.targetDir ?? response.project.rootPath);
       setProjectState("done");
       setNotice(`已拉取并绑定项目：${response.project.name}`);
     } catch (error) {
@@ -348,14 +407,21 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
   async function handlePullFirstCloudProject() {
     const appId = selectedCloudProjectId || cloudProjects[0]?.id;
     if (!appId) return;
+    if (!rootSettings?.confirmed) {
+      setProjectState("error");
+      setNotice("请先选择 Maker 项目总目录，再拉取云端项目。");
+      return;
+    }
+    const targetDir = cloudProjectTargetDir && cloudProjectPreviewState !== "error" ? cloudProjectTargetDir : undefined;
     setProjectState("working");
-    setNotice("正在从 Maker 云端拉取项目...");
+    setNotice(targetDir ? `正在从 Maker 云端拉取项目到：${targetDir}` : "正在从 Maker 云端拉取项目...");
     try {
-      const response = await initCloudOnboardingProject(appId);
+      const response = await initCloudOnboardingProject(appId, targetDir);
       setProjects(response.projects);
       onProjectsChanged(response.projects, response.selectedProjectId);
       onSelectProject(response.project.id);
       setProjectDirDraft(response.project.rootPath);
+      setCloudProjectTargetDir(response.targetDir ?? response.project.rootPath);
       setInitPrompt(undefined);
       setProjectState("done");
       setNotice(`已拉取并绑定项目：${response.project.name}`);
@@ -497,7 +563,7 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
 
           {/* Animation Center */}
           <div className="relative w-full flex-1 flex flex-col items-center justify-center">
-             <ProcessAnimation />
+             <ProcessAnimation steps={processSteps} />
           </div>
           
           {/* Text Bottom Left */}
@@ -552,6 +618,11 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
           </div>
 
           <div className="min-h-0 flex-1 overflow-auto px-8 py-6">
+            {serviceError ? (
+              <div className="mb-4 rounded-control border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-500">
+                本地服务未连接，首启页暂时无法读取项目、MCP 和云端信息。请重启桌面端，或等待本地服务启动完成后点击右上角刷新。
+              </div>
+            ) : null}
             <motion.div 
               className="grid gap-4"
               initial="hidden"
@@ -564,20 +635,35 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
               <OnboardingStep
                 index={1}
                 title="选择 Maker 项目总目录"
-                description="这里是放多个游戏项目的总目录，用于后续自动发现项目，也是删除本地项目文件夹的安全边界。"
+                description="这里是放多个游戏项目的总目录。点选择目录，选完会自动保存为项目总目录。"
                 icon={<FolderSearch />}
-                state={rootState}
+                state={rootDisplayState}
+                idleLabel={rootStatusLabel}
               >
-                <div className="flex min-w-0 flex-1 gap-2">
-                  <input
-                    readOnly
-                    value={rootDraft}
-                    className="h-9 min-w-0 flex-1 cursor-default rounded-control border border-border bg-surface-app px-3 font-mono text-xs text-text outline-none"
-                    placeholder={rootSettings?.defaultRootPath ?? "Maker 项目总目录"}
-                  />
-                  <Button variant="outline" size="sm" onClick={() => void handleChooseRoot()} disabled={working}>
-                    选择目录
-                  </Button>
+                <div className="flex w-full flex-col gap-2">
+                  <div className="flex min-w-0 flex-1 gap-2">
+                    <input
+                      readOnly
+                      value={rootDraft}
+                      className="h-9 min-w-0 flex-1 cursor-default rounded-control border border-border bg-surface-app px-3 font-mono text-xs text-text outline-none"
+                      placeholder={rootSettings?.defaultRootPath ?? "Maker 项目总目录"}
+                    />
+                    <Button variant="outline" size="sm" onClick={() => void handleChooseRoot()} disabled={working}>
+                      选择目录
+                    </Button>
+                  </div>
+                  {rootState === "error" && notice ? (
+                    <div className="flex flex-wrap items-start justify-between gap-2 rounded-control border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-500">
+                      <span className="min-w-[220px] flex-1 whitespace-normal break-words leading-relaxed">保存失败：{notice}</span>
+                      <Button variant="outline" size="sm" onClick={() => void confirmRootPath(rootDraft)} disabled={working || !rootDraft.trim()}>
+                        重试保存
+                      </Button>
+                    </div>
+                  ) : rootDisplayState === "attention" ? (
+                    <div className="rounded-control border border-border-soft bg-surface-app px-3 py-2 text-xs text-text-subtle">
+                      还没有保存项目总目录。点“选择目录”后会弹窗选择，选完会自动保存。
+                    </div>
+                  ) : null}
                 </div>
               </OnboardingStep>
 
@@ -586,7 +672,8 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
                 title="检查并安装 MCP 包"
                 description="进入此页会自动检查本地状态和云端版本；安装按钮只负责安装当前下拉框选中的版本。"
                 icon={<PackageCheck />}
-                state={packageState}
+                state={packageDisplayState}
+                idleLabel={packageStatus?.localInstalled ? "已安装" : "未安装"}
               >
                 <div className="flex w-full flex-col gap-2">
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -694,11 +781,13 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
                       <div className="rounded-control border border-amber-500/50 bg-amber-500/10 p-3 text-xs text-amber-500">
                         <div className="flex items-center gap-2 font-bold mb-1">
                           <AlertTriangle className="h-4 w-4" />
-                          未检测到完整 Maker 项目
+                          {initPrompt.configExists === false ? "未检测到项目配置文件" : "项目诊断未通过"}
                         </div>
                         <div className="font-mono text-[11px] opacity-80 mb-1">{initPrompt.targetDir}</div>
                         <div className="opacity-80">
-                          此目录不包含项目配置文件。请重新选择有效的项目目录，或者在下方直接拉取云端项目。
+                          {initPrompt.configExists === false
+                            ? "此目录不包含 .maker-mcp/config.json。请重新选择有效项目目录，或者在下方直接拉取云端项目。"
+                            : initPrompt.message}
                         </div>
                       </div>
                     </motion.div>
@@ -742,6 +831,30 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
                             拉取到总目录
                           </Button>
                         </div>
+                        <div className="rounded-control border border-border-soft bg-surface-app px-3 py-2">
+                          <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-text-subtle">
+                            <span>预览目录</span>
+                            <span className={cn(
+                              "rounded-full px-1.5 py-0.5 text-[10px] font-bold",
+                              stateBadgeClass(cloudProjectPreviewState)
+                            )}>
+                              {cloudProjectPreviewState === "working" ? "计算中" : cloudProjectPreviewState === "error" ? "需处理" : "将写入"}
+                            </span>
+                          </div>
+                          <div className="min-w-0 truncate font-mono text-[11px] text-text" title={cloudProjectTargetDir}>
+                            {cloudProjectTargetDir || (selectedCloudProject ? "正在读取本地目标目录..." : "请选择云端项目")}
+                          </div>
+                          {selectedCloudProject ? (
+                            <div className="mt-1 truncate text-[10px] text-text-subtle">
+                              云端项目：{selectedCloudProject.name}
+                            </div>
+                          ) : null}
+                        </div>
+                        {projectState === "working" ? (
+                          <div className="rounded-control border border-brand/20 bg-brand/10 px-3 py-2 text-xs text-brand">
+                            正在拉取并绑定项目，目标目录：{cloudProjectTargetDir || "读取中"}
+                          </div>
+                        ) : null}
                       </div>
                     ) : (
                       <p className="m-0 text-xs text-text-subtle bg-surface-muted/50 p-2 rounded-control">
@@ -793,6 +906,7 @@ function OnboardingStep({
   description,
   icon,
   state,
+  idleLabel,
   children,
 }: {
   index: number;
@@ -800,6 +914,7 @@ function OnboardingStep({
   description: string;
   icon: React.ReactNode;
   state: StepState;
+  idleLabel?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -817,7 +932,7 @@ function OnboardingStep({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-[11px] font-bold text-text-muted">步骤 {index}</span>
-            <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-bold", stateBadgeClass(state))}>{stateLabel(state)}</span>
+            <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-bold", stateBadgeClass(state))}>{stateLabel(state, idleLabel)}</span>
           </div>
           <h3 className="m-0 mt-1 text-sm font-semibold text-text">{title}</h3>
           <p className="m-0 mt-1 text-xs leading-relaxed text-text-subtle">{description}</p>
@@ -830,16 +945,18 @@ function OnboardingStep({
   );
 }
 
-function stateLabel(state: StepState) {
+function stateLabel(state: StepState, idleLabel = "未完成") {
   if (state === "working") return "进行中";
   if (state === "done") return "已完成";
+  if (state === "attention") return idleLabel;
   if (state === "error") return "需处理";
-  return "未完成";
+  return idleLabel;
 }
 
 function stateClass(state: StepState) {
   if (state === "working") return "border-brand/30 bg-brand/10 text-brand";
   if (state === "done") return "border-emerald-500/30 bg-emerald-500/10 text-emerald-500";
+  if (state === "attention") return "border-amber-500/30 bg-amber-500/10 text-amber-500";
   if (state === "error") return "border-red-500/30 bg-red-500/10 text-red-500";
   return "border-border bg-surface-app text-text-muted";
 }
@@ -847,6 +964,7 @@ function stateClass(state: StepState) {
 function stateBadgeClass(state: StepState) {
   if (state === "working") return "bg-brand/10 text-brand";
   if (state === "done") return "bg-emerald-500/10 text-emerald-500";
+  if (state === "attention") return "bg-amber-500/10 text-amber-500";
   if (state === "error") return "bg-red-500/10 text-red-500";
   return "bg-surface-muted text-text-subtle";
 }
@@ -856,68 +974,79 @@ function formatCliNotice(prefix: string, stdout: string, stderr: string) {
   return output ? `${prefix}：${output.slice(0, 180)}` : prefix;
 }
 
-function ProcessAnimation() {
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const timer = setInterval(() => setTick(t => (t + 1) % 5), 1800);
-    return () => clearInterval(timer);
-  }, []);
+type ProcessStep = {
+  id: string;
+  icon: LucideIcon;
+  label: string;
+  desc: string;
+  state: StepState;
+  idleLabel?: string;
+};
 
-  const steps = [
-    { id: 1, icon: FolderSearch, label: "发现项目", desc: "扫描并确立本地工作区边界" },
-    { id: 2, icon: PackageCheck, label: "依赖解析", desc: "校验并安装核心 MCP 工具包" },
-    { id: 3, icon: LogIn, label: "账号鉴权", desc: "安全注入云端服务访问令牌" },
-    { id: 4, icon: CheckCircle2, label: "环境就绪", desc: "自动组装完毕，可以开始研发" },
-  ];
+function ProcessAnimation({ steps }: { steps: ProcessStep[] }) {
+  let lastActiveIndex = -1;
+  steps.forEach((step, index) => {
+    if (step.state !== "idle") lastActiveIndex = index;
+  });
+  const activeIndex = Math.max(0, lastActiveIndex);
+  const progress = steps.length > 1 ? (activeIndex / (steps.length - 1)) * 100 : 0;
+  const isWorking = steps.some((step) => step.state === "working");
 
   return (
     <div className="relative w-full flex flex-col justify-center py-4 px-2 sm:px-8 gap-10 font-sans">
        {/* SVG Flow Line Background */}
-       <div className="absolute top-[2.5rem] bottom-[2.5rem] w-8 left-[1.75rem] sm:left-[3.25rem]">
+       <div className="pointer-events-none absolute top-[2.5rem] bottom-[2.5rem] z-0 w-8 left-[1.75rem] sm:left-[3.25rem]">
          <svg className="w-full h-full" preserveAspectRatio="none">
-            {/* Base Dashed Line */}
             <line x1="16" y1="0" x2="16" y2="100%" stroke="currentColor" className="text-border-soft" strokeWidth="1.5" strokeDasharray="4 4" />
-            
-            {/* Animated Solid Progress Line */}
-            <line 
-              x1="16" y1="0" 
-              x2="16" y2={`${Math.min(100, (tick / 3) * 100)}%`} 
-              stroke="currentColor" 
-              className="text-brand transition-all duration-[1200ms] ease-out" 
-              strokeWidth="2" 
+            <motion.line
+              x1="16"
+              y1="0"
+              x2="16"
+              y2={`${progress}%`}
+              initial={{ pathLength: 0 }}
+              animate={{ pathLength: 1 }}
+              stroke="currentColor"
+              className={progress > 0 ? "text-brand transition-all duration-[1200ms] ease-out" : "text-transparent"}
+              strokeWidth="2"
+              transition={{ duration: 1.5, ease: "easeOut" }}
             />
-            
-            {/* Traveling Data Packet (only when moving between steps) */}
-            {tick > 0 && tick < 4 && (
-              <motion.circle 
-                cx="16" 
-                r="3" 
-                className="fill-brand drop-shadow-[0_0_5px_rgba(0,217,197,0.8)]"
-                initial={{ cy: `${((tick - 1) / 3) * 100}%` }}
-                animate={{ cy: `${(tick / 3) * 100}%` }}
-                transition={{ duration: 1.2, ease: "linear" }}
+            {progress > 0 && (
+              <motion.circle
+                cx="16"
+                r="3"
+                className="fill-brand drop-shadow-[0_0_5px_rgba(0,217,197,0.8)] transition-all duration-[1200ms] ease-out"
+                animate={{ cy: [`${Math.max(0, progress - 8)}%`, `${progress}%`] }}
+                transition={{ duration: 1.2, repeat: Infinity, repeatType: "reverse", ease: "linear" }}
               />
             )}
          </svg>
        </div>
        
        {steps.map((s, index) => {
-         const isActive = tick >= index;
-         const isCurrent = tick === index;
+         const isActive = s.state !== "idle";
+         const isCurrent = s.state === "working";
          const Icon = s.icon;
          
          return (
-           <div key={s.id} className="relative z-10 flex items-center w-full">
+           <motion.div 
+             key={s.id} 
+             initial={{ opacity: 0, x: -10 }}
+             animate={{ opacity: 1, x: 0 }}
+             transition={{ delay: index * 0.15 + 0.2, duration: 0.5 }}
+             className="relative z-10 flex items-center w-full"
+           >
              
              {/* Node Icon */}
              <div className={cn(
-               "w-12 h-12 rounded-xl flex flex-shrink-0 items-center justify-center transition-all duration-700 z-10",
-               isCurrent ? "bg-brand border-brand shadow-[0_0_15px_rgba(0,217,197,0.3)] text-white" 
-                 : isActive ? "bg-surface-panel border-brand/40 shadow-sm text-brand" 
-                 : "bg-transparent border-border-soft/50 text-border-strong",
+               "relative z-20 w-12 h-12 rounded-xl flex flex-shrink-0 items-center justify-center transition-all duration-700",
+               s.state === "error" ? "bg-red-500/10 border-red-500/30 text-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)]"
+                 : s.state === "attention" ? "bg-surface-app border-amber-500/30 text-amber-500"
+                 : isCurrent ? "bg-brand border-brand shadow-[0_0_15px_rgba(0,217,197,0.4)] text-white"
+                 : s.state === "done" ? "bg-surface-panel border-brand/40 shadow-sm text-brand"
+                 : "bg-surface-app border-border-soft/80 text-border-strong",
                "border"
              )}>
-                <Icon className={cn("w-5 h-5 transition-transform duration-700", isCurrent ? "scale-110" : "scale-100")} strokeWidth={isCurrent ? 2 : 1.5} />
+                <Icon className={cn("w-5 h-5 transition-all duration-700", isCurrent ? "scale-110" : "scale-100")} strokeWidth={isCurrent ? 2 : 1.5} />
              </div>
 
              {/* Node Text & Status */}
@@ -927,14 +1056,14 @@ function ProcessAnimation() {
                     {s.label}
                   </span>
                   
-                  {isActive && !isCurrent && (
-                    <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} className="flex-shrink-0 flex items-center gap-1 text-[9px] text-brand font-semibold bg-brand/10 border border-brand/20 px-1.5 py-0.5 rounded tracking-wider">
-                      已完成
-                    </motion.div>
-                  )}
-                  {isCurrent && (
-                    <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} className="flex-shrink-0 flex items-center gap-1.5 text-[9px] text-brand font-semibold bg-brand/10 px-1.5 py-0.5 rounded border border-brand/30 tracking-wider">
-                      <div className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" /> 进行中
+                  {isActive && (
+                    <motion.div 
+                      initial={{ opacity: 0, scale: 0.8 }} 
+                      animate={{ opacity: 1, scale: 1 }} 
+                      className={cn("flex-shrink-0 flex items-center gap-1.5 text-[9px] font-semibold border px-1.5 py-0.5 rounded tracking-wider", stateBadgeClass(s.state))}
+                    >
+                      {isCurrent ? <div className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" /> : null}
+                      {stateLabel(s.state, s.idleLabel)}
                     </motion.div>
                   )}
                 </div>
@@ -944,7 +1073,7 @@ function ProcessAnimation() {
                 </span>
              </div>
              
-           </div>
+           </motion.div>
          );
        })}
     </div>

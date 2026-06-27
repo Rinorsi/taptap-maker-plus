@@ -17,6 +17,9 @@ export type MakerCliResult = {
 export type MakerOnboardingProjectResult = {
   cli: MakerCliResult;
   project: ProjectSummary;
+  targetDir: string;
+  doctorPassed?: boolean;
+  warning?: string;
 };
 
 export type MakerCloudProject = {
@@ -71,6 +74,10 @@ function ensureMakerCliSucceeded(result: MakerCliResult, action: string) {
   throw new Error(output || `${action} failed with exit code ${result.exitCode ?? "unknown"}`);
 }
 
+function makerCliFailureMessage(result: MakerCliResult, action: string) {
+  return [result.stdout, result.stderr].filter(Boolean).join("\n").trim() || `${action} failed with exit code ${result.exitCode ?? "unknown"}`;
+}
+
 async function bindProjectRoot(targetDir: string): Promise<ProjectSummary> {
   const projectRoot = path.resolve(targetDir);
   const project = await readMakerProjectAt(projectRoot);
@@ -116,6 +123,19 @@ function sanitizeDirectoryName(value: string) {
     .slice(0, 80) || "MakerProject";
 }
 
+export function resolveMakerCloudProjectTargetDir(projectName: string, targetDir?: string) {
+  return targetDir?.trim()
+    ? path.resolve(targetDir)
+    : path.join(config.makerProjectsRoot, sanitizeDirectoryName(projectName));
+}
+
+export function resolveMakerCloudProjectTarget(projects: MakerCloudProject[], appId: string, targetDir?: string) {
+  const cloudProject = projects.find((project) => project.id === appId);
+  if (!cloudProject) throw new Error(`未在 Maker 云端项目列表中找到项目：${appId}`);
+  const projectRoot = resolveMakerCloudProjectTargetDir(cloudProject.name, targetDir);
+  return { cloudProject, targetDir: projectRoot };
+}
+
 export async function loginMaker(): Promise<MakerCliResult> {
   const result = await runMakerCli(["login", "--json"], { timeout: 180_000 });
   ensureMakerCliSucceeded(result, "Maker login");
@@ -146,24 +166,33 @@ export async function initMakerProject(targetDir: string, appId?: string): Promi
   if (appId) args.splice(1, 0, "--app-id", appId);
   const result = await runMakerCli(args, { timeout: 180_000 });
   ensureMakerCliSucceeded(result, "Maker init");
-  return { cli: result, project: await bindProjectRoot(projectRoot) };
+  return { cli: result, project: await bindProjectRoot(projectRoot), targetDir: projectRoot };
 }
 
 export async function initMakerCloudProject(appId: string, targetDir?: string): Promise<MakerOnboardingProjectResult> {
   const { projects } = await listMakerCloudProjects();
-  const cloudProject = projects.find((project) => project.id === appId);
-  if (!cloudProject) throw new Error(`未在 Maker 云端项目列表中找到项目：${appId}`);
-  const projectRoot = targetDir?.trim()
-    ? path.resolve(targetDir)
-    : path.join(config.makerProjectsRoot, sanitizeDirectoryName(cloudProject.name));
-  return initMakerProject(projectRoot, appId);
+  const target = resolveMakerCloudProjectTarget(projects, appId, targetDir);
+  return initMakerProject(target.targetDir, appId);
 }
 
 export async function bindExistingMakerProject(targetDir: string): Promise<MakerOnboardingProjectResult> {
   const projectRoot = path.resolve(targetDir);
   const result = await runMakerCli(["doctor", "--target-dir", projectRoot, "--json"], { timeout: 120_000 });
-  ensureMakerCliSucceeded(result, "Maker doctor");
-  return { cli: result, project: await bindProjectRoot(projectRoot) };
+  if (!result.ok) {
+    const project = await bindProjectRoot(projectRoot).catch(() => undefined);
+    if (!project) {
+      ensureMakerCliSucceeded(result, "Maker doctor");
+      throw new Error(makerCliFailureMessage(result, "Maker doctor"));
+    }
+    return {
+      cli: result,
+      project,
+      targetDir: projectRoot,
+      doctorPassed: false,
+      warning: makerCliFailureMessage(result, "Maker doctor")
+    };
+  }
+  return { cli: result, project: await bindProjectRoot(projectRoot), targetDir: projectRoot, doctorPassed: true };
 }
 
 export async function scanExistingMakerProjects(rootDir?: string): Promise<ProjectSummary[]> {

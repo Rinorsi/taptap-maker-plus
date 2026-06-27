@@ -123,6 +123,12 @@ function requireWebAssets() {
   requireFile(webSourceIndex);
   requireFile(webDistIndex);
   requireFile(webDistDesktopLoading);
+  const desktopLoadingHtml = fs.readFileSync(webDistDesktopLoading, "utf8");
+  for (const forbiddenText of ["等待本地端口映射 (5173)", "window.location.replace(\"http://localhost:5173\")", "window.location.replace(\"index.html\")"]) {
+    if (desktopLoadingHtml.includes(forbiddenText)) {
+      throw new Error(`${relative(webDistDesktopLoading)} includes forbidden release loading behavior: ${forbiddenText}`);
+    }
+  }
   const sourceHtml = fs.readFileSync(webSourceIndex, "utf8");
   if (!sourceHtml.includes(webIdentityName) || !sourceHtml.includes(webIdentityContent)) {
     throw new Error(`${relative(webSourceIndex)} does not include the desktop web identity meta`);

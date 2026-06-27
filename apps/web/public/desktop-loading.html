@@ -433,13 +433,7 @@
         appWindow.startDragging().catch(() => {});
       });
 
-      const targets = [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173"
-      ];
-
       const isPreview = new URLSearchParams(window.location.search).get('preview') === 'true';
-      const isDev = window.location.protocol.startsWith('http') && !isPreview;
 
       function activateNode(index) {
         if (index >= nodes.length) return;
@@ -470,27 +464,7 @@
         await new Promise(r => setTimeout(r, 450));
         activateNode(1);
 
-        let serverReady = false;
-        if (isDev) {
-           while (!serverReady) {
-             for (const target of targets) {
-                 try {
-                   const res = await fetch(target, { cache: "no-store", mode: "no-cors" });
-                   if (res) {
-                     serverReady = true;
-                     break;
-                   }
-                 } catch (e) {}
-             }
-             if (!serverReady) {
-                logTitleEl.textContent = "等待本地端口映射 (5173)...";
-                await new Promise(r => setTimeout(r, 500));
-             }
-           }
-        } else {
-           await new Promise(r => setTimeout(r, 400));
-           serverReady = true;
-        }
+        await new Promise(r => setTimeout(r, 400));
 
         await new Promise(r => setTimeout(r, 350));
         activateNode(2);
@@ -509,7 +483,7 @@
             finalEl.classList.add("completed");
         }
 
-        logTitleEl.textContent = "所有组件就绪，即将进入工作台。";
+        logTitleEl.textContent = isPreview ? "所有组件就绪，即将进入工作台。" : "桌面服务接管中，即将进入工作台。";
         logTitleEl.style.color = "var(--brand)";
         logPercentEl.style.background = "var(--brand)";
         logPercentEl.style.color = "var(--panel-bg)";
@@ -525,10 +499,6 @@
           setTimeout(() => {
             window.location.reload();
           }, 400);
-        } else if (isDev) {
-          window.location.replace("http://localhost:5173");
-        } else {
-          window.location.replace("index.html");
         }
       }
 

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { config } from "../lib/config.js";
 import { appVersion } from "../generated/appVersion.js";
@@ -19,6 +20,14 @@ export type AppReleaseAssetSummary = {
   size: number;
   browserDownloadUrl: string;
   contentType?: string;
+  sha256?: string;
+  downloadUrls: string[];
+  downloadSources: AppReleaseDownloadSourceSummary[];
+};
+
+export type AppReleaseDownloadSourceSummary = {
+  label: string;
+  url: string;
 };
 
 export type AppReleaseSummary = {
@@ -68,11 +77,22 @@ export type AppUpdateDownloadStatus = {
   installerPath: string;
   downloadedBytes: number;
   totalBytes?: number;
+  sourceIndex?: number;
+  sourceLabel?: string;
+  sourceUrl?: string;
+  verifiedSha256?: string;
+  sourceFailures: AppUpdateDownloadSourceFailure[];
   startedAt: string;
   updatedAt: string;
   downloadedAt?: string;
   openedAt?: string;
   error?: string;
+};
+
+export type AppUpdateDownloadSourceFailure = {
+  label: string;
+  url: string;
+  error: string;
 };
 
 type ReadAppUpdateManifestResult = {
@@ -114,6 +134,17 @@ type StaticManifestRelease = {
   publishedAt?: unknown;
   changelog?: unknown;
   changelogPath?: unknown;
+  assets?: unknown;
+};
+
+type StaticManifestAsset = {
+  name?: unknown;
+  size?: unknown;
+  sha256?: unknown;
+  contentType?: unknown;
+  browserDownloadUrl?: unknown;
+  downloadUrls?: unknown;
+  downloadSources?: unknown;
 };
 
 type StaticManifestAnnouncement = {
@@ -324,13 +355,21 @@ export async function downloadAndOpenAppUpdate(releaseId: number, assetId?: numb
   return await waitForAppUpdateDownload(task.id);
 }
 
-export async function startAppUpdateDownload(releaseId: number, assetId?: number, releaseFallback?: AppReleaseSummary) {
+export async function startAppUpdateDownload(
+  releaseId: number,
+  assetId?: number,
+  releaseFallback?: AppReleaseSummary,
+  preferredSourceUrl?: string,
+) {
   const releases = await listAppReleases().catch(() => releaseFallback ? [releaseFallback] : []);
   const release = releases.find((item) => item.id === releaseId) ?? (releaseFallback?.id === releaseId ? releaseFallback : undefined);
   if (!release) throw new Error(`找不到 Release：${releaseId}`);
-  const asset = assetId
+  const selectedAsset = assetId
     ? release.assets.find((item) => item.id === assetId)
     : pickInstallerAsset(release);
+  const asset = selectedAsset && preferredSourceUrl
+    ? prioritizeAssetDownloadSource(selectedAsset, preferredSourceUrl)
+    : selectedAsset;
   if (!asset) throw new Error(`Release ${release.tagName} 没有可下载的 Windows 安装器资产。`);
 
   const downloadDir = path.join(config.workspaceRoot, "updates");
@@ -345,12 +384,32 @@ export async function startAppUpdateDownload(releaseId: number, assetId?: number
     installerPath,
     downloadedBytes: 0,
     totalBytes: asset.size > 0 ? asset.size : undefined,
+    sourceFailures: [],
     startedAt: now,
     updatedAt: now,
   };
   updateDownloads.set(task.id, task);
-  void runAppUpdateDownload(task, asset.browserDownloadUrl);
+  void runAppUpdateDownload(task);
   return task;
+}
+
+function prioritizeAssetDownloadSource(asset: AppReleaseAssetSummary, preferredSourceUrl: string): AppReleaseAssetSummary {
+  const sources = asset.downloadSources.length
+    ? asset.downloadSources
+    : [{ label: "安装包下载源", url: asset.browserDownloadUrl }];
+  const selectedIndex = sources.findIndex((source) => source.url === preferredSourceUrl);
+  if (selectedIndex < 0) return asset;
+  const selected = sources[selectedIndex];
+  const reorderedSources = [
+    selected,
+    ...sources.filter((_, index) => index !== selectedIndex),
+  ];
+  return {
+    ...asset,
+    browserDownloadUrl: selected.url,
+    downloadUrls: reorderedSources.map((source) => source.url),
+    downloadSources: reorderedSources,
+  };
 }
 
 export function getAppUpdateDownloadStatus(downloadId: string) {
@@ -390,14 +449,18 @@ async function waitForAppUpdateDownload(downloadId: string) {
   }
 }
 
-async function runAppUpdateDownload(task: AppUpdateDownloadStatus, url: string) {
+async function runAppUpdateDownload(task: AppUpdateDownloadStatus) {
   try {
     updateDownloadTask(task.id, { status: "downloading" });
-    await downloadFile(url, task.installerPath, (downloadedBytes, totalBytes) => {
+    const result = await downloadInstallerFromSources(task, (downloadedBytes, totalBytes) => {
       updateDownloadTask(task.id, { downloadedBytes, totalBytes });
     });
     updateDownloadTask(task.id, {
       status: "downloaded",
+      sourceIndex: result.sourceIndex,
+      sourceLabel: result.source.label,
+      sourceUrl: result.source.url,
+      verifiedSha256: result.verifiedSha256,
       downloadedAt: new Date().toISOString(),
     });
     updateDownloadTask(task.id, { status: "opening" });
@@ -432,7 +495,7 @@ async function normalizeStaticRelease(raw: unknown, manifestUrl: string): Promis
   const tagName = readString(source.version, "manifest.release.version");
   const title = readString(source.title, "manifest.release.title");
   const changelog = await readStaticReleaseChangelog(source, manifestUrl);
-  const asset = buildStaticInstallerAsset(tagName);
+  const assets = normalizeStaticReleaseAssets(source.assets, tagName);
   return {
     id: stableReleaseId(tagName),
     tagName,
@@ -442,7 +505,7 @@ async function normalizeStaticRelease(raw: unknown, manifestUrl: string): Promis
     publishedAt: readString(source.publishedAt, "manifest.release.publishedAt"),
     prerelease: true,
     draft: false,
-    assets: [asset],
+    assets,
   };
 }
 
@@ -507,12 +570,92 @@ async function fetchStaticMarkdown(markdownUrl: string, label: string) {
 
 function buildStaticInstallerAsset(tagName: string): AppReleaseAssetSummary {
   const fileName = `TapTap.Maker.Plus._${installerVersionFromTag(tagName)}_x64-setup.exe`;
+  const browserDownloadUrl = githubReleaseInstallerUrl(tagName, fileName);
+  const acceleratedDownloadUrl = `https://gh-proxy.com/${browserDownloadUrl}`;
   return {
     id: stableReleaseId(`${tagName}:installer`),
     name: fileName,
     size: 0,
-    browserDownloadUrl: `${githubRepositoryUrl}/releases/download/${encodeURIComponent(tagName)}/${encodeURIComponent(fileName)}`,
+    browserDownloadUrl: acceleratedDownloadUrl,
     contentType: "application/x-msdownload",
+    downloadUrls: [acceleratedDownloadUrl, browserDownloadUrl],
+    downloadSources: [
+      { label: "gh-proxy.com 加速源（第三方非官方）", url: acceleratedDownloadUrl },
+      { label: "GitHub 官方源", url: browserDownloadUrl },
+    ],
+  };
+}
+
+function normalizeStaticReleaseAssets(rawAssets: unknown, tagName: string): AppReleaseAssetSummary[] {
+  if (rawAssets === undefined) return [buildStaticInstallerAsset(tagName)];
+  if (!Array.isArray(rawAssets)) throw new Error("静态更新清单 release.assets 不是数组。");
+  if (!rawAssets.length) throw new Error("静态更新清单 release.assets 不能为空。");
+  return rawAssets.map((rawAsset, index) => normalizeStaticReleaseAsset(rawAsset, tagName, index));
+}
+
+function normalizeStaticReleaseAsset(raw: unknown, tagName: string, index: number): AppReleaseAssetSummary {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("静态更新清单 release.assets[] 不是对象。");
+  }
+  const source = raw as StaticManifestAsset;
+  const name = readString(source.name, "manifest.release.assets.name");
+  const size = readOptionalPositiveNumber(source.size, "manifest.release.assets.size") ?? 0;
+  const sha256 = readOptionalSha256(source.sha256, "manifest.release.assets.sha256");
+  const contentType = readOptionalString(source.contentType);
+  const downloadSources = normalizeDownloadSources(source, tagName, name);
+  const browserDownloadUrl = readOptionalString(source.browserDownloadUrl) ?? downloadSources[0].url;
+  return {
+    id: stableReleaseId(`${tagName}:asset:${name}:${index}`),
+    name,
+    size,
+    browserDownloadUrl,
+    contentType,
+    sha256,
+    downloadUrls: downloadSources.map((item) => item.url),
+    downloadSources,
+  };
+}
+
+function normalizeDownloadSources(source: StaticManifestAsset, tagName: string, assetName: string): AppReleaseDownloadSourceSummary[] {
+  if (Array.isArray(source.downloadSources) && source.downloadSources.length) {
+    return source.downloadSources.map((entry, index) => normalizeDownloadSource(entry, index));
+  }
+  if (Array.isArray(source.downloadUrls) && source.downloadUrls.length) {
+    return source.downloadUrls.map((entry, index) => ({
+      label: index === 0 ? "下载源 1" : `下载源 ${index + 1}`,
+      url: readUrlString(entry, "manifest.release.assets.downloadUrls[]"),
+    }));
+  }
+  const browserDownloadUrl = readOptionalString(source.browserDownloadUrl);
+  if (browserDownloadUrl) {
+    return [{ label: "安装包下载源", url: readUrlString(browserDownloadUrl, "manifest.release.assets.browserDownloadUrl") }];
+  }
+  const fallback = buildStaticInstallerAsset(tagName);
+  if (fallback.name !== assetName) {
+    const githubUrl = githubReleaseInstallerUrl(tagName, assetName);
+    return [
+      { label: "gh-proxy.com 加速源（第三方非官方）", url: `https://gh-proxy.com/${githubUrl}` },
+      { label: "GitHub 官方源", url: githubUrl },
+    ];
+  }
+  return fallback.downloadSources;
+}
+
+function githubReleaseInstallerUrl(tagName: string, fileName: string) {
+  return `${githubRepositoryUrl}/releases/download/${encodeURIComponent(tagName)}/${encodeURIComponent(fileName)}`;
+}
+
+function normalizeDownloadSource(raw: unknown, index: number): AppReleaseDownloadSourceSummary {
+  if (typeof raw === "string") {
+    return { label: index === 0 ? "下载源 1" : `下载源 ${index + 1}`, url: readUrlString(raw, "manifest.release.assets.downloadSources[]") };
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("静态更新清单 release.assets.downloadSources[] 不是对象。");
+  }
+  const source = raw as { label?: unknown; url?: unknown };
+  return {
+    label: readOptionalString(source.label) || (index === 0 ? "下载源 1" : `下载源 ${index + 1}`),
+    url: readUrlString(source.url, "manifest.release.assets.downloadSources.url"),
   };
 }
 
@@ -550,6 +693,32 @@ function readOptionalString(value: unknown) {
   return typeof value === "string" ? value : undefined;
 }
 
+function readOptionalPositiveNumber(value: unknown, key: string) {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new Error(`GitHub Release 字段 ${key} 缺失或格式不正确。`);
+  }
+  return value;
+}
+
+function readOptionalSha256(value: unknown, key: string) {
+  if (value === undefined) return undefined;
+  const text = readString(value, key).toUpperCase();
+  if (!/^[A-F0-9]{64}$/.test(text)) {
+    throw new Error(`GitHub Release 字段 ${key} 不是有效 SHA256。`);
+  }
+  return text;
+}
+
+function readUrlString(value: unknown, key: string) {
+  const text = readString(value, key);
+  const parsed = new URL(text);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`GitHub Release 字段 ${key} 不是 http/https URL。`);
+  }
+  return parsed.toString();
+}
+
 function compareVersions(left: string, right: string) {
   const a = versionParts(left);
   const b = versionParts(right);
@@ -577,12 +746,51 @@ function sanitizeDownloadName(fileName: string) {
   return sanitized;
 }
 
+async function downloadInstallerFromSources(
+  task: AppUpdateDownloadStatus,
+  onProgress?: (downloadedBytes: number, totalBytes?: number) => void,
+) {
+  const sources = task.asset.downloadSources.length
+    ? task.asset.downloadSources
+    : [{ label: "安装包下载源", url: task.asset.browserDownloadUrl }];
+  const failures: AppUpdateDownloadSourceFailure[] = [];
+  for (let index = 0; index < sources.length; index += 1) {
+    const source = sources[index];
+    try {
+      updateDownloadTask(task.id, {
+        status: "downloading",
+        sourceIndex: index,
+        sourceLabel: source.label,
+        sourceUrl: source.url,
+        downloadedBytes: 0,
+        totalBytes: task.asset.size > 0 ? task.asset.size : undefined,
+        sourceFailures: failures,
+      });
+      await downloadFile(source.url, task.installerPath, onProgress);
+      const verifiedSha256 = verifyDownloadedInstaller(task.installerPath, task.asset.sha256);
+      return { sourceIndex: index, source, verifiedSha256 };
+    } catch (error) {
+      cleanupPartialDownload(task.installerPath);
+      failures.push({
+        label: source.label,
+        url: source.url,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      updateDownloadTask(task.id, { sourceFailures: failures });
+    }
+  }
+  throw new Error(`所有下载源均失败：${failures.map((failure) => `${failure.label}：${failure.error}`).join("；")}`);
+}
+
 async function downloadFile(url: string, targetPath: string, onProgress?: (downloadedBytes: number, totalBytes?: number) => void) {
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), 45_000);
   const response = await fetch(url, {
+    signal: abortController.signal,
     headers: {
       "User-Agent": "TapTap-Maker-Plus-Updater",
     },
-  });
+  }).finally(() => clearTimeout(timeout));
   if (!response.ok) {
     throw new Error(`下载安装器失败：HTTP ${response.status} ${response.statusText}`);
   }
@@ -619,6 +827,24 @@ async function downloadFile(url: string, targetPath: string, onProgress?: (downl
     });
   });
   fs.renameSync(tempPath, targetPath);
+}
+
+function verifyDownloadedInstaller(filePath: string, expectedSha256?: string) {
+  const actualSha256 = fileSha256(filePath);
+  if (expectedSha256 && actualSha256 !== expectedSha256.toUpperCase()) {
+    fs.rmSync(filePath, { force: true });
+    throw new Error(`安装包 SHA256 校验失败：实际 ${actualSha256}，预期 ${expectedSha256.toUpperCase()}`);
+  }
+  return actualSha256;
+}
+
+function fileSha256(filePath: string) {
+  return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex").toUpperCase();
+}
+
+function cleanupPartialDownload(targetPath: string) {
+  fs.rmSync(`${targetPath}.download`, { force: true });
+  fs.rmSync(targetPath, { force: true });
 }
 
 function createDownloadId(tagName: string, assetId: number) {

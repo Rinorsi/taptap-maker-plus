@@ -605,6 +605,14 @@ export type AppReleaseAssetSummary = {
   size: number;
   browserDownloadUrl: string;
   contentType?: string;
+  sha256?: string;
+  downloadUrls: string[];
+  downloadSources: AppReleaseDownloadSourceSummary[];
+};
+
+export type AppReleaseDownloadSourceSummary = {
+  label: string;
+  url: string;
 };
 
 export type AppReleaseSummary = {
@@ -662,11 +670,22 @@ export type AppUpdateDownloadStatus = {
   installerPath: string;
   downloadedBytes: number;
   totalBytes?: number;
+  sourceIndex?: number;
+  sourceLabel?: string;
+  sourceUrl?: string;
+  verifiedSha256?: string;
+  sourceFailures: AppUpdateDownloadSourceFailure[];
   startedAt: string;
   updatedAt: string;
   downloadedAt?: string;
   openedAt?: string;
   error?: string;
+};
+
+export type AppUpdateDownloadSourceFailure = {
+  label: string;
+  url: string;
+  error: string;
 };
 
 export type OpenExternalUrlResult = {
@@ -1390,12 +1409,17 @@ export async function listAppReleases(forceRefresh = false): Promise<{ releases:
   return json<{ releases: AppReleaseSummary[] }>(await apiFetch(`/api/app/releases${forceRefresh ? "?force=1" : ""}`));
 }
 
-export async function downloadAppUpdate(releaseId: number, assetId?: number, release?: AppReleaseSummary): Promise<AppUpdateDownloadStatus> {
+export async function downloadAppUpdate(
+  releaseId: number,
+  assetId?: number,
+  release?: AppReleaseSummary,
+  preferredSourceUrl?: string,
+): Promise<AppUpdateDownloadStatus> {
   return json<AppUpdateDownloadStatus>(
     await apiFetch("/api/app/update/download", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ releaseId, assetId, release }),
+      body: JSON.stringify({ releaseId, assetId, release, preferredSourceUrl }),
     }),
   );
 }

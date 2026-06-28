@@ -59,12 +59,83 @@ function validateUpdateManifest(manifest, manifestPath, manifestRoot) {
     if (!hasInlineChangelog && !hasChangelogPath) {
       throw new Error(`${manifestPath} release requires string key: changelog or changelogPath`);
     }
+    if (release.assets !== undefined) {
+      validateReleaseAssets(release.assets, manifestPath);
+    }
   }
   findManifestRelease({
     ...manifest,
     __manifestRoot: manifestRoot,
     __manifestPath: manifestPath,
   }, manifest.latestVersion);
+}
+
+function validateReleaseAssets(assets, manifestPath) {
+  if (!Array.isArray(assets) || assets.length === 0) {
+    throw new Error(`${manifestPath} release.assets must be a non-empty array when provided`);
+  }
+  for (const asset of assets) {
+    if (!asset || typeof asset !== "object" || Array.isArray(asset)) {
+      throw new Error(`${manifestPath} release.assets entries must be objects`);
+    }
+    if (typeof asset.name !== "string" || !asset.name.trim()) {
+      throw new Error(`${manifestPath} release.assets requires string key: name`);
+    }
+    if (asset.size !== undefined && (typeof asset.size !== "number" || !Number.isFinite(asset.size) || asset.size < 0)) {
+      throw new Error(`${manifestPath} release.assets size must be a non-negative number`);
+    }
+    if (asset.sha256 !== undefined && (typeof asset.sha256 !== "string" || !/^[A-Fa-f0-9]{64}$/.test(asset.sha256))) {
+      throw new Error(`${manifestPath} release.assets sha256 must be a 64-character hex string`);
+    }
+    if (asset.downloadSources !== undefined) {
+      validateDownloadSources(asset.downloadSources, manifestPath);
+    } else if (asset.downloadUrls !== undefined) {
+      validateDownloadUrls(asset.downloadUrls, manifestPath);
+    } else if (typeof asset.browserDownloadUrl !== "string" || !asset.browserDownloadUrl.trim()) {
+      throw new Error(`${manifestPath} release.assets requires downloadSources, downloadUrls, or browserDownloadUrl`);
+    }
+  }
+}
+
+function validateDownloadSources(downloadSources, manifestPath) {
+  if (!Array.isArray(downloadSources) || downloadSources.length === 0) {
+    throw new Error(`${manifestPath} release.assets.downloadSources must be a non-empty array`);
+  }
+  for (const source of downloadSources) {
+    if (typeof source === "string") {
+      validateUrl(source, manifestPath);
+      continue;
+    }
+    if (!source || typeof source !== "object" || Array.isArray(source)) {
+      throw new Error(`${manifestPath} release.assets.downloadSources entries must be strings or objects`);
+    }
+    if (typeof source.url !== "string" || !source.url.trim()) {
+      throw new Error(`${manifestPath} release.assets.downloadSources requires string key: url`);
+    }
+    validateUrl(source.url, manifestPath);
+    if (source.label !== undefined && (typeof source.label !== "string" || !source.label.trim())) {
+      throw new Error(`${manifestPath} release.assets.downloadSources label must be a non-empty string`);
+    }
+  }
+}
+
+function validateDownloadUrls(downloadUrls, manifestPath) {
+  if (!Array.isArray(downloadUrls) || downloadUrls.length === 0) {
+    throw new Error(`${manifestPath} release.assets.downloadUrls must be a non-empty array`);
+  }
+  for (const url of downloadUrls) {
+    if (typeof url !== "string" || !url.trim()) {
+      throw new Error(`${manifestPath} release.assets.downloadUrls entries must be strings`);
+    }
+    validateUrl(url, manifestPath);
+  }
+}
+
+function validateUrl(value, manifestPath) {
+  const parsed = new URL(value);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`${manifestPath} release asset URL must be http or https`);
+  }
 }
 
 function readReleaseChangelog(release, manifestRoot) {

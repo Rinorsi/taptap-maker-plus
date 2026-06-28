@@ -1,7 +1,7 @@
 {
   "name": "taptap-maker-plus",
   "private": true,
-  "version": "0.13.5-alpha",
+  "version": "0.13.6-alpha",
   "type": "module",
   "workspaces": [
     "apps/*"

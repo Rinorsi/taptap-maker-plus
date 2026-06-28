@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, ExternalLink, History, RefreshCw, Sparkles, ChevronDown, ChevronRight, Search } from "lucide-react";
 import {
   checkAppUpdate,
@@ -24,7 +24,9 @@ export type AppUpdateUiState = {
   notice: string;
   downloadStatus?: AppUpdateDownloadStatus;
   selectedReleaseId?: string;
+  selectedSourceUrl?: string;
   setSelectedReleaseId: (releaseId: string) => void;
+  setSelectedSourceUrl: (sourceUrl: string) => void;
   refresh: () => Promise<void>;
   downloadSelected: () => Promise<void>;
   openRelease: (release: AppReleaseSummary) => Promise<void>;
@@ -38,6 +40,12 @@ export function useAppUpdateUi(forceDeveloperTest = false): AppUpdateUiState {
   const [notice, setNotice] = useState("");
   const [downloadStatus, setDownloadStatus] = useState<AppUpdateDownloadStatus>();
   const [selectedReleaseId, setSelectedReleaseId] = useState<string>();
+  const [selectedSourceUrl, setSelectedSourceUrl] = useState<string>();
+  const selectedReleaseIdRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    selectedReleaseIdRef.current = selectedReleaseId;
+  }, [selectedReleaseId]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -50,14 +58,23 @@ export function useAppUpdateUi(forceDeveloperTest = false): AppUpdateUiState {
       setStatus(nextStatus);
       const nextReleases = forceDeveloperTest ? [nextStatus.latestRelease!, ...statusResponse.status.releases] : nextStatus.releases;
       setReleases(nextReleases);
-      setSelectedReleaseId((current) =>
-        current && nextReleases.some((release) => String(release.id) === current)
-          ? current
+      const currentSelectedReleaseId = selectedReleaseIdRef.current;
+      const nextSelectedReleaseId =
+        currentSelectedReleaseId && nextReleases.some((release) => String(release.id) === currentSelectedReleaseId)
+          ? currentSelectedReleaseId
           : nextStatus.latestRelease
             ? String(nextStatus.latestRelease.id)
             : nextReleases[0]
               ? String(nextReleases[0].id)
-              : undefined,
+              : undefined;
+      setSelectedReleaseId(nextSelectedReleaseId);
+      selectedReleaseIdRef.current = nextSelectedReleaseId;
+      const nextSelectedRelease = nextReleases.find((release) => String(release.id) === nextSelectedReleaseId) ?? nextStatus.latestRelease ?? nextReleases[0];
+      const nextInstallerAsset = nextSelectedRelease?.assets.find((asset) => /\.exe$/i.test(asset.name));
+      setSelectedSourceUrl((current) =>
+        current && nextInstallerAsset?.downloadSources.some((source) => source.url === current)
+          ? current
+          : nextInstallerAsset?.downloadSources[0]?.url,
       );
       setNotice(nextStatus.error ?? (nextStatus.updateAvailable ? `检测到新版本 ${nextStatus.latestVersion}` : "当前已是最新版本"));
     } catch (error) {
@@ -75,6 +92,14 @@ export function useAppUpdateUi(forceDeveloperTest = false): AppUpdateUiState {
     }
   }, [forceDeveloperTest]);
 
+  const selectRelease = useCallback((releaseId: string) => {
+    setSelectedReleaseId(releaseId);
+    selectedReleaseIdRef.current = releaseId;
+    const nextRelease = releases.find((release) => String(release.id) === releaseId);
+    const nextInstallerAsset = nextRelease?.assets.find((asset) => /\.exe$/i.test(asset.name));
+    setSelectedSourceUrl(nextInstallerAsset?.downloadSources[0]?.url);
+  }, [releases]);
+
   const downloadSelected = useCallback(async () => {
     const selectedRelease = releases.find((release) => String(release.id) === selectedReleaseId) ?? status?.latestRelease;
     if (!selectedRelease) {
@@ -88,9 +113,9 @@ export function useAppUpdateUi(forceDeveloperTest = false): AppUpdateUiState {
     setDownloading(true);
     setDownloadStatus(undefined);
     const installerAsset = selectedRelease.assets.find((asset) => /\.exe$/i.test(asset.name));
-    setNotice(`正在下载安装器 ${installerAsset?.name ?? selectedRelease.tagName}，保存到软件数据目录 updates，完成后会自动打开安装程序...`);
+    setNotice(`正在准备下载 ${installerAsset?.name ?? selectedRelease.tagName}，会按清单里的下载源顺序尝试，完成后校验安装包并打开安装程序...`);
     try {
-      const initialStatus = await downloadAppUpdate(selectedRelease.id, installerAsset?.id, selectedRelease);
+      const initialStatus = await downloadAppUpdate(selectedRelease.id, installerAsset?.id, selectedRelease, selectedSourceUrl);
       setDownloadStatus(initialStatus);
       setNotice(formatDownloadNotice(initialStatus));
       let currentStatus = initialStatus;
@@ -105,7 +130,7 @@ export function useAppUpdateUi(forceDeveloperTest = false): AppUpdateUiState {
     } finally {
       setDownloading(false);
     }
-  }, [releases, selectedReleaseId, status?.latestRelease]);
+  }, [releases, selectedReleaseId, selectedSourceUrl, status?.latestRelease]);
 
   const openRelease = useCallback(async (release: AppReleaseSummary) => {
     try {
@@ -120,7 +145,7 @@ export function useAppUpdateUi(forceDeveloperTest = false): AppUpdateUiState {
     void refresh();
   }, [refresh]);
 
-  return { status, releases, loading, downloading, notice, downloadStatus, selectedReleaseId, setSelectedReleaseId, refresh, downloadSelected, openRelease };
+  return { status, releases, loading, downloading, notice, downloadStatus, selectedReleaseId, selectedSourceUrl, setSelectedReleaseId: selectRelease, setSelectedSourceUrl, refresh, downloadSelected, openRelease };
 }
 
 export function VersionPill({
@@ -170,6 +195,10 @@ export function AppUpdatePanel({
     value: String(release.id),
     label: `${release.tagName}${release.id === latestRelease?.id ? " · 最新" : ""}`,
   }));
+  const sourceOptions = (installerAsset?.downloadSources ?? []).map((source, index) => ({
+    value: source.url,
+    label: `${index + 1}. ${source.label}`,
+  }));
   const selectedIsCurrent = selectedRelease ? normalizeVersion(selectedRelease.tagName) === normalizeVersion(appVersion.packageVersion) : false;
   const downloadProgress = state.downloadStatus ? formatDownloadProgress(state.downloadStatus) : "";
 
@@ -202,7 +231,7 @@ export function AppUpdatePanel({
                 )}
               </div>
               <p className="m-0 text-[12px] text-text-muted">
-                {state.notice || appVersion.announcementBody}
+                {state.notice || "检查远端更新清单，选择版本和下载源后下载并覆盖安装。"}
               </p>
             </div>
           </div>
@@ -216,6 +245,16 @@ export function AppUpdatePanel({
                 onChange={state.setSelectedReleaseId}
                 className="w-[150px] text-xs"
                 ariaLabel="选择软件版本"
+              />
+            ) : null}
+            {sourceOptions.length ? (
+              <SelectField
+                id="app-update-download-source"
+                value={state.selectedSourceUrl ?? sourceOptions[0].value}
+                options={sourceOptions}
+                onChange={state.setSelectedSourceUrl}
+                className="w-[170px] text-xs"
+                ariaLabel="选择下载源"
               />
             ) : null}
             <Button
@@ -268,6 +307,27 @@ export function AppUpdatePanel({
                       · 保存至：{state.downloadStatus.installerPath}
                     </span>
                   )}
+                </div>
+              ) : null}
+              {state.downloadStatus ? (
+                <DownloadSourceStatus status={state.downloadStatus} />
+              ) : installerAsset?.downloadSources?.length ? (
+                <div className="ml-3 rounded-lg border border-border-soft bg-surface-panel/50 p-3 text-[12px] text-text-muted">
+                  <div className="mb-2 font-bold text-text">下载源顺序</div>
+                  <div className="flex flex-col gap-1.5">
+                    {installerAsset.downloadSources.map((source, index) => (
+                      <div key={`${source.label}-${source.url}`} className="flex items-start gap-2">
+                        <span className="mt-0.5 rounded bg-surface-muted px-1.5 py-0.5 font-mono text-[10px] text-text-subtle">{index + 1}</span>
+                        <span className="min-w-0">
+                          <span className="font-medium text-text">{source.label}</span>
+                          <span className="ml-2 break-all text-text-subtle">{source.url}</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  {installerAsset.sha256 ? (
+                    <div className="mt-2 break-all font-mono text-[10px] text-text-subtle">SHA256: {installerAsset.sha256}</div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -482,11 +542,12 @@ function delay(ms: number) {
 }
 
 function formatDownloadNotice(status: AppUpdateDownloadStatus) {
+  const source = status.sourceLabel ? `下载源：${status.sourceLabel}。` : "";
   if (status.status === "error") return status.error ?? "下载安装器失败。";
-  if (status.status === "opened") return `安装器已下载并启动：${status.installerPath}`;
-  if (status.status === "opening") return `下载完成，正在打开安装器：${status.installerPath}`;
-  if (status.status === "downloaded") return `安装器已下载：${status.installerPath}`;
-  return `正在下载到：${status.installerPath}${formatDownloadProgress(status) ? `（${formatDownloadProgress(status)}）` : ""}`;
+  if (status.status === "opened") return `安装器已下载、校验并启动：${status.installerPath}`;
+  if (status.status === "opening") return `下载完成，校验通过，正在打开安装器：${status.installerPath}`;
+  if (status.status === "downloaded") return `安装器已下载并校验：${status.installerPath}`;
+  return `${source}正在下载到：${status.installerPath}${formatDownloadProgress(status) ? `（${formatDownloadProgress(status)}）` : ""}`;
 }
 
 function formatDownloadProgress(status: AppUpdateDownloadStatus) {
@@ -502,6 +563,39 @@ function formatBytes(bytes: number) {
   if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${bytes} B`;
+}
+
+function DownloadSourceStatus({ status }: { status: AppUpdateDownloadStatus }) {
+  return (
+    <div className="ml-3 rounded-lg border border-border-soft bg-surface-panel/50 p-3 text-[12px] text-text-muted">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-bold text-text">当前下载</span>
+        <span className="rounded bg-surface-muted px-2 py-0.5 text-[11px] text-text-subtle">
+          {status.sourceLabel ?? "等待选择下载源"}
+        </span>
+        {formatDownloadProgress(status) ? (
+          <span className="font-mono text-brand">{formatDownloadProgress(status)}</span>
+        ) : null}
+      </div>
+      {status.sourceUrl ? (
+        <div className="mt-2 break-all font-mono text-[10px] text-text-subtle">{status.sourceUrl}</div>
+      ) : null}
+      {status.verifiedSha256 ? (
+        <div className="mt-2 break-all font-mono text-[10px] text-brand">SHA256 校验通过：{status.verifiedSha256}</div>
+      ) : null}
+      {status.sourceFailures.length ? (
+        <div className="mt-3 flex flex-col gap-1.5">
+          <span className="font-bold text-amber-500">已跳过的失败源</span>
+          {status.sourceFailures.map((failure) => (
+            <div key={`${failure.label}-${failure.url}`} className="rounded border border-amber-500/20 bg-amber-500/5 px-2 py-1">
+              <span className="font-medium text-text">{failure.label}</span>
+              <span className="ml-2 break-all text-text-subtle">{failure.error}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function ReleaseMarkdown({ content, compact = false, skipFirstHeading }: { content: string; compact?: boolean; skipFirstHeading?: string }) {

@@ -157,13 +157,32 @@ impl DesktopServer {
       return;
     };
     if let Some(mut child) = child.take() {
-      let _ = child.kill();
-      let _ = child.wait();
+      terminate_child_process_tree(&mut child);
     }
     if let Ok(mut launch) = self.launch.lock() {
       *launch = None;
     }
   }
+}
+
+fn terminate_child_process_tree(child: &mut Child) {
+  #[cfg(windows)]
+  {
+    let status = Command::new("taskkill.exe")
+      .args(["/PID", &child.id().to_string(), "/T", "/F"])
+      .stdin(Stdio::null())
+      .stdout(Stdio::null())
+      .stderr(Stdio::null())
+      .creation_flags(CREATE_NO_WINDOW)
+      .status();
+    if status.as_ref().map(|item| item.success()).unwrap_or(false) {
+      let _ = child.wait();
+      return;
+    }
+  }
+
+  let _ = child.kill();
+  let _ = child.wait();
 }
 
 fn append_log(log_path: &Path, message: &str) {

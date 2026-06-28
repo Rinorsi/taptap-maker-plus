@@ -87,6 +87,7 @@ const mcpPackageInstallSchema = z.object({
 const appUpdateDownloadSchema = z.object({
   releaseId: z.number().int(),
   assetId: z.number().int().optional(),
+  preferredSourceUrl: z.string().url().optional(),
   release: z.object({
     id: z.number().int(),
     tagName: z.string(),
@@ -101,7 +102,13 @@ const appUpdateDownloadSchema = z.object({
       name: z.string(),
       size: z.number(),
       browserDownloadUrl: z.string(),
-      contentType: z.string().optional()
+      contentType: z.string().optional(),
+      sha256: z.string().optional(),
+      downloadUrls: z.array(z.string()).default([]),
+      downloadSources: z.array(z.object({
+        label: z.string(),
+        url: z.string()
+      })).default([])
     }))
   }).optional()
 });
@@ -724,7 +731,7 @@ export async function registerApiRoutes(app: FastifyInstance) {
     const parsed = appUpdateDownloadSchema.safeParse(request.body ?? {});
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
     try {
-      return await startAppUpdateDownload(parsed.data.releaseId, parsed.data.assetId, parsed.data.release);
+      return await startAppUpdateDownload(parsed.data.releaseId, parsed.data.assetId, parsed.data.release, parsed.data.preferredSourceUrl);
     } catch (error) {
       return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
     }

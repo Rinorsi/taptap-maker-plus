@@ -1,4 +1,4 @@
-import { Heart, Scale, Mail, Sparkles, Users, MessageSquare } from "lucide-react";
+import { Heart, Scale, Mail, Sparkles, Users, MessageSquare, GitPullRequest } from "lucide-react";
 import { appVersion } from "../../generated/appVersion";
 import React from "react";
 
@@ -122,8 +122,23 @@ export function AboutView() {
                 <a href="mailto:Rinorsi@163.com" className="text-brand hover:underline hover:text-brand-strong transition-colors ml-1">Rinorsi@163.com</a>
               </li>
               <li>
+                <strong className="text-text font-normal">GitHub 仓库：</strong>{" "}
+                <a
+                  href="https://github.com/Rinorsi/taptap-maker-plus"
+                  className="ml-1 inline-flex items-center gap-1 text-brand hover:text-brand-strong hover:underline transition-colors"
+                >
+                  <GitPullRequest className="h-3.5 w-3.5" />
+                  Rinorsi/taptap-maker-plus
+                </a>
+              </li>
+              <li>
                 <strong className="text-text font-normal">GitHub Issues：</strong>{" "}
-                <span className="ml-1 cursor-pointer hover:text-brand transition-colors">[仓库反馈链接占位]</span>
+                <a
+                  href="https://github.com/Rinorsi/taptap-maker-plus/issues"
+                  className="ml-1 text-brand hover:text-brand-strong hover:underline transition-colors"
+                >
+                  提交问题与反馈
+                </a>
               </li>
             </ul>
           </Section>

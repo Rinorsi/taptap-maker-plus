@@ -1,6 +1,16 @@
 import type { WorkbenchModule } from "../../app/routes";
 import { getSettingsPreferences, saveSettingsPreferences } from "../../api";
 
+type SettingsPreferencesStorageResponse = {
+  preferences: Record<string, unknown>;
+  updatedAt?: string;
+};
+
+type DesktopSettingsPreferencesFileResponse = SettingsPreferencesStorageResponse & {
+  path: string;
+  exists: boolean;
+};
+
 export type ThemePreference = "system" | "light" | "dark";
 export type StartupPreference = "last-project" | "home" | "home-picker";
 export type DefaultWorkspace = "assets" | "studio-video" | "studio-image" | "studio-music" | "studio-3d";
@@ -289,8 +299,10 @@ export function resetLocalSettingsPreferences() {
   }
   for (const [preferenceKey, value] of Object.entries(defaultSettingsPreferences)) {
     const storageKey = settingsPreferenceKeys[preferenceKey as keyof SettingsPreferences];
+    localStorage.setItem(storageKey, JSON.stringify(value));
     window.dispatchEvent(new CustomEvent(SETTINGS_PREFERENCES_CHANGED_EVENT, { detail: { key: storageKey, value } }));
   }
+  scheduleRemotePreferencesSave();
 }
 
 export async function flushSettingsPreferencesSave(source: "auto" | "manual" = "manual") {
@@ -299,8 +311,11 @@ export async function flushSettingsPreferencesSave(source: "auto" | "manual" = "
     saveTimer = undefined;
   }
 
+  const preferences = readAllStoredSettingsPreferences();
+  const errors: string[] = [];
+
   try {
-    const response = await saveSettingsPreferences(readAllStoredSettingsPreferences());
+    const response = await writeDesktopSettingsPreferencesFile(preferences);
     window.dispatchEvent(
       new CustomEvent(SETTINGS_PREFERENCES_SAVED_EVENT, {
         detail: {
@@ -312,7 +327,25 @@ export async function flushSettingsPreferencesSave(source: "auto" | "manual" = "
     );
     return response;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    errors.push(`本地配置文件写入失败：${formatUnknownError(error)}`);
+  }
+
+  try {
+    const response = await saveSettingsPreferences(preferences);
+    void writeDesktopSettingsPreferencesFile(preferences).catch(() => undefined);
+    window.dispatchEvent(
+      new CustomEvent(SETTINGS_PREFERENCES_SAVED_EVENT, {
+        detail: {
+          savedAt: new Date().toISOString(),
+          updatedAt: response.updatedAt,
+          source,
+        },
+      }),
+    );
+    return response;
+  } catch (error) {
+    errors.push(`配置服务写入失败：${formatUnknownError(error)}`);
+    const message = errors.join("；");
     window.dispatchEvent(
       new CustomEvent(SETTINGS_PREFERENCES_SAVE_FAILED_EVENT, {
         detail: {
@@ -322,26 +355,18 @@ export async function flushSettingsPreferencesSave(source: "auto" | "manual" = "
         },
       }),
     );
-    throw error;
+    throw new Error(message);
   }
 }
 
 export function loadRemoteSettingsPreferences() {
   if (remoteLoadStarted || typeof window === "undefined") return;
   remoteLoadStarted = true;
-  void getSettingsPreferences()
-    .then((response) => {
-      applyingRemotePreferences = true;
-      try {
-        for (const [key, value] of Object.entries(response.preferences)) {
-          if (!isSettingsPreferenceStorageKey(key)) continue;
-          localStorage.setItem(key, JSON.stringify(value));
-          window.dispatchEvent(new CustomEvent(SETTINGS_PREFERENCES_CHANGED_EVENT, { detail: { key, value } }));
-        }
-      } finally {
-        applyingRemotePreferences = false;
+  void loadStoredSettingsPreferences()
+    .then((loaded) => {
+      if (!loaded) {
+        remoteLoadStarted = false;
       }
-      window.dispatchEvent(new CustomEvent(SETTINGS_REMOTE_SYNCED_EVENT));
     })
     .catch(() => {
       remoteLoadStarted = false;
@@ -359,4 +384,60 @@ function scheduleRemotePreferencesSave() {
 
 function isSettingsPreferenceStorageKey(key: string) {
   return Object.values(settingsPreferenceKeys).includes(key as (typeof settingsPreferenceKeys)[keyof typeof settingsPreferenceKeys]);
+}
+
+async function loadStoredSettingsPreferences() {
+  try {
+    const response = await readDesktopSettingsPreferencesFile();
+    if (response.exists && hasSettingsPreferences(response.preferences)) {
+      applyStoredSettingsPreferences(response.preferences);
+      window.dispatchEvent(new CustomEvent(SETTINGS_REMOTE_SYNCED_EVENT));
+      return true;
+    }
+  } catch {
+    // Fall back to the local Fastify settings API for browser development and migration.
+  }
+
+  try {
+    const response = await getSettingsPreferences();
+    if (!hasSettingsPreferences(response.preferences)) return false;
+    applyStoredSettingsPreferences(response.preferences);
+    void writeDesktopSettingsPreferencesFile(response.preferences).catch(() => undefined);
+    window.dispatchEvent(new CustomEvent(SETTINGS_REMOTE_SYNCED_EVENT));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function applyStoredSettingsPreferences(preferences: Record<string, unknown>) {
+  applyingRemotePreferences = true;
+  try {
+    for (const [key, value] of Object.entries(preferences)) {
+      if (!isSettingsPreferenceStorageKey(key)) continue;
+      localStorage.setItem(key, JSON.stringify(value));
+      window.dispatchEvent(new CustomEvent(SETTINGS_PREFERENCES_CHANGED_EVENT, { detail: { key, value } }));
+    }
+  } finally {
+    applyingRemotePreferences = false;
+  }
+}
+
+function hasSettingsPreferences(preferences: Record<string, unknown>) {
+  return Object.keys(preferences).some(isSettingsPreferenceStorageKey);
+}
+
+async function readDesktopSettingsPreferencesFile(): Promise<DesktopSettingsPreferencesFileResponse> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<DesktopSettingsPreferencesFileResponse>("read_settings_preferences_file");
+}
+
+async function writeDesktopSettingsPreferencesFile(preferences: Record<string, unknown>): Promise<SettingsPreferencesStorageResponse> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<DesktopSettingsPreferencesFileResponse>("write_settings_preferences_file", { preferences });
+}
+
+function formatUnknownError(error: unknown) {
+  if (error instanceof Error) return error.message;
+  return String(error);
 }

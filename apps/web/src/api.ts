@@ -691,6 +691,13 @@ function apiUrl(path: string) {
   return `${apiBase}${path}`;
 }
 
+function clearDesktopApiBase() {
+  apiBase = "";
+  if (typeof window !== "undefined") {
+    window.sessionStorage.removeItem("taptap.apiBase");
+  }
+}
+
 async function discoverDesktopApiBase() {
   if (typeof window === "undefined") return "";
   for (let port = 8787; port <= 8827; port += 1) {
@@ -714,8 +721,13 @@ async function apiFetch(path: string, init?: RequestInit) {
   try {
     return await fetch(apiUrl(path), init);
   } catch (error) {
+    clearDesktopApiBase();
     if (path.startsWith("/api/") && await discoverDesktopApiBase()) {
-      return fetch(apiUrl(path), init);
+      try {
+        return await fetch(apiUrl(path), init);
+      } catch (retryError) {
+        throw new Error(`本地服务已发现但请求失败，无法访问 ${path}。${retryError instanceof Error ? ` 原始错误：${retryError.message}` : ""}`);
+      }
     }
     if (path.startsWith("/api/")) {
       throw new Error(`本地服务未连接，无法访问 ${path}。请确认桌面端本地服务已启动。${error instanceof Error ? ` 原始错误：${error.message}` : ""}`);

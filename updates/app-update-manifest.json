@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-06-28T00:00:00.000Z",
+  "generatedAt": "2026-06-28T01:00:00.000Z",
   "repositoryUrl": "https://github.com/Rinorsi/taptap-maker-plus",
-  "latestVersion": "v0.13.3-alpha",
+  "latestVersion": "v0.13.4-alpha",
   "announcements": [
     {
       "id": "alpha-static-update-2026-06-27",
@@ -23,13 +23,21 @@
   ],
   "releases": [
     {
+      "version": "v0.13.4-alpha",
+      "title": "v0.13.4-ALPHA 设置与更新链路打磨",
+      "publishedAt": "2026-06-28T01:00:00.000Z",
+      "changelogPath": "release-notes/v0.13.4-alpha.md"
+    },
+    {
       "version": "v0.13.3-alpha",
       "title": "v0.13.3-ALPHA 测试包",
+      "publishedAt": "2026-06-28T00:00:00.000Z",
       "changelogPath": "release-notes/v0.13.3-alpha.md"
     },
     {
       "version": "v0.13.1-alpha",
       "title": "v0.13.1-ALPHA 覆盖更新测试包",
+      "publishedAt": "2026-06-27T00:00:00.000Z",
       "changelogPath": "release-notes/v0.13.1-alpha.md"
     }
   ]

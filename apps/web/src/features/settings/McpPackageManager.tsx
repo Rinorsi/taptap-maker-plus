@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Download, RefreshCw, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { CheckCircle2, Download, RefreshCw, Trash2 } from "lucide-react";
 import {
   getMcpPackageStatus,
   installMcpPackage,
@@ -14,6 +14,7 @@ import { cn } from "../../lib/utils";
 type Props = {
   busy?: boolean;
   compact?: boolean;
+  onDeveloperUnlock?: () => void;
 };
 
 const pendingUninstallSteps = [
@@ -70,7 +71,11 @@ function formatTime(value?: string) {
   return date.toLocaleString();
 }
 
-export function McpPackageManager({ busy, compact = false }: Props) {
+export function McpPackageManager({ busy, compact = false, onDeveloperUnlock }: Props) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const developerUnlockClicksRef = useRef<number[]>([]);
+  const developerUnlockToastTimerRef = useRef<number | undefined>(undefined);
+  const developerUnlockToastUnmountTimerRef = useRef<number | undefined>(undefined);
   const [status, setStatus] = useState<McpPackageUpdateStatus>();
   const [selectedVersion, setSelectedVersion] = useState("");
   const [working, setWorking] = useState(false);
@@ -78,9 +83,35 @@ export function McpPackageManager({ busy, compact = false }: Props) {
   const [notice, setNotice] = useState("");
   const [uninstallConfirmText, setUninstallConfirmText] = useState("");
   const [uninstallResult, setUninstallResult] = useState<McpPackageUninstallResult>();
+  const [layoutWidth, setLayoutWidth] = useState(0);
+  const [developerUnlockToastMounted, setDeveloperUnlockToastMounted] = useState(false);
+  const [developerUnlockToastActive, setDeveloperUnlockToastActive] = useState(false);
 
   useEffect(() => {
     void refreshStatus(true);
+  }, []);
+
+  useEffect(() => {
+    const element = rootRef.current;
+    if (!element) return;
+
+    const updateWidth = () => setLayoutWidth(element.getBoundingClientRect().width);
+    updateWidth();
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      setLayoutWidth(entry.contentRect.width);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      window.clearTimeout(developerUnlockToastTimerRef.current);
+      window.clearTimeout(developerUnlockToastUnmountTimerRef.current);
+    };
   }, []);
 
   async function refreshStatus(checkRegistry: boolean) {
@@ -145,6 +176,33 @@ export function McpPackageManager({ busy, compact = false }: Props) {
     }
   }
 
+  function handleDeveloperUnlockClick() {
+    if (!onDeveloperUnlock) return;
+
+    const now = Date.now();
+    const nextClicks = [
+      ...developerUnlockClicksRef.current.filter((timestamp) => now - timestamp <= 1000),
+      now,
+    ];
+    developerUnlockClicksRef.current = nextClicks;
+
+    if (nextClicks.length < 5) return;
+
+    developerUnlockClicksRef.current = [];
+    onDeveloperUnlock();
+    setNotice((current) => current.includes("已解锁 DEV") ? "" : current);
+    window.clearTimeout(developerUnlockToastTimerRef.current);
+    window.clearTimeout(developerUnlockToastUnmountTimerRef.current);
+    setDeveloperUnlockToastMounted(true);
+    window.requestAnimationFrame(() => setDeveloperUnlockToastActive(true));
+    developerUnlockToastTimerRef.current = window.setTimeout(() => {
+      setDeveloperUnlockToastActive(false);
+      developerUnlockToastUnmountTimerRef.current = window.setTimeout(() => {
+        setDeveloperUnlockToastMounted(false);
+      }, 240);
+    }, 4000);
+  }
+
   const disabled = Boolean(busy || working);
   const versionOptions = [...(status?.availableVersions ?? [])]
     .reverse()
@@ -156,6 +214,8 @@ export function McpPackageManager({ busy, compact = false }: Props) {
   const localStatus = formatLocalStatus(status);
   const cloudStatus = formatCloudStatus(status);
   const uninstallSteps = uninstallResult?.steps ?? (operation === "uninstall" ? pendingUninstallSteps : []);
+  const useOriginalLayout = layoutWidth >= 725;
+  const useTwoColumnActions = layoutWidth >= 560;
 
   if (compact) {
     return (
@@ -244,14 +304,52 @@ export function McpPackageManager({ busy, compact = false }: Props) {
   }
 
   return (
-    <div className="flex flex-col rounded-xl border border-border-soft bg-surface-panel shadow-sm overflow-hidden">
+    <div ref={rootRef} className="flex flex-col rounded-xl border border-border-soft bg-surface-panel shadow-sm overflow-hidden">
+      {developerUnlockToastMounted ? (
+        <div
+          className={cn(
+            "pointer-events-none fixed left-1/2 top-16 z-[10000] w-[min(360px,calc(100vw-40px))] -translate-x-1/2 transition-all duration-300 ease-out",
+            developerUnlockToastActive
+              ? "translate-y-0 scale-100 opacity-100"
+              : "-translate-y-4 scale-95 opacity-0",
+          )}
+        >
+          <div className="flex items-start gap-3 rounded-xl border border-brand/30 bg-surface-panel/95 px-4 py-3 text-text shadow-popover ring-1 ring-brand/10 backdrop-blur-md">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand text-white">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[13px] font-semibold">已解锁 DEV 选项</span>
+              <span className="mt-0.5 block text-[12px] leading-relaxed text-text-muted">
+                可在高级底部开启或关闭调试模式。
+              </span>
+            </span>
+          </div>
+        </div>
+      ) : null}
       {/* Animated Header & Actions Area */}
-      <div className="flex flex-col xl:flex-row gap-6 p-5 bg-surface-app/40 border-b border-border-soft items-center justify-between relative overflow-hidden">
+      <div
+        className={cn(
+          "gap-5 p-5 bg-surface-app/40 border-b border-border-soft relative overflow-hidden",
+          useOriginalLayout ? "flex items-center justify-center gap-8" : "flex flex-col",
+        )}
+      >
 
         {/* Left Side: Status & Animation */}
-        <div className="flex flex-col md:flex-row items-center gap-5 flex-1 min-w-0">
+        <div
+          className={cn(
+            "flex min-w-0 flex-col items-center gap-5 md:flex-row",
+            useOriginalLayout ? "w-[360px] justify-center" : "mx-auto max-w-full justify-center",
+          )}
+        >
           {/* Animated SVG Graphic */}
-          <div className="shrink-0 relative w-20 h-20 flex items-center justify-center">
+          <button
+            type="button"
+            aria-label="MCP 更新状态图标"
+            title="MCP 更新状态"
+            onClick={handleDeveloperUnlockClick}
+            className="shrink-0 relative w-20 h-20 flex items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+          >
             <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-md">
               {/* Background glowing circle */}
               <circle cx="50" cy="50" r="40" className="fill-brand/5 animate-pulse" style={{ animationDuration: '3s' }} />
@@ -267,17 +365,22 @@ export function McpPackageManager({ busy, compact = false }: Props) {
               <path d="M26 36 L50 50 L74 36" fill="none" stroke="currentColor" strokeWidth="1" strokeOpacity="0.3" className="text-brand" />
               <path d="M50 78 L50 50" fill="none" stroke="currentColor" strokeWidth="1" strokeOpacity="0.3" className="text-brand" />
             </svg>
-          </div>
+          </button>
 
-          <div className="flex-1 min-w-0 flex flex-col gap-1 text-center md:text-left mt-2 md:mt-0">
-            <div className="flex flex-col md:flex-row md:items-center gap-2 justify-center md:justify-start">
+          <div
+            className={cn(
+              "min-w-0 flex flex-col gap-1 mt-2 md:mt-0",
+              useOriginalLayout ? "flex-1 text-center md:text-left" : "text-center md:text-left",
+            )}
+          >
+            <div className={cn("flex flex-col md:flex-row md:items-center gap-2", useOriginalLayout ? "justify-center md:justify-start" : "justify-center")}>
               <span className="text-[15px] font-bold text-text tracking-wide">MCP Runtime</span>
               <span className="text-[10px] px-2 py-0.5 rounded bg-brand/10 text-brand font-mono border border-brand/20 shadow-[0_0_8px_rgba(0,217,197,0.1)] w-fit mx-auto md:mx-0">
                 {status?.packageName ?? "@taptap/maker"}
               </span>
             </div>
 
-            <div className="flex flex-row items-center justify-center md:justify-start gap-8 mt-3">
+            <div className={cn("flex flex-row items-center gap-8 mt-3", useOriginalLayout ? "justify-center md:justify-start" : "justify-center")}>
               <div className="flex flex-col gap-1 items-center md:items-start">
                 <span className="text-[9px] text-text-subtle uppercase tracking-wider font-bold">本地环境 Local</span>
                 <div className="flex items-center gap-1.5">
@@ -302,12 +405,21 @@ export function McpPackageManager({ busy, compact = false }: Props) {
                 </div>
               </div>
             </div>
-            {notice && <div className="mt-3 text-[10px] text-brand/80 font-medium bg-brand/5 border border-brand/10 rounded px-2 py-1 w-fit mx-auto md:mx-0">{notice}</div>}
+            {notice && <div className={cn("mt-3 text-[10px] text-brand/80 font-medium bg-brand/5 border border-brand/10 rounded px-2 py-1 w-fit", useOriginalLayout ? "mx-auto md:mx-0" : "mx-auto")}>{notice}</div>}
           </div>
         </div>
 
         {/* Right Side: Actions */}
-        <div className="flex flex-col gap-2.5 shrink-0 w-full xl:w-[260px]">
+        <div
+          className={cn(
+            "min-w-0 gap-3",
+            useOriginalLayout
+              ? "flex w-[260px] shrink-0 flex-col gap-2.5"
+              : useTwoColumnActions
+                ? "grid grid-cols-2"
+                : "grid grid-cols-1",
+          )}
+        >
           <div className="flex flex-col gap-2 p-3 rounded-lg border border-border-soft bg-surface-panel shadow-sm transition-colors hover:border-brand/30">
             <span className="text-[10px] font-bold text-text-muted flex items-center gap-1">
               <Download className="w-3 h-3" /> 运行时版本管理

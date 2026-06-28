@@ -11,22 +11,22 @@ export type DeveloperLogEntry = FrontendDiagnosticEntry & {
   detail?: string;
 };
 
-const DEVELOPER_MODE_STORAGE_KEY = "taptap.developerMode";
 const DEVELOPER_LOG_EVENT = "taptap:developer-log";
 const DEVELOPER_MODE_EVENT = "taptap:developer-mode-change";
 const MAX_LOG_ENTRIES = 200;
 
 let installed = false;
+let developerModeEnabled = false;
 let entries: DeveloperLogEntry[] = [];
 let pendingRemoteEntries: DeveloperLogEntry[] = [];
 let flushTimer: number | undefined;
 
 export function isDeveloperModeEnabled() {
-  return localStorage.getItem(DEVELOPER_MODE_STORAGE_KEY) === "true";
+  return developerModeEnabled;
 }
 
 export function setDeveloperModeEnabled(enabled: boolean) {
-  localStorage.setItem(DEVELOPER_MODE_STORAGE_KEY, enabled ? "true" : "false");
+  developerModeEnabled = enabled;
   window.dispatchEvent(
     new CustomEvent(DEVELOPER_MODE_EVENT, { detail: { enabled } }),
   );
@@ -35,10 +35,8 @@ export function setDeveloperModeEnabled(enabled: boolean) {
 export function subscribeDeveloperMode(listener: (enabled: boolean) => void) {
   const handler = () => listener(isDeveloperModeEnabled());
   window.addEventListener(DEVELOPER_MODE_EVENT, handler);
-  window.addEventListener("storage", handler);
   return () => {
     window.removeEventListener(DEVELOPER_MODE_EVENT, handler);
-    window.removeEventListener("storage", handler);
   };
 }
 

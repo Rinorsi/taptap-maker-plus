@@ -66,7 +66,7 @@ export function useAppUpdateUi(forceDeveloperTest = false): AppUpdateUiState {
         setStatus(nextStatus);
         setReleases([nextStatus.latestRelease!]);
         setSelectedReleaseId(String(nextStatus.latestRelease!.id));
-        setNotice("开发者模式测试更新已启用；真实远端更新清单暂时无法获取。");
+        setNotice("开发者模式本地更新链路测试已启用；该测试项不会下载安装到本机。");
       } else {
         setNotice(error instanceof Error ? error.message : String(error));
       }
@@ -218,16 +218,23 @@ export function AppUpdatePanel({
                 ariaLabel="选择软件版本"
               />
             ) : null}
-            <Button variant="outline" onClick={() => void state.refresh()} disabled={state.loading}>
-              <RefreshCw className={cn("mr-1.5 h-4 w-4", state.loading ? "animate-spin" : "")} />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void state.refresh()}
+              disabled={state.loading}
+              className="h-9 px-3 text-[13px] font-medium"
+            >
+              <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", state.loading ? "animate-spin" : "")} />
               检查更新
             </Button>
             <Button
+              size="sm"
               onClick={() => void state.downloadSelected()}
               disabled={!selectedRelease || !installerAsset || state.downloading}
-              className={cn("px-5", state.status?.updateAvailable ? "shadow-[0_0_15px_rgba(0,217,197,0.2)]" : "")}
+              className={cn("h-9 px-4 text-[13px] font-semibold", state.status?.updateAvailable ? "shadow-[0_0_12px_rgba(0,217,197,0.18)]" : "")}
             >
-              <Download className="mr-1.5 h-4 w-4" />
+              <Download className="mr-1.5 h-3.5 w-3.5" />
               {state.downloading ? (downloadProgress || "正在下载") : selectedIsCurrent ? "覆盖安装" : "下载更新"}
             </Button>
           </div>
@@ -330,13 +337,22 @@ export function ReleaseHistory({
   );
 }
 
-export function createDeveloperTestUpdateStatus(base?: AppUpdateStatus): AppUpdateStatus {
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
+function createDeveloperTestUpdateStatus(base?: AppUpdateStatus): AppUpdateStatus {
+  const tagName = "v99.99";
+  const publishedAt = new Date().toISOString();
   const latestRelease: AppReleaseSummary = {
     id: -9999,
-    tagName: "v99.99",
-    name: "v99.99 测试更新",
-    body: "开发者模式测试更新提示，用于验证角标、弹窗、历史版本和设置页更新入口。这个版本不会下载安装到本机。",
+    tagName,
+    name: "v99.99 开发者模式测试更新",
+    body: "开发者模式本地测试项，用于验证更新角标、公告弹窗、历史版本和设置页更新入口。该测试项不会下载安装到本机，也不会出现在远端发布包中。",
     htmlUrl: `${repositoryUrl}/releases`,
+    publishedAt,
     prerelease: true,
     draft: false,
     assets: [],
@@ -347,34 +363,28 @@ export function createDeveloperTestUpdateStatus(base?: AppUpdateStatus): AppUpda
     latestVersion: latestRelease.tagName,
     latestRelease,
     announcement: {
-      id: "developer-test-v99.99",
-      title: "v99.99 开发者模式测试公告",
+      id: "developer-update-link-test",
+      title: "本地更新链路测试公告",
       summary: "用于验证公告红点、公告弹窗和版本更新提示。",
       severity: "info",
-      publishedAt: new Date().toISOString(),
-      markdown: "## v99.99 开发者模式测试公告\n\n这条公告只在开发者模式下生成，用于验证公告入口、未读红点和弹窗展示。\n\n### 测试范围\n\n* 首页版本角标\n* 侧栏公告红点\n* 公告弹窗 Markdown 渲染\n* 设置页更新检测入口",
+      publishedAt,
+      markdown: "## 本地更新链路测试公告\n\n这条公告只在开发者模式下生成，用于验证公告入口、未读红点和弹窗展示。\n\n### 测试范围\n\n* 首页版本角标\n* 侧栏公告红点\n* 公告弹窗 Markdown 渲染\n* 设置页更新检测入口\n\n> 这是本地测试项，不是远端发布版本。",
     },
     announcements: [
       {
-        id: "developer-test-v99.99",
-        title: "v99.99 开发者模式测试公告",
+        id: "developer-update-link-test",
+        title: "本地更新链路测试公告",
         summary: "用于验证公告红点、公告弹窗和版本更新提示。",
         severity: "info",
-        publishedAt: new Date().toISOString(),
-        markdown: "## v99.99 开发者模式测试公告\n\n这条公告只在开发者模式下生成，用于验证公告入口、未读红点和弹窗展示。\n\n### 测试范围\n\n* 首页版本角标\n* 侧栏公告红点\n* 公告弹窗 Markdown 渲染\n* 设置页更新检测入口",
+        publishedAt,
+        markdown: "## 本地更新链路测试公告\n\n这条公告只在开发者模式下生成，用于验证公告入口、未读红点和弹窗展示。\n\n### 测试范围\n\n* 首页版本角标\n* 侧栏公告红点\n* 公告弹窗 Markdown 渲染\n* 设置页更新检测入口\n\n> 这是本地测试项，不是远端发布版本。",
       },
     ],
     releases: [latestRelease],
     updateAvailable: true,
-    checkedAt: base?.checkedAt ?? new Date().toISOString(),
+    checkedAt: base?.checkedAt ?? publishedAt,
     repositoryUrl: base?.repositoryUrl ?? repositoryUrl,
   };
-}
-
-function formatDateTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
 }
 
 function normalizeVersion(value: string) {

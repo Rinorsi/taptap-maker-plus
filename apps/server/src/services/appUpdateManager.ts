@@ -134,6 +134,7 @@ type StaticUpdateManifest = {
 type StaticManifestRelease = {
   version?: unknown;
   title?: unknown;
+  publishedAt?: unknown;
   changelog?: unknown;
   changelogPath?: unknown;
 };
@@ -433,6 +434,7 @@ async function normalizeStaticRelease(raw: unknown, manifestUrl: string): Promis
     name: title,
     body: changelog,
     htmlUrl: `${githubRepositoryUrl}/releases/tag/${encodeURIComponent(tagName)}`,
+    publishedAt: readString(source.publishedAt, "manifest.release.publishedAt"),
     prerelease: true,
     draft: false,
     assets: [asset],

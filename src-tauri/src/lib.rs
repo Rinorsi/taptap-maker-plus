@@ -30,9 +30,27 @@ const WEB_IDENTITY_CONTENT: &str = r#"content="web""#;
 const MIN_WINDOW_LOGICAL_WIDTH: f64 = 1366.0;
 const MIN_WINDOW_LOGICAL_HEIGHT: f64 = 768.0;
 const APP_PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
+const SETTINGS_FILE_NAME: &str = "settings.json";
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 static APP_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SettingsPreferencesFile {
+  #[serde(default)]
+  preferences: serde_json::Map<String, serde_json::Value>,
+  #[serde(rename = "updatedAt", skip_serializing_if = "Option::is_none")]
+  updated_at: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+struct SettingsPreferencesFileResponse {
+  preferences: serde_json::Map<String, serde_json::Value>,
+  #[serde(rename = "updatedAt", skip_serializing_if = "Option::is_none")]
+  updated_at: Option<String>,
+  path: String,
+  exists: bool,
+}
 struct LocalPortProbe {
   host: &'static str,
   port: u16,
@@ -138,6 +156,21 @@ fn append_log(log_path: &Path, message: &str) {
   if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
     let _ = writeln!(file, "{message}");
   }
+}
+
+fn settings_preferences_file_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+  Ok(app
+    .path()
+    .app_data_dir()
+    .map_err(|error| error.to_string())?
+    .join(SETTINGS_FILE_NAME))
+}
+
+fn unix_timestamp_millis() -> String {
+  SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .map(|duration| duration.as_millis().to_string())
+    .unwrap_or_else(|_| "0".to_string())
 }
 
 fn install_panic_logger() {
@@ -463,21 +496,19 @@ Content-Type: application/json
 }
 
 #[tauri::command]
+#[cfg(any(debug_assertions, feature = "devtools"))]
 fn open_devtools(app: tauri::AppHandle) -> Result<(), String> {
   let Some(window) = app.get_webview_window("main") else {
     return Err("Unable to find main window".to_string());
   };
+  window.open_devtools();
+  Ok(())
+}
 
-  #[cfg(any(debug_assertions, feature = "devtools"))]
-  {
-    window.open_devtools();
-    return Ok(());
-  }
-
-  #[cfg(not(any(debug_assertions, feature = "devtools")))]
-  {
-    Err("DevTools is only available in debug builds.".to_string())
-  }
+#[tauri::command]
+#[cfg(not(any(debug_assertions, feature = "devtools")))]
+fn open_devtools() -> Result<(), String> {
+  Err("DevTools is only available in debug builds.".to_string())
 }
 
 #[tauri::command]
@@ -516,6 +547,54 @@ fn open_external_url(url: String) -> Result<(), String> {
       .map_err(|error| error.to_string())?;
     return Ok(());
   }
+}
+
+#[tauri::command]
+fn read_settings_preferences_file(app: tauri::AppHandle) -> Result<SettingsPreferencesFileResponse, String> {
+  let settings_path = settings_preferences_file_path(&app)?;
+  if !settings_path.exists() {
+    return Ok(SettingsPreferencesFileResponse {
+      preferences: serde_json::Map::new(),
+      updated_at: None,
+      path: settings_path.to_string_lossy().to_string(),
+      exists: false,
+    });
+  }
+
+  let raw = fs::read_to_string(&settings_path).map_err(|error| error.to_string())?;
+  let file = serde_json::from_str::<SettingsPreferencesFile>(&raw).map_err(|error| error.to_string())?;
+  Ok(SettingsPreferencesFileResponse {
+    preferences: file.preferences,
+    updated_at: file.updated_at,
+    path: settings_path.to_string_lossy().to_string(),
+    exists: true,
+  })
+}
+
+#[tauri::command]
+fn write_settings_preferences_file(
+  app: tauri::AppHandle,
+  preferences: serde_json::Map<String, serde_json::Value>,
+) -> Result<SettingsPreferencesFileResponse, String> {
+  let settings_path = settings_preferences_file_path(&app)?;
+  let app_data_dir = settings_path
+    .parent()
+    .ok_or_else(|| "Unable to resolve settings file parent directory".to_string())?;
+  fs::create_dir_all(app_data_dir).map_err(|error| error.to_string())?;
+  let updated_at = unix_timestamp_millis();
+  let file = SettingsPreferencesFile {
+    preferences,
+    updated_at: Some(updated_at.clone()),
+  };
+  let raw = serde_json::to_string_pretty(&file).map_err(|error| error.to_string())?;
+  fs::write(&settings_path, raw).map_err(|error| error.to_string())?;
+
+  Ok(SettingsPreferencesFileResponse {
+    preferences: file.preferences,
+    updated_at: Some(updated_at),
+    path: settings_path.to_string_lossy().to_string(),
+    exists: true,
+  })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -606,7 +685,12 @@ pub fn run() {
       });
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![open_devtools, open_external_url])
+    .invoke_handler(tauri::generate_handler![
+      open_devtools,
+      open_external_url,
+      read_settings_preferences_file,
+      write_settings_preferences_file
+    ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application");
 

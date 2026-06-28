@@ -29,7 +29,8 @@ import {
   Globe,
   Code,
   Folder,
-  AlertTriangle
+  AlertTriangle,
+  CircleAlert
 } from "lucide-react";
 import type { MakerProjectsRootSettings, ProjectSummary, RuntimeSummary, ToolSummary } from "../../api";
 import {
@@ -154,11 +155,12 @@ export function SettingsView({
 }: Props) {
   const [prefs, setPref] = useSettingsPreferences();
   const isDark = prefs.themePreference === "dark" || (prefs.themePreference === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-  const updateState = useAppUpdateUi(isDeveloperModeEnabled());
   const [developerMode, setDeveloperMode] = useState(isDeveloperModeEnabled());
+  const [developerOptionsUnlocked, setDeveloperOptionsUnlocked] = useState(false);
+  const updateState = useAppUpdateUi(developerMode);
   const [developerLogVersion, setDeveloperLogVersion] = useState(0);
   const [settingsSaveState, setSettingsSaveState] = useState<{
-    status: "saved" | "saving" | "error";
+    status: "saved" | "saving" | "error" | "cache-only";
     savedAt?: string;
     message?: string;
   }>({ status: "saved" });
@@ -181,6 +183,10 @@ export function SettingsView({
   const [makerRootNotice, setMakerRootNotice] = useState("");
   const [resetInitialStateText, setResetInitialStateText] = useState("");
   const [resetInitialStateNotice, setResetInitialStateNotice] = useState("");
+  const [windowMinimumDraft, setWindowMinimumDraft] = useState(() => ({
+    width: String(readStoredPreference("windowMinimumWidth")),
+    height: String(readStoredPreference("windowMinimumHeight")),
+  }));
 
   const developerLogs = formatDeveloperLogsForDisplay();
   const serverLogs = formatDiagnosticEntries(serverLogEntries);
@@ -188,6 +194,8 @@ export function SettingsView({
   const saveStatusText =
     settingsSaveState.status === "saving"
       ? "正在保存"
+      : settingsSaveState.status === "cache-only"
+        ? settingsSaveState.message ?? "已临时应用，配置服务未连接"
       : settingsSaveState.status === "error"
         ? "保存失败"
         : settingsSaveState.savedAt
@@ -214,7 +222,11 @@ export function SettingsView({
       setSettingsSaveState({ status: "saved", savedAt });
     });
     const unsubscribeFailed = subscribeSettingsPreferencesSaveFailed(({ message }) => {
-      setSettingsSaveState({ status: "error", message: `保存失败：${message}` });
+      setSettingsSaveState({
+        status: "cache-only",
+        savedAt: new Date().toISOString(),
+        message: `已临时应用，配置服务未连接：${message}`,
+      });
     });
     const unsubscribeRemote = subscribeSettingsRemoteSync(() => {
       setSettingsSaveState((prev) => ({ status: "saved", savedAt: prev.savedAt }));
@@ -240,8 +252,9 @@ export function SettingsView({
       await flushSettingsPreferencesSave("manual");
     } catch (error) {
       setSettingsSaveState({
-        status: "error",
-        message: error instanceof Error ? error.message : String(error),
+        status: "cache-only",
+        savedAt: new Date().toISOString(),
+        message: `已临时应用，配置服务未连接：${error instanceof Error ? error.message : String(error)}`,
       });
     }
   };
@@ -258,11 +271,19 @@ export function SettingsView({
       await flushSettingsPreferencesSave("manual");
     } catch (error) {
       setSettingsSaveState({
-        status: "error",
-        message: error instanceof Error ? error.message : String(error),
+        status: "cache-only",
+        savedAt: new Date().toISOString(),
+        message: `已恢复前端默认值，配置服务未连接：${error instanceof Error ? error.message : String(error)}`,
       });
     }
   };
+
+  useEffect(() => {
+    setWindowMinimumDraft({
+      width: String(prefs.windowMinimumWidth),
+      height: String(prefs.windowMinimumHeight),
+    });
+  }, [prefs.windowMinimumWidth, prefs.windowMinimumHeight]);
 
   useEffect(() => {
     let cancelled = false;
@@ -321,14 +342,18 @@ export function SettingsView({
     }
   };
 
-  const updateWindowMinimumSize = (axis: "width" | "height", value: string) => {
-    const parsed = Number(value);
-    if (!Number.isFinite(parsed)) return;
+  const commitWindowMinimumSize = (axis: "width" | "height") => {
+    const rawValue = axis === "width" ? windowMinimumDraft.width : windowMinimumDraft.height;
+    const parsed = Number(rawValue);
+    const minimum = axis === "width" ? 1366 : 768;
+    const fallback = axis === "width" ? prefs.windowMinimumWidth : prefs.windowMinimumHeight;
+    const nextValue = Number.isFinite(parsed) ? Math.max(minimum, Math.round(parsed)) : fallback;
+    setWindowMinimumDraft((draft) => ({ ...draft, [axis]: String(nextValue) }));
     setPref("windowMinimumSizePreset", "custom");
     if (axis === "width") {
-      setPref("windowMinimumWidth", Math.max(1024, Math.round(parsed)));
+      setPref("windowMinimumWidth", nextValue);
     } else {
-      setPref("windowMinimumHeight", Math.max(640, Math.round(parsed)));
+      setPref("windowMinimumHeight", nextValue);
     }
   };
 
@@ -546,6 +571,8 @@ export function SettingsView({
                   "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border",
                   settingsSaveState.status === "error"
                     ? "border-red-500/30 bg-red-500/10 text-red-500"
+                    : settingsSaveState.status === "cache-only"
+                      ? "border-amber-500/30 bg-amber-500/10 text-amber-500"
                     : settingsSaveState.status === "saving"
                       ? "border-brand/30 bg-brand/10 text-brand"
                       : "border-emerald-500/30 bg-emerald-500/10 text-emerald-500",
@@ -553,6 +580,8 @@ export function SettingsView({
               >
                 {settingsSaveState.status === "saving" ? (
                   <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : settingsSaveState.status === "cache-only" || settingsSaveState.status === "error" ? (
+                  <CircleAlert className="h-4 w-4" />
                 ) : (
                   <CheckCircle2 className="h-4 w-4" />
                 )}
@@ -565,6 +594,8 @@ export function SettingsView({
                       "truncate text-[11px]",
                       settingsSaveState.status === "saved" && settingsSaveState.savedAt
                         ? "text-emerald-500"
+                        : settingsSaveState.status === "cache-only"
+                          ? "text-amber-500"
                         : settingsSaveState.status === "error"
                           ? "text-red-500"
                           : "text-text-subtle",
@@ -575,7 +606,7 @@ export function SettingsView({
                   </span>
                   <span
                     className="inline-flex h-5 shrink-0 items-center rounded-full border border-border-soft bg-surface-muted px-2 text-[10px] font-medium text-text-subtle"
-                    title="设置修改后会自动保存；点保存会立即落盘。"
+                    title="设置修改后会自动保存；点保存会立即写入桌面端本地配置。"
                   >
                     自动保存开启
                   </span>
@@ -617,7 +648,7 @@ export function SettingsView({
                   onChange={(v) => setPref("density", v as any)}
                 />
                 <SettingContainer label="界面最小尺寸">
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <SelectField
                       id="window-minimum-size-preset"
                       value={prefs.windowMinimumSizePreset}
@@ -628,24 +659,32 @@ export function SettingsView({
                         { label: "自定义", value: "custom" },
                       ]}
                       onChange={(value) => applyWindowMinimumSizePreset(value as SettingsPreferences["windowMinimumSizePreset"])}
-                      className="w-[120px] text-[12px] h-8 bg-surface-app/50 border-border-soft"
+                      className="h-8 w-[120px] text-[12px] bg-surface-app/50 border-border-soft"
                     />
                     <div className="flex items-center bg-surface-app/50 rounded-lg border border-border-soft overflow-hidden shadow-inner h-8 px-1">
                       <input
                         type="number"
-                        min={1024}
-                        value={prefs.windowMinimumWidth}
-                        onChange={(event) => updateWindowMinimumSize("width", event.target.value)}
-                        className="w-[50px] bg-transparent px-1 text-center text-[12px] font-mono text-text outline-none focus:text-brand transition-colors"
+                        min={1366}
+                        value={windowMinimumDraft.width}
+                        onChange={(event) => setWindowMinimumDraft((draft) => ({ ...draft, width: event.target.value }))}
+                        onBlur={() => commitWindowMinimumSize("width")}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") event.currentTarget.blur();
+                        }}
+                        className="w-[58px] bg-transparent px-1 text-center text-[12px] font-mono text-text outline-none focus:text-brand transition-colors"
                         aria-label="最小宽度"
                       />
                       <span className="text-[10px] text-text-subtle/50 font-bold px-1 select-none">✕</span>
                       <input
                         type="number"
-                        min={640}
-                        value={prefs.windowMinimumHeight}
-                        onChange={(event) => updateWindowMinimumSize("height", event.target.value)}
-                        className="w-[50px] bg-transparent px-1 text-center text-[12px] font-mono text-text outline-none focus:text-brand transition-colors"
+                        min={768}
+                        value={windowMinimumDraft.height}
+                        onChange={(event) => setWindowMinimumDraft((draft) => ({ ...draft, height: event.target.value }))}
+                        onBlur={() => commitWindowMinimumSize("height")}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") event.currentTarget.blur();
+                        }}
+                        className="w-[58px] bg-transparent px-1 text-center text-[12px] font-mono text-text outline-none focus:text-brand transition-colors"
                         aria-label="最小高度"
                       />
                     </div>
@@ -664,13 +703,13 @@ export function SettingsView({
                 <SegmentedSetting
                   label="左栏默认状态"
                   value={prefs.sidebarPreference}
-                  options={[{label: "记住状态", value: "remember"}, {label: "始终展开", value: "expanded"}, {label: "始终折叠", value: "collapsed"}]}
+                  options={[{label: "记住状态", value: "remember"}, {label: "默认展开", value: "expanded"}, {label: "默认折叠", value: "collapsed"}]}
                   onChange={(v) => setPref("sidebarPreference", v as any)}
                 />
                 <SegmentedSetting
                   label="右栏 (Inspector) 默认状态"
                   value={prefs.inspectorPreference}
-                  options={[{label: "记住状态", value: "remember"}, {label: "始终展开", value: "expanded"}, {label: "始终折叠", value: "collapsed"}]}
+                  options={[{label: "记住状态", value: "remember"}, {label: "默认展开", value: "expanded"}, {label: "默认折叠", value: "collapsed"}]}
                   onChange={(v) => setPref("inspectorPreference", v as any)}
                 />
               </SettingsGroup>
@@ -854,7 +893,7 @@ export function SettingsView({
                 </SettingContainer>
               </SettingsGroup>
               <SectionHeader title="MCP 包管理" icon={<Box />} description="管理桌面端 MCP (Model Context Protocol) 运行时与环境。" />
-              <McpPackageManager busy={busy} />
+              <McpPackageManager busy={busy} onDeveloperUnlock={() => setDeveloperOptionsUnlocked(true)} />
             </div>
 
             <div id="settings-software-update" className="scroll-mt-12 flex flex-col gap-4">
@@ -944,43 +983,47 @@ export function SettingsView({
                 />
               </SettingsGroup>
 
-              <SectionHeader title="开发者" icon={<Bug />} description="供开发者或高级用户使用的实验性功能。" />
-              <SettingsGroup>
-                <SwitchSetting label="启用开发者模式" description="开启后将记录更详尽的系统级调试日志" checked={developerMode} onChange={(val) => setDeveloperModeEnabled(val)} />
-                <SettingContainer label="Chromium DevTools" description="开启内置浏览器及前端环境的检查器">
-                  <Button variant="outline" size="sm" onClick={() => void openDesktopDevtools()}>
-                    <Terminal className="w-3.5 h-3.5 mr-1" />
-                    Open Devtools
-                  </Button>
-                </SettingContainer>
-                <SettingContainer
-                  label={<span className="text-red-500">重置软件为初始状态</span>}
-                  description={
-                    <span>
-                      清空桌面端保存的项目列表、选中项目、任务/资产索引和设置偏好，并停止当前 MCP runtime。不删除 Maker 项目目录，不清 npm-cache，不改 AI client 配置。{resetInitialStateNotice ? ` ${resetInitialStateNotice}` : ""}
-                    </span>
-                  }
-                >
-                  <div className="flex flex-wrap justify-end gap-2">
-                    <input
-                      value={resetInitialStateText}
-                      onChange={(event) => setResetInitialStateText(event.target.value)}
-                      placeholder="输入：重置软件"
-                      className="h-9 w-[180px] rounded-control border border-border bg-surface-app px-3 text-[12px] text-text outline-none focus:border-red-500"
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void handleResetInitialState()}
-                      disabled={resetInitialStateText !== "重置软件"}
-                      className="hover:border-red-500 hover:text-red-500"
+              {developerOptionsUnlocked ? (
+                <>
+                  <SectionHeader title="开发者" icon={<Bug />} description="供开发者或高级用户使用的实验性功能。" />
+                  <SettingsGroup>
+                    <SwitchSetting label="启用开发者模式" description="开启后将记录更详尽的系统级调试日志" checked={developerMode} onChange={(val) => setDeveloperModeEnabled(val)} />
+                    <SettingContainer label="Chromium DevTools" description="开启内置浏览器及前端环境的检查器">
+                      <Button variant="outline" size="sm" onClick={() => void openDesktopDevtools()}>
+                        <Terminal className="w-3.5 h-3.5 mr-1" />
+                        Open Devtools
+                      </Button>
+                    </SettingContainer>
+                    <SettingContainer
+                      label={<span className="text-red-500">重置软件为初始状态</span>}
+                      description={
+                        <span>
+                          清空桌面端保存的项目列表、选中项目、任务/资产索引和设置偏好，并停止当前 MCP runtime。不删除 Maker 项目目录，不清 npm-cache，不改 AI client 配置。{resetInitialStateNotice ? ` ${resetInitialStateNotice}` : ""}
+                        </span>
+                      }
                     >
-                      <Trash2 className="w-3.5 h-3.5 mr-1" />
-                      确认重置
-                    </Button>
-                  </div>
-                </SettingContainer>
-              </SettingsGroup>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <input
+                          value={resetInitialStateText}
+                          onChange={(event) => setResetInitialStateText(event.target.value)}
+                          placeholder="输入：重置软件"
+                          className="h-9 w-[180px] rounded-control border border-border bg-surface-app px-3 text-[12px] text-text outline-none focus:border-red-500"
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleResetInitialState()}
+                          disabled={resetInitialStateText !== "重置软件"}
+                          className="hover:border-red-500 hover:text-red-500"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 mr-1" />
+                          确认重置
+                        </Button>
+                      </div>
+                    </SettingContainer>
+                  </SettingsGroup>
+                </>
+              ) : null}
             </div>
 
           </div>
@@ -1008,14 +1051,46 @@ function SectionHeader({ title, icon, description, badge }: { title: string; ico
 }
 
 function SettingsGroup({ children, preview }: { children: React.ReactNode; preview?: React.ReactNode }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [groupWidth, setGroupWidth] = useState(0);
+  const hasPreview = Boolean(preview);
+  const useSideBySide = hasPreview && groupWidth >= 725;
+
+  useEffect(() => {
+    const element = rootRef.current;
+    if (!element) return;
+
+    const updateWidth = () => setGroupWidth(element.getBoundingClientRect().width);
+    updateWidth();
+
+      const observer = new ResizeObserver((entries) => {
+        const entry = entries[0];
+      if (!entry) return;
+      setGroupWidth(entry.contentRect.width);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <div className="flex flex-col md:flex-row rounded-xl border border-border-soft bg-surface-panel shadow-sm overflow-hidden items-stretch">
+    <div
+      ref={rootRef}
+      className={cn(
+        "grid grid-cols-1 rounded-xl border border-border-soft bg-surface-panel shadow-sm overflow-hidden",
+        useSideBySide && "grid-cols-[minmax(320px,420px)_minmax(420px,1fr)]",
+      )}
+    >
       {preview && (
-        <div className="w-full md:w-[320px] shrink-0 border-b md:border-b-0 md:border-r border-border-soft bg-surface-muted/10 flex flex-col items-center justify-center p-6 relative">
+        <div
+          className={cn(
+            "border-b border-border-soft bg-surface-muted/10 flex min-w-0 flex-col items-center justify-center p-6 relative",
+            useSideBySide && "border-b-0 border-r",
+          )}
+        >
           {preview}
         </div>
       )}
-      <div className="flex flex-col flex-1 min-w-0 justify-center">
+      <div className="flex min-w-0 flex-col justify-center">
         {children}
       </div>
     </div>
@@ -1024,12 +1099,12 @@ function SettingsGroup({ children, preview }: { children: React.ReactNode; previ
 
 function SettingContainer({ label, description, children, note }: { label: React.ReactNode; description?: React.ReactNode; children?: React.ReactNode; note?: boolean }) {
   return (
-    <div className={cn("flex items-center justify-between p-4 border-b border-border-soft last:border-b-0", note ? "bg-surface-muted/20" : "hover:bg-surface-muted/30 transition-colors")}>
-      <div className="flex flex-col pr-8">
+    <div className={cn("flex items-center justify-between gap-4 p-4 border-b border-border-soft last:border-b-0", note ? "bg-surface-muted/20" : "hover:bg-surface-muted/30 transition-colors")}>
+      <div className="flex min-w-0 flex-1 flex-col pr-2">
         <span className="text-[13px] font-medium text-text">{label}</span>
         {description && <span className="mt-1.5 text-xs text-text-muted leading-relaxed">{description}</span>}
       </div>
-      {children && <div className="shrink-0 flex items-center justify-end">{children}</div>}
+      {children && <div className="flex min-w-0 shrink-0 items-center justify-end">{children}</div>}
     </div>
   );
 }
@@ -1128,7 +1203,7 @@ function SegmentedSetting<T extends string>({
 }) {
   return (
     <SettingContainer label={label} description={description}>
-      <div className="flex bg-surface-app/50 p-1 rounded-lg border border-border-soft shadow-inner">
+      <div className="flex max-w-full bg-surface-app/50 p-1 rounded-lg border border-border-soft shadow-inner">
         {options.map((o) => {
           const active = value === o.value;
           return (
@@ -1343,80 +1418,281 @@ function CanvasPreview({ prefs }: { prefs: SettingsPreferences }) {
 function GeneralSettingsPreview({ prefs }: { prefs: SettingsPreferences }) {
   const isCompact = prefs.density === "compact";
   const isLoose = prefs.density === "comfortable";
-  
-  const gap = isCompact ? "gap-1.5" : isLoose ? "gap-3" : "gap-2";
-  const padding = isCompact ? "p-2" : isLoose ? "p-3.5" : "p-2.5";
+  const [rememberSidebarCollapsed, setRememberSidebarCollapsed] = useState(false);
+  const [rememberInspectorCollapsed, setRememberInspectorCollapsed] = useState(false);
+  const [previewSource, setPreviewSource] = useState<"startup" | "workspace">("startup");
+  const previousStartupPreferenceRef = useRef(prefs.startupPreference);
+  const previousDefaultWorkspaceRef = useRef(prefs.defaultWorkspace);
+
+  const gap = isCompact ? "gap-1" : isLoose ? "gap-2" : "gap-1.5";
+  const padding = isCompact ? "p-1.5" : isLoose ? "p-2.5" : "p-2";
   const borderRadius = isCompact ? "rounded-sm" : isLoose ? "rounded-lg" : "rounded-md";
+  const showPicker = previewSource === "startup" && prefs.startupPreference === "home-picker";
+  const isHome = previewSource === "startup" && prefs.startupPreference === "home";
+  const showWorkspace = previewSource === "workspace" || (previewSource === "startup" && prefs.startupPreference === "last-project");
+  const sidebarCollapsed = prefs.sidebarPreference === "remember" ? rememberSidebarCollapsed : prefs.sidebarPreference === "collapsed";
+  const inspectorCollapsed = prefs.inspectorPreference === "remember" ? rememberInspectorCollapsed : prefs.inspectorPreference === "collapsed";
+  const activeModule = prefs.defaultWorkspace;
+  const navItems = ["home", "assets", "studio-video", "studio-image", "studio-music", "studio-3d"];
+  const canToggleSidebar = prefs.sidebarPreference === "remember";
+  const canToggleInspector = prefs.inspectorPreference === "remember";
+  const panelsExpanded = !sidebarCollapsed || !inspectorCollapsed;
+
+  useEffect(() => {
+    const startupChanged = previousStartupPreferenceRef.current !== prefs.startupPreference;
+    const workspaceChanged = previousDefaultWorkspaceRef.current !== prefs.defaultWorkspace;
+
+    if (workspaceChanged) {
+      setPreviewSource("workspace");
+    } else if (startupChanged) {
+      setPreviewSource("startup");
+    }
+
+    previousStartupPreferenceRef.current = prefs.startupPreference;
+    previousDefaultWorkspaceRef.current = prefs.defaultWorkspace;
+  }, [prefs.startupPreference, prefs.defaultWorkspace]);
 
   return (
-    <div className="w-full flex items-center justify-center">
-      {/* Fake Application Window */}
-      <div className={cn("relative w-[90%] aspect-[4/3] bg-surface-panel ring-1 ring-border shadow-sm flex overflow-hidden transition-all duration-500", borderRadius)}>
-        
-        {/* Sidebar */}
-        <div className={cn("w-[28%] h-full border-r border-border-soft flex flex-col bg-surface-app/50 transition-all duration-500", padding, gap)}>
-          {/* Logo mock */}
-          <div className={cn("w-3/4 h-3 bg-text-subtle/30 transition-all duration-500", borderRadius)} />
-          
-          {/* Nav Items */}
-          <div className="flex-1 mt-1 flex flex-col gap-1.5">
-            {/* Startup preference mock */}
-            <div 
-              className={cn(
-                "w-full transition-all duration-500", 
-                isCompact ? "h-2" : isLoose ? "h-4" : "h-3",
-                borderRadius,
-                (prefs.startupPreference !== "last-project") 
-                  ? "bg-brand/20 border border-brand/30 ring-1 ring-brand/10 shadow-[0_0_8px_rgba(0,217,197,0.1)]" 
-                  : "bg-surface-muted/60 border border-transparent"
-              )} 
-            />
-            {/* Workspace preferences mock */}
-            {["assets", "video", "image", "audio", "3d"].map((id) => (
-              <div 
-                key={id}
-                className={cn(
-                  "w-full transition-all duration-500", 
-                  isCompact ? "h-2" : isLoose ? "h-4" : "h-3",
-                  borderRadius,
-                  (prefs.defaultWorkspace === id && prefs.startupPreference === "last-project")
-                    ? "bg-brand/20 border border-brand/30 ring-1 ring-brand/10 shadow-[0_0_8px_rgba(0,217,197,0.1)]" 
-                    : "bg-surface-muted/60 border border-transparent"
-                )} 
-              />
-            ))}
+    <div className="flex h-[260px] w-full items-center justify-center px-1 py-3 sm:px-2">
+      <div
+        className={cn(
+          "relative flex h-full w-full max-w-[360px] flex-col overflow-hidden bg-surface-panel shadow-md ring-1 ring-border transition-all duration-500 sm:max-w-[430px]",
+          borderRadius,
+          isCompact ? "scale-95" : "scale-100"
+        )}
+      >
+        <div className="flex h-[28px] shrink-0 items-center justify-between border-b border-border-soft bg-surface-app px-2">
+          <div className="flex items-center gap-1.5">
+            <div className={cn("h-3 w-3 border border-border-soft bg-surface-muted", borderRadius)} />
+            <div className={cn("h-1.5 w-20 bg-text/70", borderRadius)} />
           </div>
-        </div>
-        
-        {/* Main Content Area */}
-        <div className={cn("flex-1 h-full flex flex-col bg-surface-panel transition-all duration-500", padding, gap)}>
-          {/* Header mock */}
-          <div className={cn("w-1/3 h-2.5 bg-surface-muted transition-all duration-500", borderRadius)} />
-          
-          {/* Content grid */}
-          <div className={cn("flex-1 grid grid-cols-2 transition-all duration-500", gap)}>
-            <div className={cn("bg-surface-app ring-1 ring-border-soft transition-all duration-500", borderRadius)} />
-            <div className={cn("bg-surface-app ring-1 ring-border-soft transition-all duration-500", borderRadius)} />
-            <div className={cn("bg-surface-app ring-1 ring-border-soft transition-all duration-500", borderRadius)} />
-            <div className={cn("bg-surface-app ring-1 ring-border-soft transition-all duration-500", borderRadius)} />
+          <div className="flex items-center gap-1">
+            <div className={cn("h-1.5 w-10 bg-surface-muted", borderRadius)} />
+            <div className={cn("h-1.5 w-7 bg-brand/60", borderRadius)} />
           </div>
         </div>
 
-        {/* Modal Overlay for Strict Confirmation */}
-        <div 
+        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+          <div
+            className={cn(
+              "flex h-full shrink-0 flex-col border-r border-border-soft bg-surface-panel transition-all duration-500",
+              sidebarCollapsed ? "w-7 items-center px-1 py-2" : "w-12 px-1.5 py-2 sm:w-[68px] sm:px-2",
+              gap,
+            )}
+          >
+            <div className={cn("relative flex w-full", sidebarCollapsed ? "justify-center" : "justify-start")}>
+              <button
+                type="button"
+                disabled={!canToggleSidebar}
+                onClick={() => setRememberSidebarCollapsed((value) => !value)}
+                className={cn(
+                  "relative h-4 transition-all",
+                  sidebarCollapsed ? "w-4" : "w-8 sm:w-11",
+                  borderRadius,
+                  canToggleSidebar
+                    ? "cursor-pointer bg-brand/25 ring-1 ring-brand/45 shadow-[0_0_12px_rgba(0,217,197,0.22)] hover:bg-brand/35"
+                    : "cursor-default bg-surface-muted",
+                )}
+                title={canToggleSidebar ? "点击模拟左栏折叠/展开" : "左栏状态由当前设置固定"}
+              />
+              {canToggleSidebar ? (
+                <span className="pointer-events-none absolute -right-1 -top-1 h-2 w-2 animate-pulse rounded-full bg-brand shadow-[0_0_10px_rgba(0,217,197,0.65)]" />
+              ) : null}
+            </div>
+            <div className="flex flex-1 flex-col gap-1 pt-1">
+              {navItems.map((id) => (
+                <div
+                  key={id}
+                  className={cn(
+                    "flex h-5 items-center transition-all duration-500",
+                    sidebarCollapsed ? "w-5 justify-center" : "w-full gap-1 px-1 sm:gap-1.5",
+                    borderRadius,
+                    (showWorkspace && activeModule === id) || (!showWorkspace && id === "home")
+                      ? "bg-brand/20 text-brand ring-1 ring-brand/30"
+                      : "text-text-muted",
+                  )}
+                >
+                  <div className="h-2.5 w-2.5 shrink-0 rounded-[2px] bg-current opacity-45" />
+                  {!sidebarCollapsed ? <div className={cn("h-1.5 flex-1 bg-current opacity-25", borderRadius)} /> : null}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className={cn("flex-1 h-full flex flex-col bg-surface-panel transition-all duration-500 relative overflow-hidden", padding, gap)}>
+            <div className={cn("absolute inset-0 flex flex-col transition-all duration-700", padding, gap, isHome && !showPicker ? "opacity-100 scale-100 z-10" : "opacity-0 scale-95 z-0 pointer-events-none")}>
+               <div className={cn("w-1/4 h-2 bg-text transition-all duration-500", borderRadius)} />
+               <div className={cn("flex-1 grid grid-cols-3 transition-all duration-500", gap)}>
+                 {[1,2,3,4,5,6].map(i => <div key={i} className={cn("bg-surface-app ring-1 ring-border-soft", borderRadius)} />)}
+               </div>
+            </div>
+
+            <div className={cn("absolute inset-0 flex transition-all duration-700", showWorkspace && activeModule === "assets" ? "opacity-100 scale-100 z-10" : "opacity-0 scale-95 z-0 pointer-events-none")}>
+               <div className="w-1/4 h-full border-r border-border-soft flex flex-col p-1.5 gap-1.5 bg-surface-app/30">
+                 {[1,2,3,4].map(i => <div key={i} className={cn("w-full h-1.5 bg-surface-muted", borderRadius)} />)}
+               </div>
+               <div className={cn("flex-1 h-full p-2 grid gap-1.5", panelsExpanded ? "grid-cols-2 grid-rows-4" : "grid-cols-3 grid-rows-3")}>
+                 {(panelsExpanded ? [1,2,3,4,5,6,7,8] : [1,2,3,4,5,6,7,8,9]).map(i => <div key={i} className={cn("bg-surface-muted/50", borderRadius)} />)}
+               </div>
+            </div>
+
+            <div className={cn("absolute inset-0 flex flex-col transition-all duration-700", showWorkspace && activeModule === "studio-video" ? "opacity-100 scale-100 z-10" : "opacity-0 scale-95 z-0 pointer-events-none")}>
+               <div className="flex-1 p-2 flex items-center justify-center">
+                 <div className={cn("w-3/4 h-full bg-black/80 flex items-center justify-center shadow-inner", borderRadius)}>
+                    <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center pl-0.5">
+                       <div className="w-0 h-0 border-y-[4px] border-y-transparent border-l-[6px] border-l-white"></div>
+                    </div>
+                 </div>
+               </div>
+               <div className="h-1/3 border-t border-border-soft bg-surface-app/50 p-1.5 flex flex-col gap-1 relative">
+                 <div className="absolute top-0 bottom-0 left-1/3 w-[1px] bg-red-500/80 z-10">
+                   <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-red-500"></div>
+                 </div>
+                 <div className={cn("w-[90%] h-1.5 bg-brand/40 ml-2 relative", borderRadius)}>
+                   <div className="absolute inset-y-0 left-2 w-8 bg-brand/60 rounded-sm"></div>
+                 </div>
+                 <div className={cn("w-3/4 h-1.5 bg-blue-500/40 ml-4", borderRadius)}></div>
+                 <div className={cn("w-1/2 h-1.5 bg-green-500/40 ml-10 relative", borderRadius)}>
+                   <div className="absolute inset-y-0 left-4 w-6 bg-green-500/60 rounded-sm"></div>
+                 </div>
+               </div>
+            </div>
+
+            <div className={cn("absolute inset-0 flex transition-all duration-700", showWorkspace && activeModule === "studio-image" ? "opacity-100 scale-100 z-10" : "opacity-0 scale-95 z-0 pointer-events-none")}>
+               <div className="w-8 h-full bg-surface-panel border-r border-border-soft flex flex-col items-center py-2 gap-1.5 shrink-0 z-20">
+                  <div className="w-3.5 h-3.5 rounded-sm border border-text-muted"></div>
+                  <div className="w-3.5 h-3.5 rounded-full border border-text-muted"></div>
+                  <div className="w-3.5 h-3.5 bg-text-muted/30"></div>
+               </div>
+               <div className="flex-1 relative flex items-center justify-center bg-surface-app/30 pattern-dots pattern-border-soft pattern-size-2">
+                 <div className={cn("w-3/4 h-3/4 bg-white ring-1 ring-border shadow-sm overflow-hidden relative", borderRadius)}>
+                    <div className="absolute top-2 right-3 w-5 h-5 rounded-full bg-amber-400"></div>
+                    <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-blue-400/20"></div>
+                    <div className="absolute bottom-0 left-[-10%] w-[60%] h-[70%] bg-emerald-500/80 rotate-45 origin-bottom-left"></div>
+                    <div className="absolute bottom-0 right-[-10%] w-[70%] h-[50%] bg-emerald-400/80 -rotate-45 origin-bottom-right"></div>
+                 </div>
+               </div>
+            </div>
+
+            <div className={cn("absolute inset-0 flex flex-col justify-center transition-all duration-700 p-2 gap-2", showWorkspace && activeModule === "studio-music" ? "opacity-100 scale-100 z-10" : "opacity-0 scale-95 z-0 pointer-events-none")}>
+               {[1,2,3].map(track => (
+                 <div key={track} className={cn("w-full h-5 bg-surface-app ring-1 ring-border-soft flex items-center p-0.5 gap-1 overflow-hidden", borderRadius)}>
+                    <div className="w-6 h-full bg-surface-panel flex flex-col items-center justify-center gap-[2px] shrink-0 border-r border-border-soft z-20">
+                      <div className="w-2 h-1 bg-text-muted/40 rounded-sm"></div>
+                      <div className="w-2 h-1 border border-text-muted/40 rounded-sm"></div>
+                    </div>
+                    <div className="flex-1 h-full flex items-center relative pl-1 overflow-hidden">
+                      <div className="absolute top-0 bottom-0 left-1/3 w-[1px] bg-red-500/50 z-10 pointer-events-none"></div>
+                      <div className={cn("h-3.5 bg-brand/20 flex items-center px-1 overflow-hidden", borderRadius, track === 1 ? "w-[95%] ml-0" : track === 2 ? "w-[75%] ml-4" : "w-[65%] ml-2")}>
+                         {Array.from({length: 12}).map((_, i) => <div key={i} className="flex-1 mx-[1px] bg-brand/50 rounded-full" style={{height: `${30 + ((i * 17 + track * 11) % 70)}%`}}></div>)}
+                      </div>
+                    </div>
+                 </div>
+               ))}
+            </div>
+
+            <div className={cn("absolute inset-0 flex transition-all duration-700", showWorkspace && activeModule === "studio-3d" ? "opacity-100 scale-100 z-10" : "opacity-0 scale-95 z-0 pointer-events-none")}>
+               <div className="w-8 h-full bg-surface-panel border-r border-border-soft flex flex-col items-center py-2 gap-1.5 shrink-0 z-20">
+                  <div className="w-3.5 h-3.5 border border-text-muted bg-text-muted/10"></div>
+                  <div className="w-3.5 h-3.5 rounded-full border border-text-muted"></div>
+               </div>
+               <div className="flex-1 relative flex items-center justify-center bg-surface-app/10 overflow-hidden">
+                 {/* Floor Grid */}
+                 <div className="absolute inset-0 [background-image:linear-gradient(to_right,#8882_1px,transparent_1px),linear-gradient(to_bottom,#8882_1px,transparent_1px)] [background-size:12px_12px] [transform:rotateX(60deg)_rotateZ(45deg)] scale-150 transform-gpu opacity-50"></div>
+
+                 {/* 3D Wireframe Box */}
+                 <div className="w-12 h-12 relative z-10 opacity-80">
+                    {/* Top */}
+                    <div className="absolute top-0 left-0 w-8 h-8 border-[1.5px] border-brand/80 [transform:rotateX(60deg)_rotateZ(45deg)]"></div>
+                    {/* Bottom */}
+                    <div className="absolute top-4 left-0 w-8 h-8 border-[1.5px] border-brand/30 [transform:rotateX(60deg)_rotateZ(45deg)]"></div>
+                    {/* Pillars */}
+                    <div className="absolute top-2 left-[5px] w-[1.5px] h-4 bg-brand/50"></div>
+                    <div className="absolute top-2 left-[27px] w-[1.5px] h-4 bg-brand/50"></div>
+                    <div className="absolute top-5 left-[16px] w-[1.5px] h-4 bg-brand/50"></div>
+                 </div>
+
+                 {/* Fake 3D Gizmo */}
+                 <div className="absolute top-2 right-2 w-6 h-6 z-20">
+                   <div className="absolute top-1/2 left-1/2 w-[1px] h-3 bg-green-500 origin-bottom -translate-x-1/2 -translate-y-full" />
+                   <div className="absolute top-1/2 left-1/2 w-3 h-[1px] bg-red-500 origin-left" />
+                   <div className="absolute top-1/2 left-1/2 w-2.5 h-[1px] bg-blue-500 origin-left rotate-45" />
+                 </div>
+               </div>
+            </div>
+
+          </div>
+
+          <div
+            className={cn(
+              "flex h-full shrink-0 flex-col border-l border-border bg-surface-panel transition-all duration-500",
+              inspectorCollapsed ? "w-5 items-center p-1" : "w-10 p-1 sm:w-14 sm:p-1.5",
+              gap,
+            )}
+          >
+            <div className="relative flex w-full justify-center">
+              <button
+                type="button"
+                disabled={!canToggleInspector}
+                onClick={() => setRememberInspectorCollapsed((value) => !value)}
+                className={cn(
+                  "relative h-4 transition-all",
+                  inspectorCollapsed ? "w-3" : "w-6 sm:w-8",
+                  borderRadius,
+                  canToggleInspector
+                    ? "cursor-pointer bg-brand/25 ring-1 ring-brand/45 shadow-[0_0_12px_rgba(0,217,197,0.22)] hover:bg-brand/35"
+                    : "cursor-default bg-text/35",
+                )}
+                title={canToggleInspector ? "点击模拟右栏折叠/展开" : "右栏状态由当前设置固定"}
+              />
+              {canToggleInspector ? (
+                <span className="pointer-events-none absolute -right-1 -top-1 h-2 w-2 animate-pulse rounded-full bg-brand shadow-[0_0_10px_rgba(0,217,197,0.65)]" />
+              ) : null}
+            </div>
+            {!inspectorCollapsed ? (
+              <>
+                <div className={cn("h-8 bg-surface-app ring-1 ring-border-soft", borderRadius)} />
+                <div className={cn("h-4 bg-surface-muted", borderRadius)} />
+                <div className={cn("h-4 bg-surface-muted", borderRadius)} />
+                <div className={cn("mt-auto h-5 bg-brand/20 ring-1 ring-brand/20", borderRadius)} />
+              </>
+            ) : (
+              <div className={cn("mt-2 h-14 w-2 bg-surface-muted", borderRadius)} />
+            )}
+          </div>
+        </div>
+
+        <div
           className={cn(
-            "absolute inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center transition-all duration-300",
+            "absolute inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center transition-all duration-500 z-20",
+            showPicker ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+          )}
+        >
+          <div className={cn("w-[70%] h-[70%] bg-surface-panel ring-1 ring-border shadow-popover flex flex-col p-2 transform transition-all duration-500 delay-100", borderRadius, showPicker ? "scale-100 translate-y-0" : "scale-95 translate-y-2")}>
+             <div className="w-full flex justify-between items-center mb-2 px-1">
+               <div className={cn("w-1/3 h-1.5 bg-text", borderRadius)} />
+               <div className={cn("w-1/6 h-1.5 bg-surface-muted", borderRadius)} />
+             </div>
+             <div className="flex-1 grid grid-cols-2 gap-1.5">
+               {[1,2,3,4].map(i => <div key={i} className={cn("bg-surface-app ring-1 ring-border-soft", borderRadius)} />)}
+             </div>
+          </div>
+        </div>
+
+        <div
+          className={cn(
+            "absolute inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center transition-all duration-300 z-30",
             prefs.confirmationPreference === "strict" ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
           )}
         >
-          <div className={cn("w-[60%] aspect-video bg-surface-panel ring-1 ring-border flex flex-col justify-center items-center gap-2.5 shadow-popover transform transition-all duration-500", borderRadius, prefs.confirmationPreference === "strict" ? "scale-100 translate-y-0" : "scale-90 translate-y-2")}>
-             <div className="w-8 h-8 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center">
-               <AlertTriangle className="w-4 h-4" />
+          <div className={cn("w-[50%] h-[40%] bg-surface-panel ring-1 ring-border flex flex-col justify-center items-center gap-2 shadow-popover transform transition-all duration-500", borderRadius, prefs.confirmationPreference === "strict" ? "scale-100 translate-y-0" : "scale-90 translate-y-2")}>
+             <div className="w-5 h-5 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center">
+               <AlertTriangle className="w-3 h-3" />
              </div>
-             <div className={cn("w-1/2 h-1.5 bg-text transition-all", borderRadius)} />
+             <div className={cn("w-2/3 h-1.5 bg-text transition-all", borderRadius)} />
              <div className="flex gap-1.5 mt-1">
-                <div className={cn("w-8 h-2 bg-surface-muted transition-all", borderRadius)} />
-                <div className={cn("w-8 h-2 bg-red-500 transition-all", borderRadius)} />
+                <div className={cn("w-6 h-2 bg-surface-muted transition-all", borderRadius)} />
+                <div className={cn("w-6 h-2 bg-red-500 transition-all", borderRadius)} />
              </div>
           </div>
         </div>
@@ -1689,9 +1965,12 @@ function WorkspaceDefaultsPreview({ prefs, setPref }: { prefs: SettingsPreferenc
     <div className="grid grid-cols-2 gap-4 p-5 border-b border-border-soft bg-surface-muted/10">
 
        <div className={cn("flex flex-col p-4 rounded-xl border shadow-sm transition-all cursor-default relative overflow-hidden max-h-[210px]", cardBg, hoverBg)}>
-          <div className="absolute right-[-10px] top-[-10px] w-24 h-24 opacity-10 flex items-center justify-center rotate-12 pointer-events-none">
-             <div className="w-12 h-16 border-[3px] border-current rounded absolute"></div>
-             <div className="w-16 h-12 border-[3px] border-current rounded absolute rotate-12"></div>
+          <div className="absolute right-[-10px] top-[-10px] w-24 h-24 opacity-10 flex items-center justify-center pointer-events-none text-current">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-20 h-20 rotate-12">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <circle cx="8.5" cy="8.5" r="1.5"></circle>
+              <polyline points="21 15 16 10 5 21"></polyline>
+            </svg>
           </div>
 
           <div className="flex items-center gap-2 text-[13px] font-bold text-text mb-3 z-10">
@@ -1732,10 +2011,17 @@ function WorkspaceDefaultsPreview({ prefs, setPref }: { prefs: SettingsPreferenc
        </div>
 
        <div className={cn("flex flex-col p-4 rounded-xl border shadow-sm transition-all cursor-default relative overflow-hidden max-h-[210px]", cardBg, hoverBg)}>
-          <div className="absolute right-2 top-2 w-20 h-16 opacity-10 flex flex-col gap-2 items-end justify-center pointer-events-none">
-             <div className="w-full h-2 rounded-full bg-current"></div>
-             <div className="w-3/4 h-2 rounded-full bg-current"></div>
-             <div className="w-5/6 h-2 rounded-full bg-current"></div>
+          <div className="absolute right-0 top-0 w-24 h-24 opacity-10 flex items-center justify-center pointer-events-none text-current">
+             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-16 h-16 rotate-6">
+               <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+               <line x1="7" y1="2" x2="7" y2="22"></line>
+               <line x1="17" y1="2" x2="17" y2="22"></line>
+               <line x1="2" y1="12" x2="22" y2="12"></line>
+               <line x1="2" y1="7" x2="7" y2="7"></line>
+               <line x1="2" y1="17" x2="7" y2="17"></line>
+               <line x1="17" y1="17" x2="22" y2="17"></line>
+               <line x1="17" y1="7" x2="22" y2="7"></line>
+             </svg>
           </div>
 
           <div className="flex items-center gap-2 text-[13px] font-bold text-text mb-3 z-10">
@@ -1786,12 +2072,12 @@ function WorkspaceDefaultsPreview({ prefs, setPref }: { prefs: SettingsPreferenc
        </div>
 
        <div className={cn("flex flex-col p-4 rounded-xl border shadow-sm transition-all cursor-default relative overflow-hidden max-h-[210px]", cardBg, hoverBg)}>
-          <div className="absolute right-2 top-4 w-20 h-12 opacity-10 flex items-center justify-end gap-1.5 pointer-events-none">
-             <div className="w-1.5 h-6 bg-current rounded-full"></div>
-             <div className="w-1.5 h-10 bg-current rounded-full"></div>
-             <div className="w-1.5 h-4 bg-current rounded-full"></div>
-             <div className="w-1.5 h-8 bg-current rounded-full"></div>
-             <div className="w-1.5 h-5 bg-current rounded-full"></div>
+          <div className="absolute right-2 top-2 w-24 h-24 opacity-10 flex items-center justify-center pointer-events-none text-current">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-16 h-16 -rotate-6">
+              <path d="M9 18V5l12-2v13"></path>
+              <circle cx="6" cy="18" r="3"></circle>
+              <circle cx="18" cy="16" r="3"></circle>
+            </svg>
           </div>
 
           <div className="flex items-center gap-2 text-[13px] font-bold text-text mb-3 z-10">

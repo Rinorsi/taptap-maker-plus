@@ -1,4 +1,4 @@
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { useMemo, useState } from "react";
 import { ArrowLeft, Menu, FolderSync, LayoutDashboard, Home, Image as ImageIcon, Video, Music, Box, Hammer, Settings2, GitBranch, Activity, Bot, Search, ChevronDown, Info, Megaphone } from "lucide-react";
 import type { ProjectSummary, TaskRecord } from "../../api";
@@ -290,7 +290,7 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
                 onClick={() => setDisabledPagesOpen((value) => !value)}
               >
                 <ChevronDown
-                  className={cn("h-[18px] w-[18px] transition-transform", disabledPagesOpen ? "rotate-180" : "")}
+                  className={cn("h-[18px] w-[18px] rotate-180 transition-transform", disabledPagesOpen ? "rotate-0" : "")}
                 />
               </button>
             ) : (
@@ -301,46 +301,54 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
               >
                 <span className="min-w-0 flex-1 truncate text-left">禁用页面</span>
                 <ChevronDown
-                  className={cn("h-4 w-4 shrink-0 transition-transform", disabledPagesOpen ? "rotate-180" : "")}
+                  className={cn("h-4 w-4 shrink-0 rotate-180 transition-transform", disabledPagesOpen ? "rotate-0" : "")}
                 />
               </button>
             )}
 
-            {disabledPagesOpen ? (
-              <ul className={cn("mt-1 space-y-1", collapsed ? "w-full" : "")}>
-                {disabledRoutes.map((route) => {
-                  const isActive = activeModule === route.id;
-                  const Icon = moduleIcons[route.id] || LayoutDashboard;
-                  return (
-                    <li key={route.id}>
-                      <button
-                        type="button"
-                        title={route.hiddenPageNote ? `${route.label}：${route.hiddenPageNote}` : route.label}
-                        className={cn(
-                          "flex w-full cursor-pointer select-none items-center rounded-lg text-text-muted outline-none transition-colors hover:bg-surface-muted hover:text-text",
-                          collapsed ? "h-[40px] justify-center p-0" : "gap-3 px-3 py-2",
-                          isActive ? "bg-surface-muted font-semibold text-text" : "",
-                        )}
-                        onClick={() => onSelectModule(route.id)}
-                      >
-                        <Icon className="h-[18px] w-[18px] shrink-0" strokeWidth={isActive ? 2.5 : 2} />
-                        {!collapsed ? (
-                          <>
-                            <span className="min-w-0 flex-1 truncate text-[13px]">{route.label}</span>
-                            <span
-                              className="shrink-0 rounded-full border border-border-soft bg-surface-app px-1.5 py-0.5 text-[9px] font-semibold text-text-subtle"
-                              title={route.hiddenPageNote}
-                            >
-                              禁用
-                            </span>
-                          </>
-                        ) : null}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : null}
+            <AnimatePresence initial={false}>
+              {disabledPagesOpen ? (
+                <motion.ul
+                  initial={{ height: 0, opacity: 0, y: -4 }}
+                  animate={{ height: "auto", opacity: 1, y: 0 }}
+                  exit={{ height: 0, opacity: 0, y: -4 }}
+                  transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                  className={cn("mt-1 space-y-1 overflow-hidden", collapsed ? "w-full" : "")}
+                >
+                  {disabledRoutes.map((route) => {
+                    const isActive = activeModule === route.id;
+                    const Icon = moduleIcons[route.id] || LayoutDashboard;
+                    return (
+                      <li key={route.id}>
+                        <button
+                          type="button"
+                          title={route.hiddenPageNote ? `${route.label}：${route.hiddenPageNote}` : route.label}
+                          className={cn(
+                            "flex w-full cursor-pointer select-none items-center rounded-lg text-text-muted outline-none transition-colors hover:bg-surface-muted hover:text-text",
+                            collapsed ? "h-[40px] justify-center p-0" : "gap-3 px-3 py-2",
+                            isActive ? "bg-surface-muted font-semibold text-text" : "",
+                          )}
+                          onClick={() => onSelectModule(route.id)}
+                        >
+                          <Icon className="h-[18px] w-[18px] shrink-0" strokeWidth={isActive ? 2.5 : 2} />
+                          {!collapsed ? (
+                            <>
+                              <span className="min-w-0 flex-1 truncate text-[13px]">{route.label}</span>
+                              <span
+                                className="shrink-0 rounded-full border border-border-soft bg-surface-app px-1.5 py-0.5 text-[9px] font-semibold text-text-subtle"
+                                title={route.hiddenPageNote}
+                              >
+                                禁用
+                              </span>
+                            </>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </motion.ul>
+              ) : null}
+            </AnimatePresence>
           </div>
         ) : null}
 

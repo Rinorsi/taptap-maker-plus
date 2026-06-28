@@ -14,8 +14,8 @@ const webSourceIndex = path.join(workspaceRoot, "apps", "web", "index.html");
 const webDistIndex = path.join(workspaceRoot, "apps", "web", "dist", "index.html");
 const webDistDesktopLoading = path.join(workspaceRoot, "apps", "web", "dist", "desktop-loading.html");
 const serverDistIndex = path.join(workspaceRoot, "apps", "server", "dist", "index.js");
-const npmCacheDir = path.join(workspaceRoot, "data", "npm-cache");
 const desktopDistDir = path.join(workspaceRoot, "desktop-dist");
+const desktopSeededNpmCacheDir = path.join(desktopDistDir, "data", "npm-cache");
 const webIdentityName = 'name="taptap-maker-plus"';
 const webIdentityContent = 'content="web"';
 const optionalBundledReadOnlyPaths = [
@@ -282,6 +282,14 @@ function requireTauriConfig(rootPackage: JsonObject, tauriCliPackage: JsonObject
   requireFile(path.join(desktopDistDir, "node-runtime", "npx.cmd"));
   requireFile(path.join(desktopDistDir, "node-runtime", "node_modules", "npm", "bin", "npm-cli.js"));
   requireFile(path.join(desktopDistDir, "node-runtime", "node_modules", "npm", "bin", "npx-cli.js"));
+  requireFile(path.join(desktopDistDir, "Export Diagnostics.cmd"));
+  requireFile(path.join(desktopDistDir, "collect-desktop-diagnostics.mjs"));
+  requireFile(path.join(desktopDistDir, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node"));
+  requireDirectory(desktopSeededNpmCacheDir);
+  const bundledMakerCache = findMakerPackageCache(desktopSeededNpmCacheDir);
+  if (!bundledMakerCache) {
+    throw new Error("No bundled @taptap/maker package found under desktop-dist/data/npm-cache/_npx");
+  }
   for (const relativePath of optionalBundledReadOnlyPaths) {
     const sourcePath = path.join(workspaceRoot, relativePath);
     const outputPath = path.join(desktopDistDir, relativePath);
@@ -359,11 +367,10 @@ const tauri = requireTauriConfig(rootPackage, tauriCliPackage);
 requireViteDevServerConfig();
 requireServerArtifact();
 const webAssets = requireWebAssets();
-requireNpmCache(npmCacheDir);
-
-const makerCache = findMakerPackageCache(npmCacheDir);
-if (!makerCache) {
-  throw new Error("No cached @taptap/maker package found under data/npm-cache/_npx");
+requireNpmCache(desktopSeededNpmCacheDir);
+const bundledMakerCache = findMakerPackageCache(desktopSeededNpmCacheDir);
+if (!bundledMakerCache) {
+  throw new Error("No bundled @taptap/maker package found under desktop-dist/data/npm-cache/_npx");
 }
 
 const versions = {
@@ -387,15 +394,16 @@ console.log(JSON.stringify({
     desktopLoading: relative(webDistDesktopLoading),
     desktopDist: relative(desktopDistDir),
     nodeRuntime: relative(path.join(desktopDistDir, "node-runtime", "node.exe")),
+    nativeRuntime: relative(path.join(desktopDistDir, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node")),
     webAssets
   },
   maker: {
-    npmCacheDir: relative(npmCacheDir),
-    cachedPackageDir: relative(makerCache.packageDir),
-    cachedPackageJson: relative(makerCache.packageJsonPath),
-    cachedVersion: makerCache.version,
-    bin: relative(makerCache.binPath),
-    main: relative(makerCache.mainPath)
+    bundledNpmCacheDir: relative(desktopSeededNpmCacheDir),
+    bundledPackageDir: relative(bundledMakerCache.packageDir),
+    bundledPackageJson: relative(bundledMakerCache.packageJsonPath),
+    bundledVersion: bundledMakerCache.version,
+    bin: relative(bundledMakerCache.binPath),
+    main: relative(bundledMakerCache.mainPath)
   },
   versions
 }, null, 2));

@@ -53,11 +53,19 @@ export function categorizeTool(name: string): ToolSummary["category"] {
   return "other";
 }
 
+export function buildMcpRuntimeLaunchCommand() {
+  return {
+    command: config.npxCommand,
+    args: ["-y", "-p", config.makerPackage, "taptap-maker"],
+  };
+}
+
 class SdkMcpClient {
   private client?: Client;
   private transport?: StdioClientTransport;
   private stderrBuffer = "";
   private closing = false;
+  private launchCommand?: ReturnType<typeof buildMcpRuntimeLaunchCommand>;
 
   constructor(private readonly project: ProjectSummary) {}
 
@@ -80,9 +88,11 @@ class SdkMcpClient {
     fs.mkdirSync(config.makerNpmCacheDir, { recursive: true });
     fs.mkdirSync(config.mcpLogDir, { recursive: true });
     const client = new Client({ name: appVersion.appId, version: appVersion.packageVersion }, { capabilities: {} });
+    const launch = buildMcpRuntimeLaunchCommand();
+    this.launchCommand = launch;
     const transport = new StdioClientTransport({
-      command: "cmd.exe",
-      args: ["/d", "/s", "/c", config.npxCommand, "-y", "-p", config.makerPackage, "taptap-maker"],
+      command: launch.command,
+      args: launch.args,
       cwd: this.project.rootPath,
       env: buildMcpEnv(),
       stderr: "pipe"
@@ -125,6 +135,12 @@ class SdkMcpClient {
 
   isClosing() {
     return this.closing;
+  }
+
+  launchDetails() {
+    return this.launchCommand
+      ? `${this.launchCommand.command} ${this.launchCommand.args.join(" ")}`
+      : undefined;
   }
 }
 
@@ -174,6 +190,7 @@ class McpRuntimeManager {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const stderr = client.stderr.trim();
+      const launchDetails = client.launchDetails();
       await client.close();
       this.clients.delete(project.id);
       const summary: RuntimeSummary = {
@@ -182,7 +199,11 @@ class McpRuntimeManager {
         toolCount: 0,
         startedAt,
         cwd: project.rootPath,
-        lastError: stderr ? `${message}\n${stderr}` : message
+        lastError: [
+          message,
+          launchDetails ? `launch: ${launchDetails}` : undefined,
+          stderr || undefined,
+        ].filter(Boolean).join("\n")
       };
       this.statuses.set(project.id, summary);
       return summary;

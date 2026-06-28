@@ -6,6 +6,12 @@ desktop-dist/node-runtime/
 docs/
 local-docs/
 dev-notes/
+updates/*
+!updates/
+!updates/app-update-manifest.json
+update-feed/
+.update-feed-worktree/
+diagnostics/
 data/*.sqlite
 data/*.db
 data/*.sqlite-wal

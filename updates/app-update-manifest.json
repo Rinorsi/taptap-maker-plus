@@ -1,44 +1,15 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-06-28T01:00:00.000Z",
+  "generatedAt": "2026-06-28T10:45:00.000Z",
   "repositoryUrl": "https://github.com/Rinorsi/taptap-maker-plus",
-  "latestVersion": "v0.13.4-alpha",
-  "announcements": [
-    {
-      "id": "alpha-static-update-2026-06-27",
-      "title": "TapTap Maker Plus Alpha 公告",
-      "summary": "欢迎使用 Alpha 版本。这里介绍当前能先用起来的能力、仍在打磨的地方，以及遇到问题怎么反馈。",
-      "severity": "info",
-      "publishedAt": "2026-06-27T00:00:00.000Z",
-      "markdownPath": "announcements/alpha-static-update-2026-06-27.md"
-    },
-    {
-      "id": "diagnostic-announcement-test-2026-06-28",
-      "title": "反馈与诊断说明",
-      "summary": "遇到启动、闪退、MCP 或项目识别问题时，可以用诊断包把必要信息整理出来。",
-      "severity": "info",
-      "publishedAt": "2026-06-28T00:00:00.000Z",
-      "markdownPath": "announcements/diagnostic-announcement-test-2026-06-28.md"
-    }
-  ],
+  "latestVersion": "v0.13.5-alpha",
+  "announcements": [],
   "releases": [
     {
-      "version": "v0.13.4-alpha",
-      "title": "v0.13.4-ALPHA 设置与更新链路打磨",
-      "publishedAt": "2026-06-28T01:00:00.000Z",
-      "changelogPath": "release-notes/v0.13.4-alpha.md"
-    },
-    {
-      "version": "v0.13.3-alpha",
-      "title": "v0.13.3-ALPHA 测试包",
-      "publishedAt": "2026-06-28T00:00:00.000Z",
-      "changelogPath": "release-notes/v0.13.3-alpha.md"
-    },
-    {
-      "version": "v0.13.1-alpha",
-      "title": "v0.13.1-ALPHA 覆盖更新测试包",
-      "publishedAt": "2026-06-27T00:00:00.000Z",
-      "changelogPath": "release-notes/v0.13.1-alpha.md"
+      "version": "v0.13.5-alpha",
+      "title": "v0.13.5-ALPHA 兼容更新入口",
+      "publishedAt": "2026-06-28T09:10:00.000Z",
+      "changelog": "## v0.13.5-ALPHA 兼容更新入口\n\n这是给 v0.13.5 之前版本使用的最后一份旧更新清单。\n\n### 为什么这里只显示 v0.13.5\n\n从 v0.13.5 开始，TapTap Maker Plus 的更新清单、公告和更新日志已经迁移到独立的 `updates-feed` 分支维护。旧版本只会读取 `main/updates/app-update-manifest.json`，所以这里保留一个最小跳板，让旧版本可以先升级到 v0.13.5。\n\n### 升级后会发生什么\n\n* v0.13.5 及之后版本会改读新的静态更新清单。\n* 后续版本、公告和完整更新日志不会继续放在这个旧清单里。\n* 如果你正在使用 v0.13.1、v0.13.3 或 v0.13.4，请先更新到 v0.13.5-alpha，再继续检查后续更新。\n\n### v0.13.5 主要修复\n\n* 补充离线诊断入口，软件打不开时也可以从安装目录导出诊断包。\n* 诊断包补充桌面端日志、服务端日志、崩溃日志、前端诊断日志、设置文件、数据库和 MCP 日志。\n* 修复路径带空格时 MCP runtime 启动失败的问题。\n* 打包资源校验会检查前端产物、服务端产物、Node runtime、MCP npm-cache 和 native binding。"
     }
   ]
 }

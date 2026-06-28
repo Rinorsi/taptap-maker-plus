@@ -483,9 +483,9 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
       ) : null}
       
       <div className="grid gap-2 mt-2">
-        <Button onClick={onStartRuntime} disabled={!project || starting || busy} className="w-full gap-2 text-xs h-9 shadow-sm">
+        <Button onClick={onStartRuntime} disabled={starting || busy} className="w-full gap-2 text-xs h-9 shadow-sm">
           {starting || busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-current" />}
-          {starting ? "MCP 启动中..." : busy ? "正在执行..." : ready ? "重启 MCP" : "启动 MCP"}
+          {starting ? "MCP 启动中..." : busy ? "正在执行..." : !project ? "先选择项目" : ready ? "重启 MCP" : "启动 MCP"}
         </Button>
         <div className="grid grid-cols-2 gap-2">
           <Button variant="outline" onClick={onRefreshTools} disabled={!project || busy} className="gap-1.5 text-xs h-8 shadow-sm">

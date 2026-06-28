@@ -24,7 +24,7 @@ appVersion.announcementBody = release.changelog;
 appVersion.announcements = [
   {
     title: "静态更新清单",
-    body: "版本号和更新日志来自 updates/app-update-manifest.json。",
+    body: "版本号和更新日志来自 updates-feed 静态更新清单。",
   },
   {
     title: release.title,

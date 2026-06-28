@@ -1,7 +1,7 @@
 {
   "name": "taptap-maker-plus",
   "private": true,
-  "version": "0.13.4-alpha",
+  "version": "0.13.5-alpha",
   "type": "module",
   "workspaces": [
     "apps/*"
@@ -18,9 +18,14 @@
     "typecheck": "npm run typecheck --workspace @taptap/server && npm run typecheck --workspace @taptap/web",
     "lint": "npm run lint --workspace @taptap/server && npm run lint --workspace @taptap/web",
     "verify:assets": "tsx scripts/verify-asset-governance.ts",
+    "verify:mcp-runtime": "tsx scripts/verify-mcp-runtime-launch.ts",
+    "collect:diagnostics": "node scripts/collect-desktop-diagnostics.mjs --open",
     "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build",
+    "desktop:build": "tauri build --features devtools",
     "verify:desktop": "tsx scripts/verify-desktop-readiness.ts",
+    "verify:installer": "node scripts/verify-nsis-bundle.mjs",
+    "sync:update-feed": "node scripts/sync-update-feed.mjs",
+    "publish:update-feed": "node scripts/publish-update-feed.mjs",
     "publish:update-release": "node scripts/publish-update-release.mjs",
     "set:version-from-manifest": "node scripts/set-app-version-from-manifest.mjs"
   },

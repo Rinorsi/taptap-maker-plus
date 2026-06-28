@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { Settings, Moon, Sun, Search, Boxes, FolderOpen, Wrench, File, Activity, Minus, Square, X, Copy, Power } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "../ui/Button";
 import type { AssetSummary, ProjectSummary, RuntimeSummary, TaskRecord, ToolSummary } from "../../api";
 import type { WorkbenchModule } from "../../app/routes";
 import type { InspectorSelection } from "./AgentInspectorPanel";
+import { addDeveloperLogEntry } from "../../lib/developerMode";
 import { cn } from "../../lib/utils";
 
 type Props = {
@@ -211,7 +213,7 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
                 onStartRuntime?.();
               }
             }}
-            title={runtimeStatus === "READY" ? "停止 MCP 服务" : "启动 MCP 服务"}
+            title={runtimeStatus === "READY" ? "停止 MCP 服务" : project ? "启动 MCP 服务" : "请先选择或导入 Maker 项目"}
           >
             <Power className="w-3.5 h-3.5 mr-1.5" />
             {runtimeStatus === "READY" ? "停止服务" : "启动 MCP"}
@@ -345,17 +347,36 @@ function DesktopWindowControls() {
   }, []);
 
   async function runWindowAction(action: "minimize" | "maximize" | "close") {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    const appWindow = getCurrentWindow();
-    if (action === "minimize") {
-      await appWindow.minimize();
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const appWindow = getCurrentWindow();
+      if (action === "minimize") {
+        await appWindow.minimize();
+        return;
+      }
+      if (action === "maximize") {
+        await appWindow.toggleMaximize();
+        return;
+      }
+      await appWindow.close();
       return;
+    } catch (error) {
+      addDeveloperLogEntry("warn", "window", `窗口${windowActionLabel(action)}失败，尝试桌面端兜底命令。`, formatWindowActionError(error));
     }
-    if (action === "maximize") {
-      await appWindow.toggleMaximize();
-      return;
+
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("desktop_window_action", {
+        action: action === "maximize" ? "toggleMaximize" : action,
+      });
+    } catch (error) {
+      const detail = formatWindowActionError(error);
+      addDeveloperLogEntry("error", "window", `窗口${windowActionLabel(action)}失败。`, detail);
+      toast.error(`窗口${windowActionLabel(action)}失败`, {
+        description: "桌面端窗口控制没有响应，请导出诊断包反馈。",
+        id: `window-action-${action}`,
+      });
     }
-    await appWindow.close();
   }
 
   return (
@@ -371,6 +392,24 @@ function DesktopWindowControls() {
       </button>
     </div>
   );
+}
+
+function windowActionLabel(action: "minimize" | "maximize" | "close") {
+  if (action === "minimize") return "最小化";
+  if (action === "maximize") return "最大化";
+  return "关闭";
+}
+
+function formatWindowActionError(error: unknown) {
+  if (error instanceof Error) {
+    return error.stack || error.message;
+  }
+  if (typeof error === "string") return error;
+  try {
+    return JSON.stringify(error, null, 2);
+  } catch {
+    return String(error);
+  }
 }
 
 function StatusPill({ label, tone }: { label: string; tone: "ok" | "idle" | "bad" }) {

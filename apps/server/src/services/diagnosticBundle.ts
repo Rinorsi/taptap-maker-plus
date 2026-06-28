@@ -47,9 +47,11 @@ export function getDesktopResourceReadiness(): DesktopResourceReadiness {
     directoryCheck("Server dist", path.join(config.workspaceRoot, "apps", "server", "dist"), true),
     fileCheck("Server entry", path.join(config.workspaceRoot, "apps", "server", "dist", "index.js"), true),
     directoryCheck("Server production dependencies", path.join(config.workspaceRoot, "node_modules"), true),
+    fileCheck("better-sqlite3 native binding", path.join(config.workspaceRoot, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node"), true),
     directoryCheck("Bundled Node runtime", path.join(config.workspaceRoot, "node-runtime"), process.env.NODE_ENV === "production"),
     fileCheck("Bundled node.exe", path.join(config.workspaceRoot, "node-runtime", process.platform === "win32" ? "node.exe" : "node"), process.env.NODE_ENV === "production"),
     fileCheck("Bundled npm command", config.npmCommand, true),
+    directoryCheck("Bundled Maker npm cache seed", path.join(config.workspaceRoot, "data", "npm-cache", "_npx"), process.env.NODE_ENV === "production"),
     directoryCheck("App data directory", config.dataDir, true),
     directoryCheck("MCP log directory", config.mcpLogDir, true),
     directoryCheck("Maker npm cache", config.makerNpmCacheDir, false),
@@ -88,6 +90,7 @@ export async function createDiagnosticBundle(projectId?: string): Promise<Diagno
   for (const item of [
     addFileIfExists(archive, path.join(config.dataDir, "desktop.log"), "logs/desktop.log"),
     addFileIfExists(archive, path.join(config.dataDir, "server.log"), "logs/server.log"),
+    addFileIfExists(archive, path.join(config.dataDir, "desktop-crash.log"), "logs/desktop-crash.log"),
     addFileIfExists(archive, path.join(config.dataDir, "logs", "frontend-diagnostics.log"), "logs/frontend-diagnostics.log"),
     addFileIfExists(archive, config.databasePath, "data/taptap-maker-plus.sqlite"),
   ]) {

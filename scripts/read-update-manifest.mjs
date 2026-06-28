@@ -6,24 +6,31 @@ const scriptPath = fileURLToPath(import.meta.url);
 const workspaceRoot = path.dirname(path.dirname(scriptPath));
 
 export function readUpdateManifest(workspaceRoot) {
-  const manifestPath = path.join(workspaceRoot, "updates", "app-update-manifest.json");
+  const manifestRoot = process.env.TAPTAP_UPDATE_MANIFEST_ROOT
+    ? path.resolve(workspaceRoot, process.env.TAPTAP_UPDATE_MANIFEST_ROOT)
+    : path.join(workspaceRoot, "update-feed");
+  const manifestPath = path.join(manifestRoot, "app-update-manifest.json");
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-  validateUpdateManifest(manifest, manifestPath);
-  return manifest;
+  validateUpdateManifest(manifest, manifestPath, manifestRoot);
+  return {
+    ...manifest,
+    __manifestRoot: manifestRoot,
+    __manifestPath: manifestPath,
+  };
 }
 
 export function findManifestRelease(manifest, version) {
   const release = manifest.releases.find((item) => item.version === version);
   if (!release) {
-    throw new Error(`updates/app-update-manifest.json missing release: ${version}`);
+    throw new Error(`${manifest.__manifestPath ?? "app-update-manifest.json"} missing release: ${version}`);
   }
   return {
     ...release,
-    changelog: readReleaseChangelog(release),
+    changelog: readReleaseChangelog(release, manifest.__manifestRoot ?? path.join(workspaceRoot, "update-feed")),
   };
 }
 
-function validateUpdateManifest(manifest, manifestPath) {
+function validateUpdateManifest(manifest, manifestPath, manifestRoot) {
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
     throw new Error(`${manifestPath} must be a JSON object`);
   }
@@ -53,16 +60,19 @@ function validateUpdateManifest(manifest, manifestPath) {
       throw new Error(`${manifestPath} release requires string key: changelog or changelogPath`);
     }
   }
-  findManifestRelease(manifest, manifest.latestVersion);
+  findManifestRelease({
+    ...manifest,
+    __manifestRoot: manifestRoot,
+    __manifestPath: manifestPath,
+  }, manifest.latestVersion);
 }
 
-function readReleaseChangelog(release) {
+function readReleaseChangelog(release, manifestRoot) {
   if (typeof release.changelog === "string" && release.changelog.trim()) {
     return release.changelog;
   }
   const changelogPath = path.join(
-    workspaceRoot,
-    "updates",
+    manifestRoot,
     release.changelogPath,
   );
   if (!fs.existsSync(changelogPath)) {

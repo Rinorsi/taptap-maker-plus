@@ -14,13 +14,14 @@ use std::{
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-use tauri::{LogicalSize, Manager, RunEvent, Url, WebviewWindowBuilder};
+use tauri::{LogicalSize, Manager, RunEvent, Url, WebviewWindowBuilder, WindowEvent};
 
 const SERVER_HOST: &str = "127.0.0.1";
 const SERVER_PORT_NUMBER: u16 = 8787;
 const SERVER_PORT_SCAN_LIMIT: u16 = 40;
 const DEV_WEB_PORT_NUMBER: u16 = 5173;
 const DEV_WEB_URL: &str = "http://127.0.0.1:5173";
+const SERVER_READY_MAX_ATTEMPTS: u32 = 120;
 const APP_ID: &str = "taptap-maker-plus";
 const READINESS_TOKEN_QUERY_PREFIX: &str = "/api/desktop/readiness?token=";
 const READINESS_APP_ID: &str = r#""appId":"taptap-maker-plus""#;
@@ -61,6 +62,11 @@ struct DesktopServerLaunch {
   instance_token: String,
 }
 
+struct StartupResourceReport {
+  ok: bool,
+  missing: Vec<PathBuf>,
+}
+
 #[derive(Clone, Default)]
 struct DesktopServer {
   child: Arc<Mutex<Option<Child>>>,
@@ -84,6 +90,14 @@ impl DesktopServer {
     let workspace_root = normalize_windows_path(workspace_root(app)?);
     append_log(&desktop_log_path, &format!("starting Fastify from {}", workspace_root.display()));
     append_log(&desktop_log_path, &format!("server log {}", server_log_path.display()));
+    let resource_report = check_startup_resources(&workspace_root);
+    if !resource_report.ok {
+      for missing_path in &resource_report.missing {
+        append_log(&desktop_log_path, &format!("missing startup resource: {}", missing_path.display()));
+      }
+      return Err(format_missing_startup_resources(&resource_report.missing));
+    }
+    seed_maker_npm_cache(&workspace_root, &npm_cache_dir, &desktop_log_path);
     let server_port = find_available_local_port(SERVER_HOST, SERVER_PORT_NUMBER, SERVER_PORT_SCAN_LIMIT)
       .ok_or_else(|| format!("Unable to find available local port from {SERVER_PORT_NUMBER}"))?;
     let instance_token = make_desktop_instance_token();
@@ -156,6 +170,113 @@ fn append_log(log_path: &Path, message: &str) {
   if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
     let _ = writeln!(file, "{message}");
   }
+}
+
+fn append_desktop_event_log(app_handle: &tauri::AppHandle, message: &str) {
+  if let Ok(app_data_dir) = app_handle.path().app_data_dir() {
+    append_log(&app_data_dir.join("desktop.log"), message);
+  }
+}
+
+fn show_loading_error(app: &tauri::AppHandle, detail: &str) {
+  let Some(window) = app.get_webview_window("main") else {
+    return;
+  };
+  let escaped_detail = serde_json::to_string(detail).unwrap_or_else(|_| "\"Desktop startup failed\"".to_string());
+  thread::spawn(move || {
+    for _ in 0..8 {
+      let script = format!(
+        "window.__TAPTAP_DESKTOP_LOADING_ERROR__ && window.__TAPTAP_DESKTOP_LOADING_ERROR__({escaped_detail});"
+      );
+      let _ = window.eval(script);
+      thread::sleep(Duration::from_millis(500));
+    }
+  });
+}
+
+fn check_startup_resources(workspace_root: &Path) -> StartupResourceReport {
+  let mut missing = Vec::new();
+  let required_files = [
+    workspace_root.join("apps").join("server").join("dist").join("index.js"),
+    workspace_root.join("apps").join("web").join("dist").join("index.html"),
+    workspace_root.join("node_modules").join("better-sqlite3").join("build").join("Release").join("better_sqlite3.node"),
+  ];
+  for file_path in required_files {
+    if !file_path.is_file() {
+      missing.push(file_path);
+    }
+  }
+
+  if cfg!(not(debug_assertions)) {
+    let node_name = if cfg!(windows) { "node.exe" } else { "node" };
+    let required_release_files = [
+      workspace_root.join("node-runtime").join(node_name),
+      workspace_root.join("node-runtime").join(if cfg!(windows) { "npm.cmd" } else { "npm" }),
+      workspace_root.join("node-runtime").join(if cfg!(windows) { "npx.cmd" } else { "npx" }),
+    ];
+    for file_path in required_release_files {
+      if !file_path.is_file() {
+        missing.push(file_path);
+      }
+    }
+  }
+
+  StartupResourceReport {
+    ok: missing.is_empty(),
+    missing,
+  }
+}
+
+fn format_missing_startup_resources(missing: &[PathBuf]) -> String {
+  let details = missing
+    .iter()
+    .map(|path| path.to_string_lossy().to_string())
+    .collect::<Vec<_>>()
+    .join("; ");
+  format!("Missing required startup resources: {details}")
+}
+
+fn seed_maker_npm_cache(workspace_root: &Path, npm_cache_dir: &Path, desktop_log_path: &Path) {
+  let seed_dir = workspace_root.join("data").join("npm-cache");
+  if !seed_dir.is_dir() {
+    append_log(desktop_log_path, &format!("bundled maker npm cache seed not found: {}", seed_dir.display()));
+    return;
+  }
+  if npm_cache_dir.join("_npx").is_dir() {
+    return;
+  }
+  if let Err(error) = copy_dir_contents(&seed_dir, npm_cache_dir) {
+    append_log(
+      desktop_log_path,
+      &format!(
+        "failed to seed maker npm cache from {} to {}: {error}",
+        seed_dir.display(),
+        npm_cache_dir.display()
+      ),
+    );
+  } else {
+    append_log(
+      desktop_log_path,
+      &format!("seeded maker npm cache from {} to {}", seed_dir.display(), npm_cache_dir.display()),
+    );
+  }
+}
+
+fn copy_dir_contents(source: &Path, target: &Path) -> Result<(), String> {
+  fs::create_dir_all(target).map_err(|error| error.to_string())?;
+  for entry in fs::read_dir(source).map_err(|error| error.to_string())? {
+    let entry = entry.map_err(|error| error.to_string())?;
+    let source_path = entry.path();
+    let target_path = target.join(entry.file_name());
+    let file_type = entry.file_type().map_err(|error| error.to_string())?;
+    if file_type.is_dir() {
+      fs::create_dir_all(&target_path).map_err(|error| error.to_string())?;
+      copy_dir_contents(&source_path, &target_path)?;
+    } else if file_type.is_file() {
+      fs::copy(&source_path, &target_path).map_err(|error| error.to_string())?;
+    }
+  }
+  Ok(())
 }
 
 fn settings_preferences_file_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -414,7 +535,7 @@ fn has_readiness_identity(host: &str, port: u16, instance_token: &str) -> bool {
   response_has_readiness_identity(&response, instance_token)
 }
 
-fn wait_for_desktop_server_identity_until_ready(host: &'static str, port: u16, instance_token: &str, desktop_log_path: &Path) {
+fn wait_for_desktop_server_identity_until_ready(host: &'static str, port: u16, instance_token: &str, desktop_log_path: &Path) -> bool {
   let mut attempts = 0u32;
   loop {
     attempts += 1;
@@ -422,10 +543,14 @@ fn wait_for_desktop_server_identity_until_ready(host: &'static str, port: u16, i
       if attempts > 1 {
         append_log(desktop_log_path, &format!("desktop server identity ready after retry batch {attempts}"));
       }
-      return;
+      return true;
     }
     if attempts % 120 == 0 {
       append_log(desktop_log_path, "still waiting for desktop server identity");
+    }
+    if attempts >= SERVER_READY_MAX_ATTEMPTS {
+      append_log(desktop_log_path, "timed out waiting for desktop server identity");
+      return false;
     }
     thread::sleep(Duration::from_millis(250));
   }
@@ -437,7 +562,7 @@ fn wait_for_dev_desktop_identity_until_ready(
   server_port: u16,
   instance_token: &str,
   desktop_log_path: &Path,
-) {
+) -> bool {
   let mut attempts = 0u32;
   loop {
     attempts += 1;
@@ -447,10 +572,14 @@ fn wait_for_dev_desktop_identity_until_ready(
       if attempts > 1 {
         append_log(desktop_log_path, &format!("dev desktop identity ready after retry batch {attempts}"));
       }
-      return;
+      return true;
     }
     if attempts % 120 == 0 {
       append_log(desktop_log_path, &format!("still waiting for dev desktop identity: web_ready={web_ready}, server_ready={server_ready}"));
+    }
+    if attempts >= SERVER_READY_MAX_ATTEMPTS {
+      append_log(desktop_log_path, &format!("timed out waiting for dev desktop identity: web_ready={web_ready}, server_ready={server_ready}"));
+      return false;
     }
     thread::sleep(Duration::from_millis(250));
   }
@@ -550,6 +679,26 @@ fn open_external_url(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn desktop_window_action(app: tauri::AppHandle, action: String) -> Result<(), String> {
+  let Some(window) = app.get_webview_window("main") else {
+    return Err("Unable to find main window".to_string());
+  };
+  append_desktop_event_log(&app, &format!("desktop window action requested: {action}"));
+  match action.as_str() {
+    "minimize" => window.minimize().map_err(|error| error.to_string()),
+    "toggleMaximize" => {
+      if window.is_maximized().map_err(|error| error.to_string())? {
+        window.unmaximize().map_err(|error| error.to_string())
+      } else {
+        window.maximize().map_err(|error| error.to_string())
+      }
+    },
+    "close" => window.close().map_err(|error| error.to_string()),
+    _ => Err(format!("Unsupported desktop window action: {action}")),
+  }
+}
+
+#[tauri::command]
 fn read_settings_preferences_file(app: tauri::AppHandle) -> Result<SettingsPreferencesFileResponse, String> {
   let settings_path = settings_preferences_file_path(&app)?;
   if !settings_path.exists() {
@@ -633,12 +782,23 @@ pub fn run() {
       }
       let server = DesktopServer::default();
       let app_handle = app.handle().clone();
-      server.start(&app_handle).map_err(|error| {
+      if let Err(error) = server.start(&app_handle) {
         if let Ok(app_data_dir) = app.path().app_data_dir() {
           append_log(&app_data_dir.join("desktop.log"), &format!("failed to start Fastify: {error}"));
         }
-        tauri::Error::Io(std::io::Error::new(std::io::ErrorKind::Other, error))
-      })?;
+        let detail = if let Ok(app_data_dir) = app.path().app_data_dir() {
+          format!(
+            "{error}\n\ndesktop.log: {}\nserver.log: {}",
+            app_data_dir.join("desktop.log").display(),
+            app_data_dir.join("server.log").display()
+          )
+        } else {
+          error.clone()
+        };
+        show_loading_error(app.handle(), &detail);
+        app.manage(server.clone());
+        return Ok(());
+      }
       let server_launch = server.launch().map_err(|error| {
         if let Ok(app_data_dir) = app.path().app_data_dir() {
           append_log(&app_data_dir.join("desktop.log"), &format!("failed to read Fastify launch: {error}"));
@@ -652,21 +812,41 @@ pub fn run() {
       ];
       let desktop_log_path = app.path().app_data_dir().map(|dir| dir.join("desktop.log")).ok();
       thread::spawn(move || {
-        if cfg!(debug_assertions) {
+        let ready = if cfg!(debug_assertions) {
           wait_for_dev_desktop_identity_until_ready(
             &dev_web_probes,
             SERVER_HOST,
             server_launch.port,
             &server_launch.instance_token,
             desktop_log_path.as_deref().unwrap_or_else(|| Path::new("desktop.log")),
-          );
+          )
         } else {
           wait_for_desktop_server_identity_until_ready(
             SERVER_HOST,
             server_launch.port,
             &server_launch.instance_token,
             desktop_log_path.as_deref().unwrap_or_else(|| Path::new("desktop.log")),
-          );
+          )
+        };
+        if !ready {
+          let detail = if let Some(path) = desktop_log_path.as_ref() {
+            let server_log_path = path.parent().map(|dir| dir.join("server.log"));
+            format!(
+              "本地桌面服务启动后没有在规定时间内完成接管。\n\ndesktop.log: {}\nserver.log: {}",
+              path.display(),
+              server_log_path
+                .as_ref()
+                .map(|item| item.display().to_string())
+                .unwrap_or_else(|| "无法解析 server.log 路径".to_string())
+            )
+          } else {
+            "本地桌面服务启动后没有在规定时间内完成接管。".to_string()
+          };
+          let error_app_handle = app_handle.clone();
+          let _ = app_handle.run_on_main_thread(move || {
+            show_loading_error(&error_app_handle, &detail);
+          });
+          return;
         }
         let api_base = format!("http://{SERVER_HOST}:{}", server_launch.port);
         let target_url = if cfg!(debug_assertions) {
@@ -686,6 +866,7 @@ pub fn run() {
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![
+      desktop_window_action,
       open_devtools,
       open_external_url,
       read_settings_preferences_file,
@@ -695,8 +876,30 @@ pub fn run() {
     .expect("error while building tauri application");
 
   app.run(move |app_handle, event| {
-    if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
-      app_handle.state::<DesktopServer>().stop();
+    match event {
+      RunEvent::WindowEvent {
+        label,
+        event: WindowEvent::CloseRequested { .. },
+        ..
+      } => {
+        append_desktop_event_log(&app_handle, &format!("window close requested: {label}"));
+      }
+      RunEvent::WindowEvent {
+        label,
+        event: WindowEvent::Destroyed,
+        ..
+      } => {
+        append_desktop_event_log(&app_handle, &format!("window destroyed: {label}"));
+      }
+      RunEvent::ExitRequested { code, .. } => {
+        append_desktop_event_log(&app_handle, &format!("app exit requested: {code:?}"));
+        app_handle.state::<DesktopServer>().stop();
+      }
+      RunEvent::Exit => {
+        append_desktop_event_log(&app_handle, "app event loop exit");
+        app_handle.state::<DesktopServer>().stop();
+      }
+      _ => {}
     }
   });
 }

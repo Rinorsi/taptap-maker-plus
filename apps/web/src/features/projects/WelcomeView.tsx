@@ -306,6 +306,14 @@ function ProjectCard({
         >
           <XCircle className="h-3.5 w-3.5" />
         </button>
+        <button
+          type="button"
+          title={`删除本地文件夹：${project.rootPath}`}
+          onClick={(e) => { e.stopPropagation(); onDeleteProjectLocalFolder(project.id); }}
+          className="p-1.5 text-text-muted hover:text-red-500 hover:bg-red-500/10 rounded transition-colors"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
       </div>
     </article>
   );

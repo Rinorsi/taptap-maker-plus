@@ -121,7 +121,7 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
                       title={tab.label}
                       className={cn(
                         "flex w-full cursor-pointer select-none items-center rounded-lg outline-none transition-colors",
-                        collapsed ? "h-[44px] justify-center p-0" : "gap-3 px-3 py-[10px]",
+                        collapsed ? "h-[44px] justify-center p-0" : "justify-start gap-3 px-3 py-[10px] text-left",
                         active
                           ? "bg-brand/10 font-semibold text-brand-strong shadow-[inset_3px_0_0_0_var(--brand)]"
                           : "text-text-muted hover:bg-surface-muted hover:text-text",
@@ -247,7 +247,7 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
                       className={cn(
                         "flex w-full cursor-pointer select-none items-center rounded-lg transition-colors outline-none",
                         // 采用更舒展的内边距和字号，匹配官方 TapTap 侧边栏视觉
-                        collapsed ? "justify-center h-[44px] p-0" : "py-[10px] px-3 gap-3",
+                        collapsed ? "justify-center h-[44px] p-0" : "justify-start py-[10px] px-3 gap-3 text-left",
                         isActive 
                           ? "bg-surface-muted text-text font-semibold" 
                           : "text-text-muted hover:bg-surface-muted hover:text-text"
@@ -257,7 +257,7 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
                       <Icon className={cn("shrink-0", collapsed ? "w-[20px] h-[20px]" : "w-[20px] h-[20px]")} strokeWidth={isActive ? 2.5 : 2} />
                       {!collapsed && (
                         <>
-                          <span className="min-w-0 flex-1 truncate text-[14px]">{route.label}</span>
+                          <span className="min-w-0 flex-1 truncate text-left text-[14px]">{route.label}</span>
                           {route.developerOnly ? (
                             <span
                               className="shrink-0 rounded-full border border-border-soft bg-surface-app px-1.5 py-0.5 text-[9px] font-semibold text-text-subtle"
@@ -296,7 +296,7 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
             ) : (
               <button
                 type="button"
-                className="flex w-full cursor-pointer select-none items-center rounded-lg px-3 py-2 text-[12px] font-semibold text-text-subtle outline-none transition-colors hover:bg-surface-muted hover:text-text"
+                className="flex w-full cursor-pointer select-none items-center justify-start rounded-lg px-3 py-2 text-left text-[12px] font-semibold text-text-subtle outline-none transition-colors hover:bg-surface-muted hover:text-text"
                 onClick={() => setDisabledPagesOpen((value) => !value)}
               >
                 <span className="min-w-0 flex-1 truncate text-left">禁用页面</span>
@@ -325,7 +325,7 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
                           title={route.hiddenPageNote ? `${route.label}：${route.hiddenPageNote}` : route.label}
                           className={cn(
                             "flex w-full cursor-pointer select-none items-center rounded-lg text-text-muted outline-none transition-colors hover:bg-surface-muted hover:text-text",
-                            collapsed ? "h-[40px] justify-center p-0" : "gap-3 px-3 py-2",
+                            collapsed ? "h-[40px] justify-center p-0" : "justify-start gap-3 px-3 py-2 text-left",
                             isActive ? "bg-surface-muted font-semibold text-text" : "",
                           )}
                           onClick={() => onSelectModule(route.id)}
@@ -333,7 +333,7 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
                           <Icon className="h-[18px] w-[18px] shrink-0" strokeWidth={isActive ? 2.5 : 2} />
                           {!collapsed ? (
                             <>
-                              <span className="min-w-0 flex-1 truncate text-[13px]">{route.label}</span>
+                              <span className="min-w-0 flex-1 truncate text-left text-[13px]">{route.label}</span>
                               <span
                                 className="shrink-0 rounded-full border border-border-soft bg-surface-app px-1.5 py-0.5 text-[9px] font-semibold text-text-subtle"
                                 title={route.hiddenPageNote}
@@ -379,7 +379,7 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
             <button
               type="button"
               title="设置"
-              className="flex w-full cursor-pointer select-none items-center rounded-lg px-3 py-[10px] text-text-muted outline-none transition-colors hover:bg-surface-muted hover:text-text"
+              className="flex w-full cursor-pointer select-none items-center justify-start rounded-lg px-3 py-[10px] text-left text-text-muted outline-none transition-colors hover:bg-surface-muted hover:text-text"
               onClick={() => onSelectModule("settings")}
             >
               <Settings2 className="h-[20px] w-[20px] shrink-0" />

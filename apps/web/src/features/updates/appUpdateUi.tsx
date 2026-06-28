@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, ExternalLink, History, RefreshCw, Sparkles } from "lucide-react";
+import { Download, ExternalLink, History, RefreshCw, Sparkles, ChevronDown, ChevronRight, Search } from "lucide-react";
 import {
   checkAppUpdate,
   downloadAppUpdate,
@@ -175,8 +175,8 @@ export function AppUpdatePanel({
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      <div className="flex flex-col overflow-hidden rounded-panel bg-surface-panel shadow-sm ring-1 ring-border-soft">
-        
+
+      <div style={{ maxHeight: "400px" }} className="flex flex-col overflow-hidden rounded-panel bg-surface-panel shadow-sm ring-1 ring-border-soft">
         {/* Top Header Row */}
         <div className="flex flex-wrap items-center justify-between gap-4 p-5 md:p-6 border-b border-border-soft">
           <div className="flex items-start gap-4">
@@ -241,37 +241,38 @@ export function AppUpdatePanel({
         </div>
 
         {/* Content Details */}
-        <div className="flex flex-col p-6 bg-surface-app/20">
+        <div className="flex flex-col flex-1 min-h-0 bg-surface-app/30 p-6 overflow-y-auto custom-scrollbar">
           {selectedRelease ? (
-            <div className="flex flex-col gap-4">
-              <div>
-                <h4 className="text-[13px] font-bold text-text mb-2 flex items-center gap-2">
-                  <span className="w-1 h-3 rounded-full bg-brand"></span>
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-2">
+                <span className="w-1 h-3.5 rounded-full bg-brand"></span>
+                <h4 className="text-[14px] font-bold text-text m-0">
                   {selectedRelease.name || selectedRelease.tagName}
                 </h4>
-                <div className="rounded-xl bg-surface-panel p-4 ring-1 ring-border-soft/50 shadow-sm max-h-64 overflow-y-auto scrollbar-thin">
-                  <ReleaseMarkdown content={selectedRelease.body || "暂无更新日志"} skipFirstHeading={selectedRelease.name || selectedRelease.tagName} compact />
-                </div>
+              </div>
+
+              <div className="mt-1 text-text-subtle text-[13px] pl-3 border-l-2 border-border-soft/50 ml-1">
+                <ReleaseMarkdown content={selectedRelease.body || "暂无更新日志"} skipFirstHeading={selectedRelease.name || selectedRelease.tagName} compact />
               </div>
               
               {installerAsset ? (
-                <div className="flex items-center gap-2 text-[12px] text-text-subtle bg-surface-muted/50 rounded-lg p-2.5 px-4 ring-1 ring-border-soft/30">
-                  <span className="font-bold uppercase tracking-wider text-text-muted">
+                <div className="flex items-center gap-3 text-[12px] text-text-muted mt-3 pt-3 border-t border-border-soft ml-3">
+                  <span className="font-bold uppercase tracking-wider">
                     安装包
                   </span>
-                  <span className="truncate flex-1" title={installerAsset.name}>
+                  <span className="truncate max-w-[300px]" title={installerAsset.name}>
                     {installerAsset.name}
                   </span>
                   {state.downloadStatus && (
-                    <span className="truncate text-text-muted shrink-0 max-w-[200px]" title={state.downloadStatus.installerPath}>
-                      保存位置：{state.downloadStatus.installerPath}
+                    <span className="truncate text-text-subtle shrink-0 max-w-[200px]" title={state.downloadStatus.installerPath}>
+                      · 保存至：{state.downloadStatus.installerPath}
                     </span>
                   )}
                 </div>
               ) : null}
             </div>
           ) : (
-             <div className="text-center text-[12px] text-text-muted py-4">请选择一个版本查看详情</div>
+            <div className="text-center text-[12px] text-text-muted py-4">请选择一个版本查看详情</div>
           )}
         </div>
       </div>
@@ -288,6 +289,31 @@ export function ReleaseHistory({
   releases: AppReleaseSummary[];
   onOpenRelease?: (release: AppReleaseSummary) => void | Promise<void>;
 }) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterType, setFilterType] = useState<string>("all");
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+
+  const toggleExpand = (id: number) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const filteredReleases = useMemo(() => {
+    return releases.filter((r) => {
+      if (filterType === "stable" && r.prerelease) return false;
+      if (filterType === "prerelease" && !r.prerelease) return false;
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        return (r.name || "").toLowerCase().includes(q) || r.tagName.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }, [releases, filterType, searchQuery]);
+
   if (!releases.length) {
     return (
       <div className="rounded-panel border border-border-soft bg-surface-app/50 p-6 text-[13px] text-text-muted text-center">
@@ -296,42 +322,102 @@ export function ReleaseHistory({
     );
   }
   return (
-    <div className="rounded-panel border border-border-soft bg-surface-panel overflow-hidden shadow-sm">
-      <div className="flex items-center gap-2 border-b border-border-soft bg-surface-app/40 px-6 py-4 text-[14px] font-bold text-text">
-        <History className="h-4 w-4 text-text-muted" />
-        历史版本
+    <div style={{ maxHeight: "500px" }} className="flex flex-col rounded-panel border border-border-soft bg-surface-panel overflow-hidden shadow-sm">
+      <div className="flex items-center justify-between border-b border-border-soft bg-surface-app/40 px-6 py-3">
+        <div className="flex items-center gap-2 text-[14px] font-bold text-text">
+          <History className="h-4 w-4 text-text-muted" />
+          历史版本
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-muted" />
+            <input
+              type="text"
+              placeholder="搜索版本..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-8 w-[140px] rounded-md border border-border-soft bg-surface-panel pl-8 pr-3 text-[12px] text-text placeholder:text-text-subtle focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+            />
+          </div>
+          <SelectField
+            id="history-filter"
+            value={filterType}
+            onChange={setFilterType}
+            options={[
+              { label: "所有版本", value: "all" },
+              { label: "正式版", value: "stable" },
+              { label: "测试版", value: "prerelease" },
+            ]}
+            className="w-[100px] text-[12px] h-8"
+            ariaLabel="版本筛选"
+          />
+        </div>
       </div>
-      <div className="max-h-80 overflow-y-auto scrollbar-thin p-2">
-        {releases.map((release) => (
-          <article key={`${release.id}-${release.tagName}`} className="relative pl-6 pr-4 py-4 before:absolute before:left-[11px] before:top-6 before:bottom-[-16px] before:w-[2px] before:bg-border-soft last:before:hidden hover:bg-surface-app/30 rounded-lg transition-colors group">
-            <div className="absolute left-[7px] top-[22px] w-[10px] h-[10px] rounded-full border-[2px] border-surface-panel bg-brand ring-1 ring-border-soft group-hover:scale-110 transition-transform"></div>
-            
-            <div className="flex items-start justify-between gap-4 ml-4">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-3">
-                  <span className="truncate text-[14px] font-bold text-text">{release.name || release.tagName}</span>
-                  <span className="text-[12px] font-mono text-text-subtle bg-surface-muted px-2 py-0.5 rounded-md border border-border-soft">
-                    {release.tagName}
-                  </span>
-                </div>
-                <div className="mt-1 text-[12px] text-text-muted">
-                  {release.publishedAt ? formatDateTime(release.publishedAt) : "未知时间"}
-                </div>
-                <div className="mt-3 bg-surface-app/50 rounded-xl p-4 ring-1 ring-border-soft/50">
-                  <ReleaseMarkdown content={release.body || "暂无更新日志"} skipFirstHeading={release.name || release.tagName} compact />
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => void onOpenRelease?.(release)}
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-text-muted hover:bg-surface-muted hover:text-text transition-colors ring-1 ring-border-soft bg-surface-panel shadow-sm"
-                title="用系统浏览器打开版本页面"
+      <div className="flex-1 overflow-y-auto scrollbar-thin p-2">
+        {filteredReleases.length ? (
+          filteredReleases.map((release) => {
+            const isExpanded = expandedIds.has(release.id);
+            return (
+              <article
+                key={`${release.id}-${release.tagName}`}
+                className="relative pl-6 pr-4 py-3 before:absolute before:left-[11px] before:top-6 before:bottom-[-16px] before:w-[2px] before:bg-border-soft last:before:hidden hover:bg-surface-app/30 rounded-lg transition-colors group"
               >
-                <ExternalLink className="h-4 w-4" />
-              </button>
-            </div>
-          </article>
-        ))}
+                <div
+                  className={cn(
+                    "absolute left-[7px] top-[18px] w-[10px] h-[10px] rounded-full border-[2px] border-surface-panel ring-1 ring-border-soft group-hover:scale-110 transition-transform",
+                    isExpanded ? "bg-brand" : "bg-border"
+                  )}
+                ></div>
+
+                <div className="flex items-start justify-between gap-4 ml-4">
+                  <div className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      onClick={() => toggleExpand(release.id)}
+                      className="flex items-center gap-2 text-left w-full outline-none focus-visible:ring-2 focus-visible:ring-brand rounded-sm"
+                    >
+                      {isExpanded ? (
+                        <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 shrink-0 text-text-muted" />
+                      )}
+                      <span className={cn("truncate text-[14px] font-bold transition-colors", isExpanded ? "text-brand" : "text-text")}>
+                        {release.name || release.tagName}
+                      </span>
+                      <span className="text-[12px] font-mono text-text-subtle bg-surface-muted px-2 py-0.5 rounded-md border border-border-soft">
+                        {release.tagName}
+                      </span>
+                      <span className="text-[12px] text-text-muted ml-auto mr-2">
+                        {release.publishedAt ? formatDateTime(release.publishedAt) : "未知时间"}
+                      </span>
+                    </button>
+                    {isExpanded && (
+                      <div className="mt-3 text-[13px] pl-6 border-l-2 border-border-soft/50 py-1 ml-2">
+                        <div className="text-text-subtle pr-4">
+                          <ReleaseMarkdown
+                            content={release.body || "暂无更新日志"}
+                            skipFirstHeading={release.name || release.tagName}
+                            compact
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void onOpenRelease?.(release)}
+                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-text-muted hover:bg-surface-muted hover:text-text transition-colors ring-1 ring-border-soft bg-surface-panel shadow-sm"
+                    title="用系统浏览器打开版本页面"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </button>
+                </div>
+              </article>
+            );
+          })
+        ) : (
+          <div className="py-8 text-center text-[12px] text-text-muted">没有找到匹配的版本</div>
+        )}
       </div>
     </div>
   );

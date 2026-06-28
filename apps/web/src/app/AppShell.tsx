@@ -1,6 +1,7 @@
 import { Terminal, FolderSync, Search, Settings, Moon, Sun, PanelLeft, PanelRight, RefreshCw, Copy, Trash2, Eye, Save, Play, Code, ClipboardList, Scan, Edit2, Move, ExternalLink, Image, FolderOpen, Download, Crosshair, Check, XCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { toast } from "sonner";
 import {
   callTool,
   bindExistingOnboardingProject,
@@ -887,7 +888,18 @@ export function AppShell() {
   }
 
   async function handleStartRuntime(options: { skipConfirm?: boolean } = {}) {
-    if (!selectedProject) return;
+    if (!selectedProject) {
+      const message = "请先选择或导入 Maker 项目，再启动 MCP 服务。";
+      setNotice(message);
+      toast.warning("未选择 Maker 项目", {
+        id: "runtime-project-required",
+        description: "MCP 服务需要绑定到一个本地 Maker 项目，请先在首页选择、导入或初始化项目。",
+      });
+      setActiveModule("home");
+      setRightPanelTab("status");
+      setInspectorMinimized(false);
+      return;
+    }
     const currentRuntime = runtime ?? selectedProject.runtime;
     const isRestart = currentRuntime?.status === "ready";
     const confirmed = options.skipConfirm ? true : await requestConfirm({

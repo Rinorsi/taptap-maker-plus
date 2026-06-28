@@ -168,6 +168,7 @@ export function SettingsView({
   const activeTabChangeSourceRef = useRef<"scroll" | null>(null);
   const programmaticScrollRef = useRef(false);
   const programmaticScrollTimerRef = useRef<number | undefined>(undefined);
+  const lastExternalActiveTabRef = useRef<SettingsTab>(activeTab);
 
   const [serverLogPath, setServerLogPath] = useState("");
   const [serverLogEntries, setServerLogEntries] = useState<
@@ -475,6 +476,7 @@ export function SettingsView({
       return;
     }
 
+    lastExternalActiveTabRef.current = activeTab;
     const container = scrollContainerRef.current;
     const el = document.getElementById(`settings-${activeTab}`);
     if (container && el) {
@@ -482,10 +484,8 @@ export function SettingsView({
       const sectionRect = el.getBoundingClientRect();
       programmaticScrollRef.current = true;
       window.clearTimeout(programmaticScrollTimerRef.current);
-      container.scrollTo({
-        top: container.scrollTop + sectionRect.top - containerRect.top - 48,
-        behavior: "smooth",
-      });
+      const top = container.scrollTop + sectionRect.top - containerRect.top - 48;
+      container.scrollTo({ top, behavior: "auto" });
       programmaticScrollTimerRef.current = window.setTimeout(() => {
         programmaticScrollRef.current = false;
       }, 700);
@@ -532,6 +532,22 @@ export function SettingsView({
       if (programmaticScrollRef.current) return;
 
       const nextTab = readActiveTabFromScroll();
+      if (
+        nextTab &&
+        nextTab !== activeTab &&
+        lastExternalActiveTabRef.current === activeTab
+      ) {
+        const activeSection = document.getElementById(`settings-${activeTab}`);
+        const containerRect = container.getBoundingClientRect();
+        const activeRect = activeSection?.getBoundingClientRect();
+        if (
+          activeRect &&
+          activeRect.top < containerRect.bottom &&
+          activeRect.bottom > containerRect.top
+        ) {
+          return;
+        }
+      }
       if (nextTab && nextTab !== activeTab) {
         activeTabChangeSourceRef.current = "scroll";
         onActiveTabChange(nextTab);

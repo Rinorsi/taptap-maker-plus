@@ -2,13 +2,13 @@ export const appVersion = {
   "appId": "taptap-maker-plus",
   "productName": "TapTap Maker Plus",
   "windowTitle": "TapTap Maker Plus",
-  "displayVersion": "v0.13.4-ALPHA",
-  "packageVersion": "0.13.4-alpha",
+  "displayVersion": "v0.13.5-ALPHA",
+  "packageVersion": "0.13.5-alpha",
   "channel": "ALPHA",
   "publisher": "TapTap Maker",
   "description": "TapTap Maker 本地桌面工作台",
-  "announcementTitle": "v0.13.4-ALPHA 更新",
-  "announcementBody": "## v0.13.4-ALPHA 更新\n\n本次更新继续打磨 Alpha 版本的设置体验、MCP 包管理、软件更新测试链路和桌面端本地配置保存。",
+  "announcementTitle": "v0.13.5-ALPHA 诊断与更新源整理",
+  "announcementBody": "## v0.13.5-ALPHA 诊断与更新源整理\n\n这是 Alpha 测试版本，重点修复启动异常后的诊断闭环，并整理软件更新源的维护方式。\n\n### 修复内容\n\n* 修复软件闪退或白屏后只能进设置页导出诊断包的问题。\n* 安装包随带 `Export Diagnostics.cmd`，软件打不开时也可以从安装目录直接导出诊断包。\n* 诊断包补充桌面端日志、服务端日志、崩溃日志、前端诊断日志、设置文件、数据库和 MCP 日志。\n* loading 页启动失败提示会显示日志路径和离线诊断入口，不再只提示去设置页。\n* 桌面端补充窗口关闭、窗口销毁和退出事件日志，方便定位闪退和异常退出。\n* 修复未打开项目时侧栏首页、关于等文字居中的回归问题。\n\n### 打包与发布\n\n* 安装包校验新增 `verify:installer`，会检查 NSIS 包内是否包含服务端产物、前端产物、Node runtime、MCP npm cache、native binding 和离线诊断入口。\n* 打包资源准备阶段会把 `@taptap/maker` 缓存种子打进安装包，减少首次启动依赖网络安装的概率。\n* 更新源整理为独立 `updates-feed` 分支：客户端读取静态清单和公告，不再要求 `main` 分支携带公告和更新日志正文。\n\n### 已知说明\n\n当前仍是 Alpha 版本。软件更新、首次启动、项目识别和 MCP 安装还会继续打磨；遇到打不开、闪退、卡 loading、MCP 安装失败或项目识别异常时，请优先导出诊断包再反馈。",
   "announcementMarkdown": "## TapTap Maker Plus Alpha 公告\n\n欢迎来到 TapTap Maker Plus。它现在还是 **Alpha 版本**，但已经可以作为一个本地桌面工作台，帮你把 TapTap Maker 项目、MCP Runtime、素材管理和常用生成流程放到同一个地方处理。\n\n### 你现在可以先用起来的部分\n\n* 接入本地 TapTap Maker 项目，进入工作台继续制作\n* 管理 MCP 包、本地运行时和项目工具列表\n* 扫描素材库，整理图片、视频、音乐和 3D 资源\n* 使用图像、视频、音乐和 3D 工作室处理生成任务\n* 在视频多模态画布里组织分镜、参考素材和提示词流程\n* 查看任务记录、运行状态和错误信息\n\n### 这还是一个正在长大的版本\n\n有些地方还会粗糙，比如首次启动、项目识别、MCP 安装、网络环境、错误提示和个别页面的完成度。重要项目建议保留独立备份；如果你看到某个流程绕、卡、提示看不懂，基本都值得反馈。\n\n### 遇到问题可以直接反馈\n\n如果软件卡在启动页、白屏、闪退、MCP 安装失败、项目无法绑定，或者生成任务结果不对，可以把截图、操作步骤和诊断包一起发来。即使只有一句“我点了这里没反应”，也比憋着强。\n\n> 这是云端公告不可用时显示的本地备用公告。",
   "announcements": [
     {
@@ -16,8 +16,8 @@ export const appVersion = {
       "body": "版本号和更新日志来自 updates/app-update-manifest.json。"
     },
     {
-      "title": "v0.13.4-ALPHA 更新",
-      "body": "## v0.13.4-ALPHA 更新\n\n本次更新继续打磨 Alpha 版本的设置体验、MCP 包管理、软件更新测试链路和桌面端本地配置保存。"
+      "title": "v0.13.5-ALPHA 诊断与更新源整理",
+      "body": "## v0.13.5-ALPHA 诊断与更新源整理\n\n这是 Alpha 测试版本，重点修复启动异常后的诊断闭环，并整理软件更新源的维护方式。\n\n### 修复内容\n\n* 修复软件闪退或白屏后只能进设置页导出诊断包的问题。\n* 安装包随带 `Export Diagnostics.cmd`，软件打不开时也可以从安装目录直接导出诊断包。\n* 诊断包补充桌面端日志、服务端日志、崩溃日志、前端诊断日志、设置文件、数据库和 MCP 日志。\n* loading 页启动失败提示会显示日志路径和离线诊断入口，不再只提示去设置页。\n* 桌面端补充窗口关闭、窗口销毁和退出事件日志，方便定位闪退和异常退出。\n* 修复未打开项目时侧栏首页、关于等文字居中的回归问题。\n\n### 打包与发布\n\n* 安装包校验新增 `verify:installer`，会检查 NSIS 包内是否包含服务端产物、前端产物、Node runtime、MCP npm cache、native binding 和离线诊断入口。\n* 打包资源准备阶段会把 `@taptap/maker` 缓存种子打进安装包，减少首次启动依赖网络安装的概率。\n* 更新源整理为独立 `updates-feed` 分支：客户端读取静态清单和公告，不再要求 `main` 分支携带公告和更新日志正文。\n\n### 已知说明\n\n当前仍是 Alpha 版本。软件更新、首次启动、项目识别和 MCP 安装还会继续打磨；遇到打不开、闪退、卡 loading、MCP 安装失败或项目识别异常时，请优先导出诊断包再反馈。"
     }
   ]
 } as const;

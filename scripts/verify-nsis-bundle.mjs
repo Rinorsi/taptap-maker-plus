@@ -7,11 +7,14 @@ const nsisDir = path.join(workspaceRoot, "src-tauri", "target", "release", "bund
 const requiredArchivePaths = [
   "apps\\server\\dist\\index.js",
   "apps\\web\\dist\\index.html",
+  "desktop-runtime-manifest.json",
   "Export Diagnostics.cmd",
   "collect-desktop-diagnostics.mjs",
   "node-runtime\\node.exe",
   "node-runtime\\npm.cmd",
   "node-runtime\\npx.cmd",
+  "node-runtime\\node_modules\\npm\\bin\\npm-cli.js",
+  "node-runtime\\node_modules\\npm\\bin\\npx-cli.js",
   "node_modules\\better-sqlite3\\build\\Release\\better_sqlite3.node",
   "data\\npm-cache\\_npx"
 ];

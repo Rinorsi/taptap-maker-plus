@@ -575,6 +575,13 @@ export type DiagnosticBundleResult = {
   resourceReadiness: DesktopResourceReadiness;
 };
 
+export type DeveloperDiagnosticsSnapshot = {
+  readiness?: DesktopReadiness;
+  resourceReadiness?: DesktopResourceReadiness;
+  frontendLogCount: number;
+  recentFrontendErrors: FrontendDiagnosticEntry[];
+};
+
 export type StatusLiteResponse = {
   projectId: string;
   task: TaskRecord;
@@ -710,6 +717,12 @@ let apiBase = readDesktopApiBase();
 function apiUrl(path: string) {
   if (!apiBase || !path.startsWith("/api/")) return path;
   return `${apiBase}${path}`;
+}
+
+export function apiResourceUrl(path?: string) {
+  if (!path) return undefined;
+  if (/^https?:\/\//i.test(path) || path.startsWith("data:")) return path;
+  return apiUrl(path);
 }
 
 function clearDesktopApiBase() {

@@ -89,7 +89,7 @@ export function AdvancedDeveloperSettingsSection({
           description={
             diagnosticExportState.message
               ? `${diagnosticExportState.message}${diagnosticExportState.zipPath ? ` 路径：${diagnosticExportState.zipPath}` : ""}`
-              : "打包当前软件、MCP Runtime、前端错误和项目日志快照。"
+              : "打包当前软件、MCP 运行时、前端错误和项目日志快照。"
           }
         >
           <div className="flex flex-wrap justify-end gap-2">
@@ -150,7 +150,7 @@ export function AdvancedDeveloperSettingsSection({
               label={<span className="text-red-500">重置软件为初始状态</span>}
               description={
                 <span>
-                  清空桌面端保存的项目列表、选中项目、任务/资产索引和设置偏好，并停止当前 MCP runtime。不删除 Maker 项目目录，不清 npm-cache，不改 AI client 配置。
+                  清空桌面端保存的项目列表、选中项目、任务/资产索引和设置偏好，并停止当前 MCP 运行时。不删除 Maker 项目目录，不清 npm-cache，不改 AI client 配置。
                   {resetInitialStateNotice ? ` ${resetInitialStateNotice}` : ""}
                 </span>
               }

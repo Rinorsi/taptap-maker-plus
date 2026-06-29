@@ -229,6 +229,7 @@ fn check_startup_resources(workspace_root: &Path) -> StartupResourceReport {
   if cfg!(not(debug_assertions)) {
     let node_name = if cfg!(windows) { "node.exe" } else { "node" };
     let required_release_files = [
+      workspace_root.join("desktop-runtime-manifest.json"),
       workspace_root.join("node-runtime").join(node_name),
       workspace_root.join("node-runtime").join(if cfg!(windows) { "npm.cmd" } else { "npm" }),
       workspace_root.join("node-runtime").join(if cfg!(windows) { "npx.cmd" } else { "npx" }),
@@ -237,6 +238,9 @@ fn check_startup_resources(workspace_root: &Path) -> StartupResourceReport {
       if !file_path.is_file() {
         missing.push(file_path);
       }
+    }
+    if !has_cached_maker_package(&workspace_root.join("data").join("npm-cache")) {
+      missing.push(workspace_root.join("data").join("npm-cache").join("_npx").join("@taptap-maker"));
     }
   }
 
@@ -261,9 +265,11 @@ fn seed_maker_npm_cache(workspace_root: &Path, npm_cache_dir: &Path, desktop_log
     append_log(desktop_log_path, &format!("bundled maker npm cache seed not found: {}", seed_dir.display()));
     return;
   }
-  if npm_cache_dir.join("_npx").is_dir() {
+  if has_cached_maker_package(npm_cache_dir) {
     return;
   }
+  let _ = fs::remove_dir_all(npm_cache_dir.join("_npx"));
+  let _ = fs::remove_dir_all(npm_cache_dir.join("_cacache"));
   if let Err(error) = copy_dir_contents(&seed_dir, npm_cache_dir) {
     append_log(
       desktop_log_path,
@@ -279,6 +285,36 @@ fn seed_maker_npm_cache(workspace_root: &Path, npm_cache_dir: &Path, desktop_log
       &format!("seeded maker npm cache from {} to {}", seed_dir.display(), npm_cache_dir.display()),
     );
   }
+}
+
+fn has_cached_maker_package(cache_root: &Path) -> bool {
+  let npx_root = cache_root.join("_npx");
+  if !npx_root.is_dir() {
+    return false;
+  }
+  let mut stack = vec![npx_root];
+  while let Some(current) = stack.pop() {
+    let Ok(entries) = fs::read_dir(&current) else {
+      continue;
+    };
+    for entry in entries.flatten() {
+      let path = entry.path();
+      if path.is_dir() {
+        stack.push(path);
+        continue;
+      }
+      if path.file_name().and_then(|name| name.to_str()) != Some("package.json") {
+        continue;
+      }
+      let Ok(text) = fs::read_to_string(&path) else {
+        continue;
+      };
+      if text.contains(r#""name":"@taptap/maker""#) || text.contains(r#""name": "@taptap/maker""#) {
+        return true;
+      }
+    }
+  }
+  false
 }
 
 fn copy_dir_contents(source: &Path, target: &Path) -> Result<(), String> {

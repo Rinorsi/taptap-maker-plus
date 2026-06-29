@@ -784,13 +784,13 @@ export function AppShell() {
     const currentRuntime = runtime ?? selectedProject.runtime;
     const isRestart = currentRuntime?.status === "ready";
     const confirmed = options.skipConfirm ? true : await requestConfirm({
-      title: isRestart ? "重启 MCP Runtime" : "启动 MCP Runtime",
+      title: isRestart ? "重启 MCP 运行时" : "启动 MCP 运行时",
       body: (
         <div className="flex flex-col gap-4 mt-1">
           <p className="text-sm text-text-subtle">
             {isRestart
-              ? "将先停止当前 MCP runtime，再重新建立连接并刷新工具列表。"
-              : "将为当前项目启动 MCP runtime，并通过后台调用既有启动链路。"}
+              ? "将先停止当前 MCP 运行时，再重新建立连接并刷新工具列表。"
+              : "将为当前项目启动 MCP 运行时，并通过后台调用既有启动链路。"}
           </p>
           <div className="flex flex-col gap-3 rounded-xl bg-surface-panel/50 p-4 border border-border-soft">
             <div className="flex flex-col">
@@ -814,7 +814,7 @@ export function AppShell() {
           </div>
         </div>
       ),
-      confirmLabel: isRestart ? "重启 Runtime" : "启动 Runtime",
+      confirmLabel: isRestart ? "重启 MCP" : "启动 MCP",
       cancelLabel: "取消",
       danger: isRestart,
     });
@@ -836,7 +836,7 @@ export function AppShell() {
     setSelection(undefined);
     try {
       if (isRestart) {
-        setNotice("正在停止当前 MCP runtime，准备重启...");
+        setNotice("正在停止当前 MCP 运行时，准备重启...");
         const stopResponse = await stopRuntime(selectedProject.id);
         if (stopResponse.runtime) {
           setRuntime(stopResponse.runtime);
@@ -859,8 +859,8 @@ export function AppShell() {
       );
       setNotice(
         isRestart
-          ? "正在重启 MCP runtime：POST /api/projects/:projectId/mcp/start"
-          : "正在启动 MCP runtime：POST /api/projects/:projectId/mcp/start",
+          ? "正在重启 MCP 运行时：POST /api/projects/:projectId/mcp/start"
+          : "正在启动 MCP 运行时：POST /api/projects/:projectId/mcp/start",
       );
       const response = await startRuntime(selectedProject.id);
       setRuntime(response.runtime);
@@ -904,11 +904,11 @@ export function AppShell() {
   async function handleStopRuntime() {
     if (!selectedProject) return;
     const confirmed = await requestConfirm({
-      title: "停止 MCP Runtime",
+      title: "停止 MCP 运行时",
       body: (
         <div className="flex flex-col gap-4 mt-1">
           <p className="text-sm text-text-subtle">
-            将停止当前项目的 MCP runtime。正在运行的本地 MCP 进程会被关闭。
+            将停止当前项目的 MCP 运行时。正在运行的本地 MCP 进程会被关闭。
           </p>
           <div className="flex flex-col gap-3 rounded-xl bg-surface-panel/50 p-4 border border-border-soft">
             <div className="flex flex-col">
@@ -928,7 +928,7 @@ export function AppShell() {
           </div>
         </div>
       ),
-      confirmLabel: "停止 Runtime",
+      confirmLabel: "停止 MCP",
       cancelLabel: "取消",
       danger: true,
     });
@@ -948,7 +948,7 @@ export function AppShell() {
             : project,
         ),
       );
-      setNotice("MCP Runtime 已停止");
+      setNotice("MCP 运行时已停止");
       await refreshProject(selectedProject.id);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
@@ -2238,9 +2238,9 @@ export function AppShell() {
       },
       {
         commandId: "mcp.startRuntime",
-        title: "启动 MCP runtime",
+        title: "启动 MCP 运行时",
         icon: <Play className="h-4 w-4" />,
-        description: "走本地 Fastify 到项目 MCP Runtime",
+        description: "走本地 Fastify 到项目 MCP 运行时",
         scope: "project",
         when: () => !!selectedProject,
         run: () => void handleStartRuntime(),

@@ -848,7 +848,7 @@ export function WorkspaceDefaultsPreview({ prefs, setPref }: { prefs: SettingsPr
           </div>
           <div className="flex-1 flex flex-col gap-2 z-10 overflow-y-auto custom-scrollbar pr-1">
             <div className={cn("flex justify-between items-center text-[11px] py-1.5 px-2 rounded shrink-0", artBg)}>
-               <span className="text-text-subtle font-medium">引擎版本</span>
+               <span className="text-text-subtle font-medium">MCP 版本</span>
                <SelectField
                  id="musicModel"
                  value={prefs.musicModel}

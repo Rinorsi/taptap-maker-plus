@@ -95,6 +95,8 @@
     RMDir /r "$INSTDIR\apps"
     RMDir /r "$INSTDIR\node_modules"
     RMDir /r "$INSTDIR\node-runtime"
+    RMDir /r "$INSTDIR\data\npm-cache"
+    Delete "$INSTDIR\desktop-runtime-manifest.json"
     Pop $3
     Pop $2
     Pop $1

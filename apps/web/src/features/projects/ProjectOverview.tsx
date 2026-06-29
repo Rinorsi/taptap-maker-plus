@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { Activity, FolderOpen, LayoutDashboard, Wrench, FileImage, Cpu, Copy, Sparkles, Video, Music, Box } from "lucide-react";
 import type { AssetSummary, ProjectSummary, RuntimeSummary, TaskRecord, ToolSummary } from "../../api";
 import { Card } from "../../components/ui/Card";
+import { formatRuntimeStatus } from "../../lib/runtimeStatus";
 import { cn } from "../../lib/utils";
 
 type Props = {
@@ -26,7 +27,7 @@ export function ProjectOverview({ project, runtime, tools, assets, tasks, status
           </span>
           <h1 className="text-2xl font-extrabold text-text m-0 truncate">{project?.name ?? "选择一个项目开始"}</h1>
           <p className="text-sm text-text-muted mt-2 max-w-2xl truncate">
-            {project?.rootPath ?? "先扫描本地 Maker 项目，随后启动独立 MCP runtime。"}
+            {project?.rootPath ?? "先扫描本地 Maker 项目，随后启动独立 MCP。"}
           </p>
         </div>
         <div className="grid min-w-[360px] max-w-[520px] grid-cols-2 gap-3 shrink-0">
@@ -41,13 +42,13 @@ export function ProjectOverview({ project, runtime, tools, assets, tasks, status
         <div className="flex flex-col gap-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3" aria-label="常用工作流">
             <FlowStep index={1} title="选择项目" text={project ? project.name : "未选择"} active={!!project} />
-            <FlowStep index={2} title="启动 MCP" text={runtime?.status ?? "idle"} active={runtime?.status === "ready"} />
+            <FlowStep index={2} title="启动 MCP" text={formatRuntimeStatus(runtime?.status)} active={runtime?.status === "ready"} />
             <FlowStep index={3} title="生成资产" text={`${tools.filter((tool) => tool.category === "image").length} image tools`} active={tools.length > 0} />
             <FlowStep index={4} title="写入项目" text={`${assets.length} indexed`} active={assets.length > 0} />
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <StatCard icon={<Cpu />} label="MCP runtime" value={runtime?.status ?? "idle"} tone={runtime?.status === "ready" ? "good" : "neutral"} />
+            <StatCard icon={<Cpu />} label="MCP 状态" value={formatRuntimeStatus(runtime?.status)} tone={runtime?.status === "ready" ? "good" : "neutral"} />
             <StatCard icon={<Wrench />} label="工具数量" value={String(tools.length)} tone="brand" />
             <StatCard icon={<Activity />} label="最近任务" value={tasks[0]?.toolName ?? "-"} tone={tasks[0]?.status === "failed" ? "bad" : "neutral"} />
             <StatCard icon={<FileImage />} label="资产数量" value={String(assets.length)} tone="brand" />
@@ -61,7 +62,7 @@ export function ProjectOverview({ project, runtime, tools, assets, tasks, status
               </div>
               <div className="flex flex-col p-2 gap-1">
                 <SummaryRow label="配置文件" value={project?.configPath ?? "-"} />
-                <SummaryRow label="Runtime cwd" value={runtime?.cwd ?? project?.rootPath ?? "-"} />
+                <SummaryRow label="MCP 工作目录" value={runtime?.cwd ?? project?.rootPath ?? "-"} />
                 <SummaryRow label="工具更新" value={runtime?.toolsListUpdatedAt ?? "-"} />
                 <SummaryRow label="状态文本" value={statusText || "等待状态检查"} />
               </div>

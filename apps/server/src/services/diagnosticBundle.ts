@@ -7,6 +7,7 @@ import { pipeline } from "node:stream/promises";
 import { config } from "../lib/config.js";
 import { getProject, getSelectedProjectId, listProjects } from "../lib/db.js";
 import { appVersion } from "../generated/appVersion.js";
+import { getMcpPackageUpdateStatus } from "./mcpPackageManager.js";
 import type { ProjectSummary } from "../types.js";
 
 export type DesktopResourceCheck = {
@@ -48,6 +49,7 @@ export function getDesktopResourceReadiness(): DesktopResourceReadiness {
     fileCheck("Desktop loading page", path.join(config.webDistDir, "desktop-loading.html"), true),
     directoryCheck("Server dist", path.join(config.workspaceRoot, "apps", "server", "dist"), true),
     fileCheck("Server entry", path.join(config.workspaceRoot, "apps", "server", "dist", "index.js"), true),
+    fileCheck("Desktop runtime manifest", path.join(config.workspaceRoot, "desktop-runtime-manifest.json"), process.env.NODE_ENV === "production"),
     directoryCheck("Server production dependencies", path.join(config.workspaceRoot, "node_modules"), true),
     fileCheck("better-sqlite3 native binding", path.join(config.workspaceRoot, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node"), true),
     directoryCheck("Bundled Node runtime", path.join(config.workspaceRoot, "node-runtime"), process.env.NODE_ENV === "production"),
@@ -97,11 +99,20 @@ export async function createDiagnosticBundle(projectId?: string): Promise<Diagno
   });
   includedFiles.push("summary.json");
 
+  const mcpPackageStatus = await getMcpPackageUpdateStatus().catch((error) => ({
+    error: error instanceof Error ? error.message : String(error),
+  }));
+  archive.append(JSON.stringify(mcpPackageStatus, null, 2), {
+    name: "mcp/package-status.json",
+  });
+  includedFiles.push("mcp/package-status.json");
+
   for (const item of [
     addFileIfExists(archive, path.join(config.dataDir, "desktop.log"), "logs/desktop.log"),
     addFileIfExists(archive, path.join(config.dataDir, "server.log"), "logs/server.log"),
     addFileIfExists(archive, path.join(config.dataDir, "desktop-crash.log"), "logs/desktop-crash.log"),
     addFileIfExists(archive, path.join(config.dataDir, "logs", "frontend-diagnostics.log"), "logs/frontend-diagnostics.log"),
+    addFileIfExists(archive, path.join(config.workspaceRoot, "desktop-runtime-manifest.json"), "runtime/desktop-runtime-manifest.json"),
     addFileIfExists(archive, config.databasePath, "data/taptap-maker-plus.sqlite"),
   ]) {
     includedFiles.push(...item.included);
@@ -111,6 +122,14 @@ export async function createDiagnosticBundle(projectId?: string): Promise<Diagno
   const mcpLogs = addDirectoryIfExists(archive, config.mcpLogDir, "mcp-logs", 40);
   includedFiles.push(...mcpLogs.included);
   skippedFiles.push(...mcpLogs.skipped);
+
+  const npmLogs = addDirectoryIfExists(archive, path.join(config.makerNpmCacheDir, "_logs"), "npm-cache/_logs", 20);
+  includedFiles.push(...npmLogs.included);
+  skippedFiles.push(...npmLogs.skipped);
+
+  const npmNpxManifests = addNpxPackageManifests(archive, config.makerNpmCacheDir, "npm-cache/_npx-manifests", 20);
+  includedFiles.push(...npmNpxManifests.included);
+  skippedFiles.push(...npmNpxManifests.skipped);
 
   if (project) {
     const projectLogs = addDirectoryIfExists(archive, path.join(project.rootPath, ".maker", "logs"), "project/.maker/logs", 80);
@@ -183,6 +202,7 @@ function buildSummary(generatedAt: string, project: ProjectSummary | undefined, 
       makerNpmCacheDir: config.makerNpmCacheDir,
       mcpLogDir: config.mcpLogDir,
       nodeRuntimeDir: config.nodeRuntimeDir,
+      nodeCommand: config.nodeCommand,
       npmCommand: config.npmCommand,
       npxCommand: config.npxCommand,
     },
@@ -274,6 +294,37 @@ function addDirectoryIfExists(
     included.push(archivePath);
   }
   return { included, skipped: [] };
+}
+
+function addNpxPackageManifests(
+  archive: Archiver,
+  cacheRoot: string,
+  archiveRoot: string,
+  maxFiles: number,
+): AddFileResult {
+  const npxRoot = path.join(cacheRoot, "_npx");
+  if (!fs.existsSync(npxRoot) || !fs.statSync(npxRoot).isDirectory()) {
+    return { included: [], skipped: [archiveRoot] };
+  }
+  const packageJsonFiles = listRecentFiles(npxRoot, 500)
+    .filter((filePath) => path.basename(filePath) === "package.json")
+    .filter((filePath) => {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(filePath, "utf8")) as { name?: unknown };
+        return parsed.name === "@taptap/maker";
+      } catch {
+        return false;
+      }
+    })
+    .slice(0, maxFiles);
+  const included: string[] = [];
+  for (const filePath of packageJsonFiles) {
+    const relativePath = path.relative(npxRoot, filePath).replaceAll(path.sep, "/");
+    const archivePath = `${archiveRoot}/${relativePath}`;
+    archive.file(filePath, { name: archivePath });
+    included.push(archivePath);
+  }
+  return { included, skipped: included.length ? [] : [archiveRoot] };
 }
 
 function listRecentFiles(directoryPath: string, maxFiles: number) {

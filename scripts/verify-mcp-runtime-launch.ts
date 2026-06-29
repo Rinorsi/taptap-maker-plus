@@ -4,11 +4,14 @@ import os from "node:os";
 import path from "node:path";
 
 const runtimeRoot = path.join(os.tmpdir(), "TapTap Maker Plus Runtime Check", "node-runtime");
+const cacheRoot = path.join(os.tmpdir(), "TapTap Maker Plus Runtime Check", "npm-cache");
 fs.mkdirSync(runtimeRoot, { recursive: true });
+fs.writeFileSync(path.join(runtimeRoot, process.platform === "win32" ? "node.exe" : "node"), "");
 fs.writeFileSync(path.join(runtimeRoot, process.platform === "win32" ? "npm.cmd" : "npm"), "");
 fs.writeFileSync(path.join(runtimeRoot, process.platform === "win32" ? "npx.cmd" : "npx"), "");
 
 process.env.TAPTAP_NODE_RUNTIME_DIR = runtimeRoot;
+process.env.TAPTAP_MAKER_NPM_CACHE_DIR = cacheRoot;
 
 const { buildMcpRuntimeLaunchCommand } = await import("../apps/server/src/services/mcpRuntime.ts");
 const launch = buildMcpRuntimeLaunchCommand();

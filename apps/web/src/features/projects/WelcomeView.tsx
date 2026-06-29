@@ -15,7 +15,9 @@ import {
 } from "lucide-react";
 import type { AssetSummary, ProjectSummary, RuntimeSummary, TaskRecord, ToolSummary } from "../../api";
 import type { WorkbenchModule } from "../../app/routes";
+import { ProjectIcon } from "../../components/layout/ProjectIcon";
 import { appVersion } from "../../generated/appVersion";
+import { formatRuntimeStatus } from "../../lib/runtimeStatus";
 
 type Props = {
   projects: ProjectSummary[];
@@ -60,7 +62,6 @@ export function WelcomeView({
   onOpenCloudProjects,
   onScanAssets,
   onRefreshProject,
-  onStartRuntime,
   onRemoveProjectRecord,
   onDeleteProjectLocalFolder,
   onOpenModule,
@@ -158,40 +159,22 @@ export function WelcomeView({
             <div className="flex flex-col gap-10">
               {/* Hero Header */}
               <div className="flex flex-col gap-4">
-                <div className="min-w-0">
-                  <h1 className="m-0 text-3xl font-bold text-text truncate">{selectedProject.name}</h1>
-                  <div className="mt-2 flex items-center gap-2 text-sm text-text-subtle font-mono">
-                    <Folder className="h-4 w-4 opacity-70" />
-                    <span className="truncate">{selectedProject.rootPath}</span>
+                <div className="flex min-w-0 items-center gap-4">
+                  <ProjectIcon project={selectedProject} className="h-16 w-16 rounded-2xl border border-border-soft shadow-sm" />
+                  <div className="min-w-0">
+                    <h1 className="m-0 text-3xl font-bold text-text truncate">{selectedProject.name}</h1>
+                    <div className="mt-2 flex items-center gap-2 text-sm text-text-subtle font-mono">
+                      <Folder className="h-4 w-4 opacity-70" />
+                      <span className="truncate">{selectedProject.rootPath}</span>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-3 mt-2">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={onStartRuntime}
-                    className="inline-flex h-9 items-center justify-center gap-2 rounded bg-brand px-5 text-sm font-bold text-white hover:brightness-110 transition-all disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Play className="h-4 w-4 fill-current" />
-                    启动引擎
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void onRefreshProject?.()}
-                    className="inline-flex h-9 items-center justify-center gap-2 rounded bg-surface-panel px-4 text-sm font-medium text-text hover:bg-surface-muted transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <RefreshCw className="h-4 w-4 text-text-muted" />
-                    同步状态
-                  </button>
                 </div>
               </div>
 
               {/* Metrics */}
-              <div>
-                <h2 className="mb-4 text-xs font-bold text-text-muted tracking-wider">环境状态</h2>
+              <div className="pt-1">
                 <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-                  <MetricCard label="引擎状态" value={runtime?.status ?? selectedProject?.runtime?.status ?? "idle"} />
+                  <MetricCard label="MCP 状态" value={formatRuntimeStatus(runtime?.status ?? selectedProject?.runtime?.status)} />
                   <MetricCard
                     label="运行任务"
                     value={
@@ -286,6 +269,7 @@ function ProjectCard({
         onClick={() => onSelectProject(project.id)}
         className="flex w-full min-w-0 flex-1 items-center gap-3 text-left"
       >
+        <ProjectIcon project={project} className="h-8 w-8 rounded-lg border border-border-soft" />
         <div className="min-w-0 flex-1 flex flex-col">
           <span className="truncate text-[13px] font-bold">
             {project.name}
@@ -320,10 +304,11 @@ function ProjectCard({
 }
 
 function MetricCard({ label, value }: { label: string; value: React.ReactNode }) {
+  const numericValue = typeof value === "string" && /^[0-9]+$/.test(value);
   return (
     <div className="flex flex-col gap-1.5">
       <span className="text-[11px] font-bold text-text-muted">{label}</span>
-      <strong className="text-lg font-mono font-bold text-text truncate" title={typeof value === 'string' ? value : undefined}>{value}</strong>
+      <strong className={["text-lg font-bold text-text truncate", numericValue ? "font-mono" : ""].filter(Boolean).join(" ")} title={typeof value === 'string' ? value : undefined}>{value}</strong>
     </div>
   );
 }

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { config } from "../lib/config.js";
 import { upsertProject } from "../lib/db.js";
+import { resolveProjectDisplayName } from "./projectIcon.js";
 import type { ProjectSummary } from "../types.js";
 
 type MakerConfig = {
@@ -24,7 +25,7 @@ export async function readMakerProjectAt(projectRoot: string): Promise<ProjectSu
   const makerConfig = await readJson<MakerConfig>(configPath);
   if (!makerConfig?.project_id) return undefined;
 
-  return {
+  const project = {
     id: makerConfig.project_id,
     name: path.basename(projectRoot),
     rootPath: projectRoot,
@@ -33,6 +34,7 @@ export async function readMakerProjectAt(projectRoot: string): Promise<ProjectSu
     createdAt: makerConfig.created_at,
     updatedAt: makerConfig.updated_at
   };
+  return { ...project, name: resolveProjectDisplayName(project) };
 }
 
 export async function scanMakerProjects(root = config.makerProjectsRoot): Promise<ProjectSummary[]> {

@@ -2,10 +2,11 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import fs from "node:fs";
 import path from "node:path";
-import { config } from "../lib/config.js";
+import { buildManagedRuntimeEnv, config } from "../lib/config.js";
 import { getToolsListSnapshot, saveTools } from "../lib/db.js";
 import type { ProjectSummary, RuntimeSummary, ToolSummary } from "../types.js";
 import { appVersion } from "../generated/appVersion.js";
+import { findCachedMakerPackage } from "./makerPackageCache.js";
 
 type ToolLike = {
   name?: unknown;
@@ -15,12 +16,10 @@ type ToolLike = {
 
 function buildMcpEnv(): Record<string, string> {
   const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
+  for (const [key, value] of Object.entries(buildManagedRuntimeEnv())) {
     if (typeof value === "string") env[key] = value;
   }
   env.TAPTAP_MCP_ENV = config.makerEnv;
-  env.npm_config_cache = config.makerNpmCacheDir;
-  env.NPM_CONFIG_CACHE = config.makerNpmCacheDir;
   return env;
 }
 
@@ -54,10 +53,19 @@ export function categorizeTool(name: string): ToolSummary["category"] {
 }
 
 export function buildMcpRuntimeLaunchCommand() {
+  const cachedLaunch = findCachedMakerLaunchCommand();
+  if (cachedLaunch) return cachedLaunch;
   return {
     command: config.npxCommand,
     args: ["-y", "-p", config.makerPackage, "taptap-maker"],
   };
+}
+
+function findCachedMakerLaunchCommand(): { command: string; args: string[] } | undefined {
+  const cachedPackage = findCachedMakerPackage();
+  if (cachedPackage?.shimPath) return { command: cachedPackage.shimPath, args: [] };
+  if (cachedPackage?.binPath) return { command: config.nodeCommand, args: [cachedPackage.binPath] };
+  return undefined;
 }
 
 class SdkMcpClient {

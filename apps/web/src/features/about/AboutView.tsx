@@ -77,7 +77,7 @@ export function AboutView() {
 
           <Section icon={<Sparkles className="h-4 w-4" />} title="项目介绍" delay={100} bgSvg={<IntroBackgroundSVG />}>
             <p>
-              TapTap Maker Plus 是面向 TapTap Maker 项目的本地桌面工作台，聚合项目管理、素材库、MCP Runtime、生成任务、图像/视频/音频/3D 工作室和多模态画布能力。
+              TapTap Maker Plus 是面向 TapTap Maker 项目的本地桌面工作台，聚合项目管理、素材库、MCP 运行时、生成任务、图像/视频/音频/3D 工作室和多模态画布能力。
             </p>
             <p className="mt-2">
               当前仍处于 Alpha 测试阶段，核心功能、数据结构和更新流程会伴随测试反馈持续调整，请务必为重要项目保留独立备份。

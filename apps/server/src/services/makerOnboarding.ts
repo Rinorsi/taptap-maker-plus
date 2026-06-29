@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { execa } from "execa";
-import { config } from "../lib/config.js";
+import { buildManagedRuntimeEnv, config } from "../lib/config.js";
 import { setSelectedProject, upsertProject } from "../lib/db.js";
 import { readMakerProjectAt, scanMakerProjects } from "./projectDiscovery.js";
 import type { ProjectSummary } from "../types.js";
@@ -49,11 +49,7 @@ async function runMakerCli(args: string[], options: { cwd?: string; timeout?: nu
   await fs.mkdir(config.makerNpmCacheDir, { recursive: true });
   const result = await execa(config.npmCommand, ["exec", "--yes", "--package", config.makerPackage, "--", "taptap-maker", ...args], {
     cwd: options.cwd ?? config.workspaceRoot,
-    env: {
-      ...process.env,
-      npm_config_cache: config.makerNpmCacheDir,
-      NPM_CONFIG_CACHE: config.makerNpmCacheDir
-    },
+    env: buildManagedRuntimeEnv(),
     input: options.input,
     timeout: options.timeout ?? 120_000,
     reject: false

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
 import { cn } from "../../lib/utils";
@@ -15,6 +15,7 @@ type Props = {
   onChange: (value: string) => void;
   className?: string;
   ariaLabel?: string;
+  menuHeader?: ReactNode;
 };
 
 function suppressContextMenu(event: React.MouseEvent) {
@@ -22,7 +23,7 @@ function suppressContextMenu(event: React.MouseEvent) {
   event.stopPropagation();
 }
 
-export function SelectField({ id, value, options, onChange, className, ariaLabel }: Props) {
+export function SelectField({ id, value, options, onChange, className, ariaLabel, menuHeader }: Props) {
   const [open, setOpen] = useState(false);
   const [menuStyle, setMenuStyle] = useState<CSSProperties>();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -95,6 +96,11 @@ export function SelectField({ id, value, options, onChange, className, ariaLabel
           }}
           onContextMenu={suppressContextMenu}
         >
+          {menuHeader ? (
+            <div className="border-b border-border-soft px-2.5 py-2 text-xs text-text-muted">
+              {menuHeader}
+            </div>
+          ) : null}
           {options.map((option) => {
             const active = option.value === value;
             return (

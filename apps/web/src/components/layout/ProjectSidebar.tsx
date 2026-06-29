@@ -6,6 +6,7 @@ import { workbenchRoutes, type WorkbenchModule } from "../../app/routes";
 import { AppContextMenu } from "../../commands";
 import { cn } from "../../lib/utils";
 import { settingsTabs, type SettingsTab } from "../../features/settings/settingsTabs";
+import { ProjectIcon } from "./ProjectIcon";
 
 type Props = {
   projects: ProjectSummary[];
@@ -174,13 +175,7 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
               {isProjectOpened ? (
                 // 状态 B: 已打开项目，显示带官方图标的项目名称
                 <>
-                  {activeProject.iconUrl ? (
-                    <img src={activeProject.iconUrl} alt="Game Icon" className="w-5 h-5 rounded object-cover shadow-sm border border-border" />
-                  ) : (
-                    <div className="w-5 h-5 flex items-center justify-center shrink-0 bg-surface-muted rounded border border-border-soft">
-                      <span className="text-[10px] font-bold text-text-muted">{activeProject.name.charAt(0).toUpperCase()}</span>
-                    </div>
-                  )}
+                  <ProjectIcon project={activeProject} className="h-5 w-5 rounded border border-border" />
                   <AppContextMenu context={{ objectType: "project", projectId: activeProject.id }}>
                     <span className="text-[14px] font-semibold text-text truncate">
                       {activeProject.name}

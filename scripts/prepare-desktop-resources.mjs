@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 
 const workspaceRoot = path.resolve(import.meta.dirname, "..");
 const outputRoot = path.join(workspaceRoot, "desktop-dist");
+const runtimeManifestFileName = "desktop-runtime-manifest.json";
 
 const requiredRuntimePaths = [
   "apps/server/dist",
@@ -118,6 +119,45 @@ function prepareMakerNpmCacheSeed() {
   return packageJsonPath;
 }
 
+function readJson(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
+function runBundledRuntimeCommand(commandPath, args) {
+  const executable = process.platform === "win32" ? "cmd.exe" : commandPath;
+  const spawnArgs = process.platform === "win32" ? ["/d", "/s", "/c", commandPath, ...args] : args;
+  return run(executable, spawnArgs);
+}
+
+function writeDesktopRuntimeManifest(seededMakerPackageJson, dependencyCount) {
+  const nodeRuntimeRoot = path.join(outputRoot, "node-runtime");
+  const nodeCommand = path.join(nodeRuntimeRoot, process.platform === "win32" ? "node.exe" : "node");
+  const npmCommand = path.join(nodeRuntimeRoot, process.platform === "win32" ? "npm.cmd" : "npm");
+  const npxCommand = path.join(nodeRuntimeRoot, process.platform === "win32" ? "npx.cmd" : "npx");
+  const makerPackage = readJson(seededMakerPackageJson);
+  const manifest = {
+    generatedAt: new Date().toISOString(),
+    nodeRuntime: {
+      node: "node-runtime/node.exe",
+      npm: "node-runtime/npm.cmd",
+      npx: "node-runtime/npx.cmd",
+      nodeVersion: run(nodeCommand, ["-v"]),
+      npmVersion: runBundledRuntimeCommand(npmCommand, ["-v"]),
+      npxVersion: runBundledRuntimeCommand(npxCommand, ["--version"])
+    },
+    makerPackage: {
+      name: makerPackage.name,
+      version: makerPackage.version,
+      packageJson: path.relative(outputRoot, seededMakerPackageJson).replaceAll(path.sep, "/")
+    },
+    npmCache: "data/npm-cache",
+    productionDependencyCount: dependencyCount
+  };
+  const manifestPath = path.join(outputRoot, runtimeManifestFileName);
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  return manifestPath;
+}
+
 function findMakerPackageJson(cacheRoot) {
   const npxRoot = path.join(cacheRoot, "_npx");
   if (!fs.existsSync(npxRoot)) return undefined;
@@ -131,8 +171,12 @@ function findMakerPackageJson(cacheRoot) {
         stack.push(entryPath);
         continue;
       }
-      if (entry.isFile() && entry.name === "package.json" && entryPath.includes(`${path.sep}@taptap${path.sep}maker${path.sep}`)) {
-        return entryPath;
+      if (!entry.isFile() || entry.name !== "package.json") continue;
+      try {
+        const parsed = readJson(entryPath);
+        if (parsed.name === defaultMakerPackage) return entryPath;
+      } catch {
+        continue;
       }
     }
   }
@@ -195,12 +239,17 @@ for (const relativePath of requiredNativeRuntimeFiles) {
   }
 }
 
+const runtimeManifest = writeDesktopRuntimeManifest(seededMakerPackageJson, dependencyPaths.length);
+const seededMakerPackageVersion = readJson(seededMakerPackageJson).version;
+
 console.log(JSON.stringify({
   ok: true,
   outputRoot: path.relative(workspaceRoot, outputRoot).replaceAll(path.sep, "/"),
   bundledNodeRuntime: path.relative(workspaceRoot, path.join(outputRoot, "node-runtime")).replaceAll(path.sep, "/"),
   seededNpmCache: path.relative(workspaceRoot, path.join(outputRoot, "data", "npm-cache")).replaceAll(path.sep, "/"),
   seededMakerPackageJson: path.relative(workspaceRoot, seededMakerPackageJson).replaceAll(path.sep, "/"),
+  seededMakerPackageVersion,
+  runtimeManifest: path.relative(workspaceRoot, runtimeManifest).replaceAll(path.sep, "/"),
   dependencies: dependencyPaths.length,
   bundledReadOnlyPaths,
   skippedReadOnlyPaths

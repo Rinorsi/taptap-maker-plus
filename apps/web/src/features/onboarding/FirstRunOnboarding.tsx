@@ -39,12 +39,22 @@ type InitPrompt = {
   configExists?: boolean;
 };
 
+function isMcpBetaVersion(version: string) {
+  return /(?:^|[-.])beta(?:[.-]|$)/i.test(version);
+}
+
+function selectDefaultMcpVersion(status: McpPackageUpdateStatus, versions: string[]) {
+  if (status.latestVersion && versions.includes(status.latestVersion)) return status.latestVersion;
+  return versions.at(-1) ?? status.currentVersion ?? "";
+}
+
 export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChanged, onSelectProject }: Props) {
   const [rootSettings, setRootSettings] = useState<MakerProjectsRootSettings>();
   const [rootDraft, setRootDraft] = useState("");
   const [projectDirDraft, setProjectDirDraft] = useState("");
   const [packageStatus, setPackageStatus] = useState<McpPackageUpdateStatus>();
   const [selectedPackageVersion, setSelectedPackageVersion] = useState("");
+  const [showBetaPackageVersions, setShowBetaPackageVersions] = useState(false);
   const [packageState, setPackageState] = useState<StepState>("idle");
   const [packageStatusRequested, setPackageStatusRequested] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -108,8 +118,12 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
   const hasBoundProject = projects.length > 0 || projectState === "done";
   const canEnterWorkbench = rootState === "done" && packageState === "done" && loginState === "done" && hasBoundProject;
   const packageVersions = packageStatus?.availableVersions ?? [];
-  const packageVersionOptions = [...packageVersions].reverse();
-  const installButtonLabel = packageStatus?.localInstalled ? "重装" : "安装";
+  const visiblePackageVersions = packageVersions.filter((version) => showBetaPackageVersions || !isMcpBetaVersion(version));
+  const visiblePackageVersionsKey = visiblePackageVersions.join("\n");
+  const packageVersionOptions = [...visiblePackageVersions].reverse();
+  const installButtonLabel = packageState === "error" && packageStatus
+    ? "重试安装"
+    : packageStatus?.localInstalled ? "重装" : "安装";
   const selectedCloudProject = cloudProjects.find((project) => project.id === selectedCloudProjectId);
   const selectedCloudProjectName = selectedCloudProject?.name ?? "";
   const confirmedRootPath = rootSettings?.confirmed ? rootSettings.rootPath : "";
@@ -149,6 +163,12 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
       cancelled = true;
     };
   }, [isOpen, selectedCloudProjectId, selectedCloudProjectName]);
+
+  useEffect(() => {
+    if (!packageStatus) return;
+    if (selectedPackageVersion && visiblePackageVersions.includes(selectedPackageVersion)) return;
+    setSelectedPackageVersion(selectDefaultMcpVersion(packageStatus, visiblePackageVersions));
+  }, [packageStatus, selectedPackageVersion, visiblePackageVersionsKey]);
 
   if (!isOpen) return null;
 
@@ -222,25 +242,31 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
   async function refreshPackageStatus() {
     setPackageState("working");
     setPackageStatusRequested(true);
-    setNotice("正在检查 @taptap/maker 云端版本...");
+    setNotice("正在检查本机 MCP 环境...");
     try {
-      const response = await getMcpPackageStatus(true);
+      const response = await getMcpPackageStatus(false);
       setServiceError("");
       const status = response.status;
       setPackageStatus(status);
-      setSelectedPackageVersion(status.latestVersion ?? status.availableVersions.at(-1) ?? status.currentVersion ?? "");
+      const defaultVersion = selectDefaultMcpVersion(status, status.availableVersions.filter((version) => !isMcpBetaVersion(version)));
+      setSelectedPackageVersion(defaultVersion);
       if (status.registryError) {
         if (status.localInstalled) {
           setPackageState("done");
-          setNotice(`本地 MCP 已安装，版本 ${status.currentVersion ?? "未知"}；云端版本暂时无法获取：${status.registryError}`);
+          setNotice(`本机 MCP 环境已就绪，版本 ${status.currentVersion ?? "未知"}；云端版本暂时无法获取：${status.registryError}`);
           return;
         }
-        throw new Error(`本地 MCP 未安装，云端版本无法获取：${status.registryError}`);
+        throw new Error(`本机 MCP 环境未就绪，云端版本无法获取：${status.registryError}`);
       }
-      setPackageState(status.localInstalled ? "done" : "idle");
-      setNotice(status.localInstalled
-        ? `本地 MCP 已安装，版本 ${status.currentVersion ?? "未知"}。`
-        : "本地 MCP 未安装，请选择云端版本后安装。");
+      if (status.localInstalled) {
+        setPackageState("done");
+        setNotice(`本机 MCP 环境已就绪，版本 ${status.currentVersion ?? "未知"}。`);
+        return;
+      }
+      setPackageState("idle");
+      setNotice(defaultVersion
+        ? `本机 MCP 环境未就绪，已选择稳定版本 ${defaultVersion}。点击安装后会安装到本机 MCP 缓存。`
+        : "本机 MCP 环境未就绪，可以检查云端版本后安装。");
     } catch (error) {
       setPackageState("error");
       setPackageStatus(undefined);
@@ -257,8 +283,17 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
       setNotice("请先检查云端版本，并选择要安装的 MCP 版本。");
       return;
     }
-    if (packageStatus?.localInstalled) {
-      const confirmed = window.confirm(`本地已有 MCP ${packageStatus.currentVersion ?? "未知版本"}，是否重新安装 ${version}？`);
+    await installPackageVersion(packageStatus, version, { confirmReinstall: true });
+  }
+
+  async function installPackageVersion(
+    status: McpPackageUpdateStatus,
+    version: string,
+    options: { confirmReinstall: boolean },
+  ) {
+    const packageName = status.packageName;
+    if (options.confirmReinstall && status.localInstalled) {
+      const confirmed = window.confirm(`本地已有 MCP ${status.currentVersion ?? "未知版本"}，是否重新安装 ${version}？`);
       if (!confirmed) return;
     }
     setPackageState("working");
@@ -459,7 +494,7 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
       className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4 sm:p-8 backdrop-blur-md"
       onPointerDown={handleBackdropPointerDown}
     >
-      <motion.section 
+      <motion.section
         initial={{ opacity: 0, scale: 0.95, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
@@ -468,7 +503,7 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
       >
         {/* Left Side: Illustration */}
         <div className="relative hidden w-[40%] flex-col justify-between overflow-hidden bg-surface-panel p-10 md:flex border-r border-border/30">
-          
+
           {/* Subtle Abstract Tech Deco Background */}
           <div className="absolute inset-0 z-0 pointer-events-none text-text">
             {/* Dot Grid */}
@@ -480,7 +515,7 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
               </defs>
               <rect width="100%" height="100%" fill="url(#dotGrid)" />
             </svg>
-            
+
             {/* Tech Wireframes & Decals (Animated & Higher Opacity for Light Mode) */}
             <svg className="absolute inset-0 w-full h-full opacity-20" viewBox="0 0 400 800" preserveAspectRatio="xMidYMid slice">
               {/* Corner brackets */}
@@ -496,7 +531,7 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
               <circle cx="320" cy="180" r="60" fill="none" stroke="currentColor" strokeWidth="1" className="opacity-50" strokeDasharray="60 20">
                 <animateTransform attributeName="transform" type="rotate" from="360 320 180" to="0 320 180" dur="30s" repeatCount="indefinite" />
               </circle>
-              
+
               <line x1="320" y1="120" x2="320" y2="70" stroke="currentColor" strokeWidth="1" className="opacity-40" />
               <line x1="380" y1="180" x2="420" y2="180" stroke="currentColor" strokeWidth="1" className="opacity-40" />
 
@@ -540,17 +575,17 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
                   <animate attributeName="y2" values="620;670;620" dur="4s" repeatCount="indefinite" />
                 </line>
               </g>
-              
+
               {/* Vertical Metric Scale */}
               <line x1="380" y1="300" x2="380" y2="500" stroke="currentColor" strokeWidth="1" className="opacity-30" />
               <path d="M 380 300 L 375 300 M 380 350 L 375 350 M 380 400 L 370 400 M 380 450 L 375 450 M 380 500 L 375 500" fill="none" stroke="currentColor" strokeWidth="1" className="opacity-50" />
             </svg>
-            
+
             {/* Restrained Brand Tint */}
             <div className="absolute top-1/4 right-0 w-80 h-80 bg-brand/10 rounded-full blur-[100px] pointer-events-none mix-blend-screen opacity-60" />
             <div className="absolute bottom-1/4 -left-10 w-64 h-64 bg-emerald-500/5 rounded-full blur-[80px] pointer-events-none mix-blend-screen opacity-40" />
           </div>
-          
+
           {/* Logo Top Left */}
           <motion.div
             initial={{ opacity: 0, x: -10 }}
@@ -565,10 +600,10 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
           <div className="relative w-full flex-1 flex flex-col items-center justify-center">
              <ProcessAnimation steps={processSteps} />
           </div>
-          
+
           {/* Text Bottom Left */}
           <div className="relative z-10 w-full text-left">
-            <motion.h2 
+            <motion.h2
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3, duration: 0.5 }}
@@ -576,7 +611,7 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
             >
               初始化工作流
             </motion.h2>
-            <motion.p 
+            <motion.p
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.4, duration: 0.5 }}
@@ -623,7 +658,7 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
                 本地服务未连接，首启页暂时无法读取项目、MCP 和云端信息。请重启桌面端，或等待本地服务启动完成后点击右上角刷新。
               </div>
             ) : null}
-            <motion.div 
+            <motion.div
               className="grid gap-4"
               initial="hidden"
               animate="visible"
@@ -697,6 +732,15 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
                       </SelectContent>
                     </Select>
                   </div>
+                  <label className="flex w-fit cursor-pointer items-center gap-2 text-xs text-text-subtle">
+                    <input
+                      type="checkbox"
+                      checked={showBetaPackageVersions}
+                      onChange={(event) => setShowBetaPackageVersions(event.target.checked)}
+                      className="h-3.5 w-3.5 accent-brand"
+                    />
+                    <span>显示 Beta 版本</span>
+                  </label>
                 </div>
               </OnboardingStep>
 
@@ -773,7 +817,7 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
                   </div>
 
                   {initPrompt && (
-                    <motion.div 
+                    <motion.div
                       initial={{ opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: "auto" }}
                       className="overflow-hidden"
@@ -865,7 +909,7 @@ export function FirstRunOnboarding({ open: isOpen, busy, onClose, onProjectsChan
 
                   {/* Recent Projects List */}
                   {!initPrompt && projects.length ? (
-                    <motion.div 
+                    <motion.div
                       initial={{ opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: "auto" }}
                       className="grid gap-2 rounded-control border border-border-soft bg-surface-panel/60 p-2 overflow-hidden"
@@ -918,7 +962,7 @@ function OnboardingStep({
   children: React.ReactNode;
 }) {
   return (
-    <motion.article 
+    <motion.article
       variants={{
         hidden: { opacity: 0, y: 20 },
         visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
@@ -1021,21 +1065,21 @@ function ProcessAnimation({ steps }: { steps: ProcessStep[] }) {
             )}
          </svg>
        </div>
-       
+
        {steps.map((s, index) => {
          const isActive = s.state !== "idle";
          const isCurrent = s.state === "working";
          const Icon = s.icon;
-         
+
          return (
-           <motion.div 
-             key={s.id} 
+           <motion.div
+             key={s.id}
              initial={{ opacity: 0, x: -10 }}
              animate={{ opacity: 1, x: 0 }}
              transition={{ delay: index * 0.15 + 0.2, duration: 0.5 }}
              className="relative z-10 flex items-center w-full"
            >
-             
+
              {/* Node Icon */}
              <div className={cn(
                "relative z-20 w-12 h-12 rounded-xl flex flex-shrink-0 items-center justify-center transition-all duration-700",
@@ -1055,11 +1099,11 @@ function ProcessAnimation({ steps }: { steps: ProcessStep[] }) {
                   <span className={cn("text-xs font-bold tracking-wider transition-colors duration-700 truncate", isActive ? "text-text" : "text-text-subtle/40")}>
                     {s.label}
                   </span>
-                  
+
                   {isActive && (
-                    <motion.div 
-                      initial={{ opacity: 0, scale: 0.8 }} 
-                      animate={{ opacity: 1, scale: 1 }} 
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
                       className={cn("flex-shrink-0 flex items-center gap-1.5 text-[9px] font-semibold border px-1.5 py-0.5 rounded tracking-wider", stateBadgeClass(s.state))}
                     >
                       {isCurrent ? <div className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" /> : null}
@@ -1067,12 +1111,12 @@ function ProcessAnimation({ steps }: { steps: ProcessStep[] }) {
                     </motion.div>
                   )}
                 </div>
-                
+
                 <span className={cn("text-[11px] mt-1 transition-colors duration-700 truncate", isActive ? "text-text-subtle" : "text-text-subtle/30")}>
                   {s.desc}
                 </span>
              </div>
-             
+
            </motion.div>
          );
        })}

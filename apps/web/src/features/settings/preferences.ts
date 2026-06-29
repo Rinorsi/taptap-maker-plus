@@ -263,9 +263,20 @@ export function subscribeSettingsRemoteSync(listener: () => void) {
   return () => window.removeEventListener(SETTINGS_REMOTE_SYNCED_EVENT, listener);
 }
 
-export function subscribeSettingsPreferencesSaved(listener: (detail: { savedAt: string; updatedAt?: string; source: "auto" | "manual" }) => void) {
+export function subscribeSettingsPreferencesSaved(
+  listener: (detail: { savedAt: string; updatedAt?: string; source: "auto" | "manual"; target: "desktop-file" | "settings-api" }) => void,
+) {
   const handle = (event: Event) => {
-    listener((event as CustomEvent<{ savedAt: string; updatedAt?: string; source: "auto" | "manual" }>).detail);
+    listener(
+      (
+        event as CustomEvent<{
+          savedAt: string;
+          updatedAt?: string;
+          source: "auto" | "manual";
+          target: "desktop-file" | "settings-api";
+        }>
+      ).detail,
+    );
   };
   window.addEventListener(SETTINGS_PREFERENCES_SAVED_EVENT, handle);
   return () => window.removeEventListener(SETTINGS_PREFERENCES_SAVED_EVENT, handle);
@@ -322,6 +333,7 @@ export async function flushSettingsPreferencesSave(source: "auto" | "manual" = "
           savedAt: new Date().toISOString(),
           updatedAt: response.updatedAt,
           source,
+          target: "desktop-file",
         },
       }),
     );
@@ -339,6 +351,7 @@ export async function flushSettingsPreferencesSave(source: "auto" | "manual" = "
           savedAt: new Date().toISOString(),
           updatedAt: response.updatedAt,
           source,
+          target: "settings-api",
         },
       }),
     );

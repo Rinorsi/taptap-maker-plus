@@ -8,6 +8,13 @@ import { runtimeManager } from "./mcpRuntime.js";
 const MAKER_PACKAGE_SETTING_KEY = "maker_package_spec";
 const DEFAULT_CHANGELOG_TEXT = "暂无更新日志";
 const RELEASE_NOTES_FILE_NAME = "mcp-release-notes.md";
+const GITHUB_OWNER = "Rinorsi";
+const GITHUB_REPO = "taptap-maker-plus";
+const UPDATE_FEED_REF = "updates-feed";
+const REMOTE_RELEASE_NOTES_URLS = [
+  `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${UPDATE_FEED_REF}/${RELEASE_NOTES_FILE_NAME}`,
+  `https://cdn.jsdelivr.net/gh/${GITHUB_OWNER}/${GITHUB_REPO}@${UPDATE_FEED_REF}/${RELEASE_NOTES_FILE_NAME}`
+];
 const MCP_PACKAGE_SETTING_KEYS = [
   MAKER_PACKAGE_SETTING_KEY,
   "maker_package_resolved_version",
@@ -34,6 +41,8 @@ export type McpPackageUpdateStatus = {
   cacheEntryCount: number;
   releaseNotes: string;
   releaseNotesPath: string;
+  releaseNotesSource: "cloud" | "local" | "fallback";
+  releaseNotesError?: string;
   availableVersions: string[];
   registryError?: string;
 };
@@ -69,11 +78,51 @@ export function loadStoredMakerPackage() {
   if (stored) setMakerPackage(stored);
 }
 
-export function getMcpReleaseNotes() {
+export type McpReleaseNotes = {
+  text: string;
+  source: "cloud" | "local" | "fallback";
+  path: string;
+  error?: string;
+};
+
+export async function getMcpReleaseNotes(): Promise<McpReleaseNotes> {
+  const remoteErrors: string[] = [];
+  for (const releaseNotesUrl of REMOTE_RELEASE_NOTES_URLS) {
+    try {
+      return {
+        text: await fetchRemoteReleaseNotes(releaseNotesUrl),
+        source: "cloud",
+        path: releaseNotesUrl
+      };
+    } catch (error) {
+      remoteErrors.push(`${releaseNotesUrl}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   const releaseNotesPath = getMcpReleaseNotesPath();
-  if (!fs.existsSync(releaseNotesPath)) return DEFAULT_CHANGELOG_TEXT;
+  if (!fs.existsSync(releaseNotesPath)) {
+    return {
+      text: DEFAULT_CHANGELOG_TEXT,
+      source: "fallback",
+      path: releaseNotesPath,
+      error: remoteErrors.length ? remoteErrors.join("；") : undefined
+    };
+  }
   const text = fs.readFileSync(releaseNotesPath, "utf8").trim();
-  return text || DEFAULT_CHANGELOG_TEXT;
+  if (text) {
+    return {
+      text,
+      source: "local",
+      path: releaseNotesPath,
+      error: remoteErrors.length ? remoteErrors.join("；") : undefined
+    };
+  }
+  return {
+    text: DEFAULT_CHANGELOG_TEXT,
+    source: "fallback",
+    path: releaseNotesPath,
+    error: remoteErrors.length ? remoteErrors.join("；") : undefined
+  };
 }
 
 export function getMcpReleaseNotesPath() {
@@ -91,6 +140,7 @@ export async function getMcpPackageUpdateStatus(options: { checkRegistry?: boole
   let latestVersion: string | undefined;
   let availableVersions: string[] = [];
   let registryError: string | undefined;
+  const releaseNotes = await getMcpReleaseNotes();
 
   if (options.checkRegistry) {
     try {
@@ -123,11 +173,28 @@ export async function getMcpPackageUpdateStatus(options: { checkRegistry?: boole
     cacheExists: cacheStats.exists,
     cacheSizeBytes: cacheStats.sizeBytes,
     cacheEntryCount: cacheStats.entryCount,
-    releaseNotes: getMcpReleaseNotes(),
-    releaseNotesPath: getMcpReleaseNotesPath(),
+    releaseNotes: releaseNotes.text,
+    releaseNotesPath: releaseNotes.path,
+    releaseNotesSource: releaseNotes.source,
+    releaseNotesError: releaseNotes.error,
     availableVersions,
     registryError
   };
+}
+
+async function fetchRemoteReleaseNotes(releaseNotesUrl: string) {
+  const response = await fetch(releaseNotesUrl, {
+    headers: {
+      "Accept": "text/markdown,text/plain,*/*",
+      "User-Agent": "TapTap-Maker-Plus-MCP-Updater"
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} ${response.statusText}`);
+  }
+  const text = (await response.text()).trim();
+  if (!text) throw new Error("远端 Maker MCP 更新日志为空。");
+  return text;
 }
 
 export async function installMcpPackage(packageSpec: string): Promise<McpPackageInstallResult> {

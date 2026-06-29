@@ -448,6 +448,8 @@ export type McpPackageUpdateStatus = {
   cacheEntryCount: number;
   releaseNotes: string;
   releaseNotesPath: string;
+  releaseNotesSource: "cloud" | "local" | "fallback";
+  releaseNotesError?: string;
   availableVersions: string[];
   registryError?: string;
 };

@@ -1,4 +1,4 @@
-import { Terminal, FolderSync, Search, Settings, Moon, Sun, PanelLeft, PanelRight, RefreshCw, Copy, Trash2, Eye, Save, Play, Code, ClipboardList, Scan, Edit2, Move, ExternalLink, Image, FolderOpen, Download, Crosshair, Check, XCircle } from "lucide-react";
+import { Terminal, FolderSync, Search, Settings, Moon, Sun, PanelLeft, PanelRight, RefreshCw, Copy, Trash2, Eye, Save, Play, Code, ClipboardList, Scan, Edit2, Move, ExternalLink, Image, FolderOpen, Download, Crosshair, Check } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "sonner";
@@ -44,7 +44,6 @@ import {
   type AgentSelectionReference,
   type AssetReferenceScanResult,
   type AssetSummary,
-  type AppAnnouncementSummary,
   type ProjectSummary,
   type RuntimeSummary,
   type TaskRecord,
@@ -53,10 +52,13 @@ import {
 } from "../api";
 import { filterAssetsForDirectory } from "../features/assets/assetTree";
 import { type WorkbenchModule } from "./routes";
+import { applyWindowMinimumSize, clearTapTapLocalState, isDeveloperOnlyModule, resolveDefaultProjectModule, resolveInitialModule, resolvePanelCollapsed, resolveThemePreference } from "./appPreferences";
 import { type SettingsTab } from "../features/settings/settingsTabs";
 import { TopBar } from "../components/layout/TopBar";
 import { ProjectSidebar } from "../components/layout/ProjectSidebar";
 import { WorkbenchViewport } from "../components/layout/WorkbenchViewport";
+import { ThemeCinemaOverlay } from "../components/layout/ThemeCinemaOverlay";
+import { DesktopWindowResizeHandles, toTauriResizeDirection, type ResizeEdge } from "../components/layout/DesktopWindowResizeHandles";
 import {
   AgentInspectorPanel,
   type InspectorSelection,
@@ -116,7 +118,7 @@ import {
 } from "../lib/developerMode";
 import { FirstRunOnboarding } from "../features/onboarding/FirstRunOnboarding";
 import { useAppUpdateUi } from "../features/updates/appUpdateUi";
-import { appVersion } from "../generated/appVersion";
+import { AnnouncementDialog, useAppAnnouncements } from "../features/announcements/appAnnouncements";
 
 const DEFAULT_PROJECT_MODULE: WorkbenchModule = defaultWorkspaceToModule("assets");
 const DEFAULT_SETTINGS_TAB: SettingsTab = "general";
@@ -125,126 +127,7 @@ const NODE_PRESET_TEXT_PREFIX = "taptap-node-preset:";
 const BOOTSTRAP_RETRY_DELAYS_MS = [800, 1200, 1800, 2600, 3600];
 const ASSET_REFERENCE_CACHE_TTL_MS = 30_000;
 const ONBOARDING_DISMISSED_STORAGE_KEY = "taptap.onboardingDismissed";
-const ANNOUNCEMENT_READ_STORAGE_KEY = "taptap.readAnnouncementIds";
-const LEGACY_ANNOUNCEMENT_READ_STORAGE_KEY = "taptap.readAnnouncementId";
 
-function resolveThemePreference(preference: ThemePreference): "light" | "dark" {
-  if (preference === "light" || preference === "dark") return preference;
-  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
-function resolveInitialModule(hasProject: boolean) {
-  const startupPreference = readStoredPreference("startupPreference") as StartupPreference;
-  const defaultWorkspace = readStoredPreference("defaultWorkspace") as DefaultWorkspace;
-  if (!hasProject) return "home";
-  if (startupPreference === "home" || startupPreference === "home-picker") return "home";
-  return defaultWorkspaceToModule(defaultWorkspace);
-}
-
-function resolveDefaultProjectModule() {
-  return defaultWorkspaceToModule(readStoredPreference("defaultWorkspace") as DefaultWorkspace);
-}
-
-function readWindowMinimumSize() {
-  const width = Number(readStoredPreference("windowMinimumWidth"));
-  const height = Number(readStoredPreference("windowMinimumHeight"));
-  return {
-    minWidth: Number.isFinite(width) ? Math.max(1024, Math.round(width)) : 1366,
-    minHeight: Number.isFinite(height) ? Math.max(640, Math.round(height)) : 768,
-  };
-}
-
-function applyWindowMinimumSize() {
-  if (!("__TAURI_INTERNALS__" in window)) return;
-  const size = readWindowMinimumSize();
-  void getCurrentWindow().setSizeConstraints(size).catch(() => undefined);
-}
-
-function isDeveloperOnlyModule(module: WorkbenchModule) {
-  return module === "studio-canvas" || module === "runs" || module === "build" || module === "agent";
-}
-
-function resolvePanelCollapsed(preference: PanelPreference, storageKey: string) {
-  if (preference === "expanded") return false;
-  if (preference === "collapsed") return true;
-  return localStorage.getItem(storageKey) === "true";
-}
-
-function clearTapTapLocalState() {
-  for (let index = localStorage.length - 1; index >= 0; index -= 1) {
-    const key = localStorage.key(index);
-    if (key?.startsWith("taptap.")) localStorage.removeItem(key);
-  }
-}
-
-type AnnouncementContent = {
-  id: string;
-  title: string;
-  summary: string;
-  markdown: string;
-  publishedAt: string;
-  source: "cloud" | "local";
-};
-
-function readAnnouncementReadIds() {
-  const raw = localStorage.getItem(ANNOUNCEMENT_READ_STORAGE_KEY);
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (Array.isArray(parsed)) {
-        return parsed.filter((item): item is string => typeof item === "string" && Boolean(item));
-      }
-    } catch {
-      return [];
-    }
-  }
-  const legacyId = localStorage.getItem(LEGACY_ANNOUNCEMENT_READ_STORAGE_KEY);
-  return legacyId ? [legacyId] : [];
-}
-
-function writeAnnouncementReadIds(ids: string[]) {
-  const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
-  localStorage.setItem(ANNOUNCEMENT_READ_STORAGE_KEY, JSON.stringify(uniqueIds));
-  localStorage.removeItem(LEGACY_ANNOUNCEMENT_READ_STORAGE_KEY);
-  return uniqueIds;
-}
-
-function toCloudAnnouncementContent(announcement: AppAnnouncementSummary): AnnouncementContent {
-  return {
-    id: announcement.id,
-    title: announcement.title,
-    summary: announcement.summary,
-    markdown: announcement.markdown,
-    publishedAt: announcement.publishedAt,
-    source: "cloud",
-  };
-}
-
-function resolveAnnouncementContents(announcements?: AppAnnouncementSummary[], announcement?: AppAnnouncementSummary): AnnouncementContent[] {
-  const cloudAnnouncements = announcements?.length ? announcements : announcement ? [announcement] : [];
-  if (cloudAnnouncements.length) return cloudAnnouncements.map(toCloudAnnouncementContent);
-  return [
-    {
-      id: `${appVersion.displayVersion}:${appVersion.announcementMarkdown}`,
-      title: appVersion.announcementTitle,
-      summary: appVersion.announcementBody,
-      markdown: appVersion.announcementMarkdown,
-      publishedAt: new Date().toISOString(),
-      source: "local",
-    },
-  ];
-}
-
-type ResizeEdge = "n" | "e" | "s" | "w" | "ne" | "nw" | "se" | "sw";
-type TauriResizeDirection =
-  | "East"
-  | "North"
-  | "NorthEast"
-  | "NorthWest"
-  | "South"
-  | "SouthEast"
-  | "SouthWest"
-  | "West";
 type ReferenceMutationDecision = "update" | "skip" | "cancel";
 
 function readPlainDragText(dataTransfer?: DataTransfer | null) {
@@ -302,13 +185,16 @@ export function AppShell() {
   const [developerModeEnabled, setDeveloperModeEnabledState] = useState(() => isDeveloperModeEnabled());
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [announcementOpen, setAnnouncementOpen] = useState(false);
-  const [readAnnouncementIds, setReadAnnouncementIds] = useState<string[]>(() => readAnnouncementReadIds());
   const appUpdateState = useAppUpdateUi(developerModeEnabled);
-  const announcementContents = useMemo(
-    () => resolveAnnouncementContents(appUpdateState.status?.announcements, appUpdateState.status?.announcement),
-    [appUpdateState.status?.announcement, appUpdateState.status?.announcements],
-  );
-  const announcementUnread = announcementContents.some((announcement) => !readAnnouncementIds.includes(announcement.id));
+  const {
+    announcementContents,
+    announcementUnread,
+    readAnnouncementIds,
+    markAnnouncementsRead,
+  } = useAppAnnouncements({
+    announcements: appUpdateState.status?.announcements,
+    announcement: appUpdateState.status?.announcement,
+  });
   const themeCinemaTargetRef = useRef<"light" | "dark" | undefined>(undefined);
   const startupPromptedRef = useRef(false);
   const onboardingDismissedRef = useRef(
@@ -368,13 +254,8 @@ export function AppShell() {
     [tasks],
   );
 
-  function markAnnouncementsRead() {
-    setReadAnnouncementIds((current) =>
-      writeAnnouncementReadIds([
-        ...current,
-        ...announcementContents.map((announcement) => announcement.id),
-      ]),
-    );
+  function closeAnnouncementDialog() {
+    markAnnouncementsRead();
     setAnnouncementOpen(false);
   }
 
@@ -4310,203 +4191,11 @@ export function AppShell() {
           <AnnouncementDialog
             announcements={announcementContents}
             readAnnouncementIds={readAnnouncementIds}
-            onClose={markAnnouncementsRead}
+            onClose={closeAnnouncementDialog}
           />
         ) : null}
       </div>
     </CommandProvider>
-  );
-}
-
-function renderInlineMarkdown(text: string) {
-  const html = text
-    .replace(/\*\*(.*?)\*\*/g, '<strong class="text-text font-bold">$1</strong>')
-    .replace(/`(.*?)`/g, '<code class="bg-surface-muted text-brand px-1.5 py-0.5 rounded text-[13px] border border-border-soft font-mono">$1</code>');
-
-  return <span dangerouslySetInnerHTML={{ __html: html }} />;
-}
-
-function MiniMarkdown({ content, skipFirstHeading }: { content: string; skipFirstHeading?: string }) {
-  let skippedHeading = false;
-  const lines = content.split('\n').filter(line => line.trim() !== '');
-
-  return (
-    <div className="flex flex-col text-[15px] text-text-muted leading-relaxed">
-      {lines.map((line, i) => {
-        if (skipFirstHeading && !skippedHeading && line.startsWith('## ') && line.includes(skipFirstHeading)) {
-          skippedHeading = true;
-          return null;
-        }
-        if (line.startsWith('## ')) {
-          return (
-            <h2 key={i} className={`text-text font-bold text-[20px] mb-4 leading-tight flex items-center gap-2.5 ${i > 0 ? "mt-10" : "mt-0"}`}>
-              <div className="w-1.5 h-5 bg-brand rounded-full"></div>
-              {line.replace('## ', '')}
-            </h2>
-          );
-        }
-        if (line.startsWith('### ')) {
-          return (
-            <h3 key={i} className={`text-text font-bold text-[17px] mb-3 leading-tight ${i > 0 ? "mt-8" : "mt-0"}`}>
-              {line.replace('### ', '')}
-            </h3>
-          );
-        }
-        if (line.startsWith('> ')) {
-          return (
-            <blockquote key={i} className="border-l-[3px] border-brand/50 bg-brand/5 pl-5 py-3.5 text-text-subtle mt-4 mb-6 rounded-r-lg text-[14px]">
-              {renderInlineMarkdown(line.replace('> ', ''))}
-            </blockquote>
-          );
-        }
-        if (line.startsWith('* ')) {
-          return (
-            <div key={i} className="flex items-start gap-3 ml-2 mt-2">
-              <span className="text-brand mt-[8px] text-[10px] opacity-80">●</span>
-              <span className="flex-1">{renderInlineMarkdown(line.replace('* ', ''))}</span>
-            </div>
-          );
-        }
-        return <p key={i} className="m-0 mb-5">{renderInlineMarkdown(line)}</p>;
-      })}
-    </div>
-  );
-}
-
-function formatAnnouncementDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}`;
-}
-
-function startAnnouncementWindowDrag(event: React.PointerEvent<HTMLElement>) {
-  if (event.button !== 0) return;
-  if (
-    event.target instanceof HTMLElement &&
-    event.target.closest("button, input, textarea, select, a")
-  ) {
-    return;
-  }
-  getCurrentWindow().startDragging().catch(() => undefined);
-}
-
-function AnnouncementDialog({
-  announcements,
-  readAnnouncementIds,
-  onClose,
-}: {
-  announcements: AnnouncementContent[];
-  readAnnouncementIds: string[];
-  onClose: () => void;
-}) {
-  const [selectedId, setSelectedId] = useState(() => announcements[0]?.id ?? "");
-  const selectedAnnouncement = announcements.find((announcement) => announcement.id === selectedId) ?? announcements[0];
-
-  return (
-    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 px-6 backdrop-blur-[4px] animate-in fade-in duration-200">
-      {/* Clean, Flat Modal Container */}
-      <div className="flex h-[75vh] w-full max-w-[960px] overflow-hidden rounded-panel bg-surface-panel shadow-popover animate-in zoom-in-[0.98] duration-200 relative ring-1 ring-border-soft">
-
-        {/* LEFT SIDEBAR (Solid, Clean) */}
-        <aside className="flex w-[260px] shrink-0 flex-col border-r border-border-soft bg-surface-app">
-          <div
-            className="flex h-[80px] shrink-0 cursor-grab items-center px-6 active:cursor-grabbing"
-            onPointerDown={startAnnouncementWindowDrag}
-            title="拖动窗口"
-          >
-            <h2 className="m-0 text-[18px] font-bold text-text flex items-center gap-2">
-              <svg className="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg>
-              公告中心
-            </h2>
-          </div>
-
-          <div className="flex-1 overflow-y-auto scrollbar-none px-4 py-2">
-            <div className="flex flex-col gap-1.5">
-              {announcements.map((announcement) => {
-                const active = selectedAnnouncement?.id === announcement.id;
-                const unread = !readAnnouncementIds.includes(announcement.id);
-                return (
-                  <button
-                    key={announcement.id}
-                    type="button"
-                    onClick={() => setSelectedId(announcement.id)}
-                    className={`flex w-full flex-col rounded-control px-4 py-3.5 text-left transition-colors ${
-                      active ? "bg-brand/10 text-brand" : "text-text-muted hover:bg-surface-muted hover:text-text"
-                    }`}
-                  >
-                    <span className="flex items-center gap-2">
-                      {unread ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" /> : null}
-                      <span className="min-w-0 flex-1 text-[14px] font-bold line-clamp-1">
-                        {announcement.title}
-                      </span>
-                      <span className="shrink-0 rounded bg-surface-muted px-1.5 py-0.5 text-[9px] font-bold text-text-subtle">
-                        {announcement.source === "cloud" ? "云端" : "本地"}
-                      </span>
-                    </span>
-
-                    <span className="mt-1.5 text-[12px] font-medium opacity-80 font-mono">
-                      {formatAnnouncementDate(announcement.publishedAt)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </aside>
-
-        {/* RIGHT CONTENT AREA (Minimalist) */}
-        <section className="relative flex min-w-0 flex-1 flex-col bg-surface-panel overflow-hidden">
-
-          {/* Header Area (Clean, High Contrast) */}
-          <div
-            className="relative shrink-0 cursor-grab px-12 pt-14 pb-8 border-b border-border-soft flex justify-between items-start gap-4 active:cursor-grabbing"
-            onPointerDown={startAnnouncementWindowDrag}
-            title="拖动窗口"
-          >
-            <div className="flex flex-col">
-              <div className="flex items-center gap-3 mb-4">
-                <span className="inline-flex items-center rounded-control bg-brand px-2 py-0.5 text-[11px] font-bold text-white uppercase tracking-wider">
-                  官方动态
-                </span>
-                <span className="inline-flex items-center rounded-control border border-border-soft bg-surface-muted px-2 py-0.5 text-[10px] font-bold text-text-subtle">
-                  {selectedAnnouncement.source === "cloud" ? "云端" : "本地"}
-                </span>
-                <span className="text-[13px] text-text-subtle font-mono">
-                  {formatAnnouncementDate(selectedAnnouncement.publishedAt)}
-                </span>
-              </div>
-              <h3 className="m-0 text-[32px] font-bold leading-tight text-text tracking-tight">
-                {selectedAnnouncement.title}
-              </h3>
-            </div>
-
-            <button
-              type="button"
-              onClick={onClose}
-              onPointerDown={(event) => event.stopPropagation()}
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-surface-muted text-text-muted transition-colors hover:bg-border-soft hover:text-text"
-              title="关闭公告"
-            >
-              <XCircle className="h-5 w-5" />
-            </button>
-          </div>
-
-          {/* Scrollable Markdown Content */}
-          <div className="flex-1 overflow-y-auto px-12 py-10 scrollbar-thin">
-            {selectedAnnouncement ? (
-              <MiniMarkdown content={selectedAnnouncement.markdown} skipFirstHeading={selectedAnnouncement.title} />
-            ) : null}
-          </div>
-
-          {/* Footer Confirmation */}
-          <div className="shrink-0 border-t border-border-soft bg-surface-panel p-6 flex justify-end">
-              <Button onClick={onClose} size="lg" className="px-10 text-[15px]">
-                我知道了
-              </Button>
-          </div>
-        </section>
-      </div>
-    </div>
   );
 }
 
@@ -4580,13 +4269,63 @@ function McpUpdateConfirmBody({ status }: { status: McpPackageUpdateStatus }) {
         <InfoRow label="包名" value={status.packageName} />
         <InfoRow label="本地版本" value={status.localInstalled ? status.currentVersion ?? "已安装" : "未安装"} />
         <InfoRow label="最新版本" value={status.latestVersion ?? "未检查"} />
-        <InfoRow label="日志文件" value={status.releaseNotesPath} />
+        <InfoRow label="日志来源" value={`${formatMcpReleaseNotesSource(status)} · ${status.releaseNotesPath}`} />
       </div>
-      <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-xl border border-border-soft bg-surface-app p-3 text-xs leading-relaxed text-text">
-        {status.releaseNotes || "暂无更新日志"}
-      </pre>
+      <McpReleaseNotesMarkdown content={status.releaseNotes || "暂无更新日志"} />
     </div>
   );
+}
+
+function formatMcpReleaseNotesSource(status: McpPackageUpdateStatus) {
+  if (status.releaseNotesSource === "cloud") return "云端";
+  if (status.releaseNotesSource === "local") return "本地兜底";
+  return "随包兜底";
+}
+
+function McpReleaseNotesMarkdown({ content }: { content: string }) {
+  return (
+    <div className="flex max-h-40 flex-col gap-2 overflow-auto rounded-xl border border-border-soft bg-surface-app p-3 text-xs leading-relaxed text-text-subtle scrollbar-thin">
+      {content.split("\n").map((line, index) => renderMcpReleaseNotesMarkdownLine(line, index))}
+    </div>
+  );
+}
+
+function renderMcpReleaseNotesMarkdownLine(line: string, index: number) {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("# ")) {
+    return <h3 key={index} className="m-0 text-sm font-bold text-text">{renderMcpReleaseNotesInline(trimmed.slice(2))}</h3>;
+  }
+  if (trimmed.startsWith("## ")) {
+    return <h4 key={index} className="m-0 text-[13px] font-bold text-text">{renderMcpReleaseNotesInline(trimmed.slice(3))}</h4>;
+  }
+  if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+    return (
+      <div key={index} className="flex items-start gap-2">
+        <span className="mt-[0.6em] h-1 w-1 shrink-0 rounded-full bg-brand" />
+        <span className="min-w-0">{renderMcpReleaseNotesInline(trimmed.slice(2))}</span>
+      </div>
+    );
+  }
+  if (/^\d+\.\s/.test(trimmed)) {
+    const marker = trimmed.match(/^(\d+)\.\s/);
+    return (
+      <div key={index} className="grid grid-cols-[auto_1fr] gap-2">
+        <span className="font-mono text-brand">{marker?.[1]}.</span>
+        <span>{renderMcpReleaseNotesInline(trimmed.replace(/^\d+\.\s/, ""))}</span>
+      </div>
+    );
+  }
+  return <p key={index} className="m-0">{renderMcpReleaseNotesInline(trimmed)}</p>;
+}
+
+function renderMcpReleaseNotesInline(text: string) {
+  return text.split(/(`[^`]+`)/g).filter(Boolean).map((part, index) => {
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return <code key={index} className="rounded border border-border-soft bg-surface-muted px-1 py-0.5 font-mono text-[0.92em] text-brand">{part.slice(1, -1)}</code>;
+    }
+    return <span key={index}>{part}</span>;
+  });
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
@@ -4659,74 +4398,6 @@ function isAssetUnderDirectory(relativePath: string, directoryPath: string) {
     normalizedPath === normalizedDirectory ||
     normalizedPath.startsWith(`${normalizedDirectory}/`)
   );
-}
-
-function DesktopWindowResizeHandles({
-  onResizeStart,
-}: {
-  onResizeStart: (
-    event: React.PointerEvent<HTMLDivElement>,
-    edge: ResizeEdge,
-  ) => void;
-}) {
-  return (
-    <>
-      <div
-        className="fixed left-5 right-5 top-0 z-[120] h-2 cursor-ns-resize"
-        data-no-window-drag
-        onPointerDownCapture={(event) => onResizeStart(event, "n")}
-      />
-      <div
-        className="fixed bottom-5 left-0 top-14 z-[120] w-2 cursor-ew-resize"
-        data-no-window-drag
-        onPointerDownCapture={(event) => onResizeStart(event, "w")}
-      />
-      <div
-        className="fixed bottom-5 right-0 top-14 z-[120] w-2 cursor-ew-resize"
-        data-no-window-drag
-        onPointerDownCapture={(event) => onResizeStart(event, "e")}
-      />
-      <div
-        className="fixed bottom-0 left-5 right-5 z-[120] h-2 cursor-ns-resize"
-        data-no-window-drag
-        onPointerDownCapture={(event) => onResizeStart(event, "s")}
-      />
-      <div
-        className="fixed left-0 top-0 z-[121] h-5 w-5 cursor-nwse-resize"
-        data-no-window-drag
-        onPointerDownCapture={(event) => onResizeStart(event, "nw")}
-      />
-      <div
-        className="fixed right-0 top-0 z-[121] h-5 w-5 cursor-nesw-resize"
-        data-no-window-drag
-        onPointerDownCapture={(event) => onResizeStart(event, "ne")}
-      />
-      <div
-        className="fixed bottom-0 left-0 z-[121] h-5 w-5 cursor-nesw-resize"
-        data-no-window-drag
-        onPointerDownCapture={(event) => onResizeStart(event, "sw")}
-      />
-      <div
-        className="fixed bottom-0 right-0 z-[121] h-5 w-5 cursor-nwse-resize"
-        data-no-window-drag
-        onPointerDownCapture={(event) => onResizeStart(event, "se")}
-      />
-    </>
-  );
-}
-
-function toTauriResizeDirection(edge: ResizeEdge): TauriResizeDirection {
-  const directions: Record<ResizeEdge, TauriResizeDirection> = {
-    e: "East",
-    n: "North",
-    ne: "NorthEast",
-    nw: "NorthWest",
-    s: "South",
-    se: "SouthEast",
-    sw: "SouthWest",
-    w: "West",
-  };
-  return directions[edge];
 }
 
 function buildDiagnosticSummary({
@@ -4903,134 +4574,3 @@ function buildAssetMutationNotice(prefix: string, result: AssetMutationResponse)
   const skippedCount = referenceUpdate.skipped.length;
   return `${prefix}；同步更新 ${referenceUpdate.totalReplacements} 处引用，涉及 ${fileCount} 个文件${skippedCount ? `，仍有 ${skippedCount} 项未同步` : ""}`;
 }
-
-function ThemeCinemaOverlay({
-  active,
-  toTheme,
-  onMidpoint,
-  onComplete
-}: {
-  active: boolean;
-  toTheme: "light" | "dark";
-  onMidpoint: (theme: "light" | "dark") => void;
-  onComplete: () => void;
-}) {
-  const [phase, setPhase] = useState<"idle" | "fade-in" | "morph" | "fade-out">("idle");
-  const [iconState, setIconState] = useState<"light" | "dark">(toTheme === "dark" ? "light" : "dark");
-
-  const onMidpointRef = useRef(onMidpoint);
-  const onCompleteRef = useRef(onComplete);
-
-  useEffect(() => {
-    onMidpointRef.current = onMidpoint;
-    onCompleteRef.current = onComplete;
-  }, [onMidpoint, onComplete]);
-
-  useEffect(() => {
-    if (!active) {
-      setPhase("idle");
-      return;
-    }
-
-    // 1. Fade in overlay completely first
-    setPhase("fade-in");
-    setIconState(toTheme === "dark" ? "light" : "dark");
-
-    // 2. Wait 200ms until overlay is 100% opaque. Then trigger morph AND underlying theme change.
-    const t1 = setTimeout(() => {
-      setPhase("morph");
-      setIconState(toTheme);
-      // At this point, screen is perfectly solid color. Safe to freeze main thread for heavy DOM update.
-      onMidpointRef.current(toTheme);
-    }, 200);
-
-    // 3. Wait 500ms for morph to finish beautifully. Then reveal.
-    const t2 = setTimeout(() => {
-      setPhase("fade-out");
-    }, 700); // 200 + 500
-
-    // 4. Wait 300ms for fade out. Clean up.
-    const t3 = setTimeout(() => {
-      onCompleteRef.current();
-    }, 1000); // 700 + 300
-
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  }, [active, toTheme]); // Removed function dependencies to fix the loop bug
-
-  if (!active) return null;
-
-  const bg = toTheme === "dark" ? "#18191B" : "#F7F9FA";
-  const brand = "#00D9C5";
-
-  const opacity = phase === "idle" || phase === "fade-out" ? 0 : 1;
-  const isDarkIcon = iconState === "dark";
-  const easeCurve = "cubic-bezier(0.4, 0, 0.2, 1)"; // Smooth Material ease, NO BOUNCING
-
-  return (
-    <div
-      className="fixed inset-0 z-[999999] pointer-events-none flex items-center justify-center transition-opacity duration-200"
-      style={{ backgroundColor: bg, opacity }}
-    >
-      <div
-        className="transition-all duration-300"
-        style={{
-          transform: phase === "fade-out" ? "scale(2.5) blur(12px)" : "scale(1) blur(0px)",
-          opacity: phase === "fade-out" ? 0 : 1,
-          filter: `drop-shadow(0 0 50px ${brand}80)`
-        }}
-      >
-        <svg
-          width="100"
-          height="100"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke={brand}
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          style={{
-            transform: isDarkIcon ? "rotate(-90deg)" : "rotate(0deg)",
-            transition: `transform 0.4s ${easeCurve}`
-          }}
-        >
-          <mask id="moon-mask-cinema">
-            <rect x="0" y="0" width="100%" height="100%" fill="white" />
-            <circle
-              cx={isDarkIcon ? "16" : "28"}
-              cy={isDarkIcon ? "8" : "-4"}
-              r="9"
-              fill="black"
-              style={{ transition: `cx 0.4s ${easeCurve}, cy 0.4s ${easeCurve}` }}
-            />
-          </mask>
-          <circle
-            cx="12"
-            cy="12"
-            r={isDarkIcon ? "9" : "5"}
-            fill={isDarkIcon ? brand : "none"}
-            mask="url(#moon-mask-cinema)"
-            style={{ transition: `r 0.4s ${easeCurve}, fill 0.4s ease` }}
-          />
-          <g
-            style={{
-              opacity: isDarkIcon ? 0 : 1,
-              transform: isDarkIcon ? "scale(0.3) rotate(45deg)" : "scale(1) rotate(0deg)",
-              transformOrigin: "center",
-              transition: `opacity 0.2s ease, transform 0.4s ${easeCurve}`
-            }}
-          >
-            <line x1="12" y1="2" x2="12" y2="4" />
-            <line x1="12" y1="20" x2="12" y2="22" />
-            <line x1="4.93" y1="4.93" x2="6.34" y2="6.34" />
-            <line x1="17.66" y1="17.66" x2="19.07" y2="19.07" />
-            <line x1="2" y1="12" x2="4" y2="12" />
-            <line x1="20" y1="12" x2="22" y2="12" />
-            <line x1="4.93" y1="19.07" x2="6.34" y2="17.66" />
-            <line x1="17.66" y1="6.34" x2="19.07" y2="4.93" />
-          </g>
-        </svg>
-      </div>
-    </div>
-  );
-}
-

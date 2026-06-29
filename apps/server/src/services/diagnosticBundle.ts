@@ -2,6 +2,7 @@ import { ZipArchive, type Archiver } from "archiver";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { pipeline } from "node:stream/promises";
 import { config } from "../lib/config.js";
 import { getProject, getSelectedProjectId, listProjects } from "../lib/db.js";
@@ -40,6 +41,7 @@ type AddFileResult = {
 };
 
 export function getDesktopResourceReadiness(): DesktopResourceReadiness {
+  ensureDiagnosticRuntimeDirectories();
   const checks: DesktopResourceCheck[] = [
     directoryCheck("Web dist", config.webDistDir, true),
     fileCheck("Web index", path.join(config.webDistDir, "index.html"), true),
@@ -50,7 +52,9 @@ export function getDesktopResourceReadiness(): DesktopResourceReadiness {
     fileCheck("better-sqlite3 native binding", path.join(config.workspaceRoot, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node"), true),
     directoryCheck("Bundled Node runtime", path.join(config.workspaceRoot, "node-runtime"), process.env.NODE_ENV === "production"),
     fileCheck("Bundled node.exe", path.join(config.workspaceRoot, "node-runtime", process.platform === "win32" ? "node.exe" : "node"), process.env.NODE_ENV === "production"),
-    fileCheck("Bundled npm command", config.npmCommand, true),
+    config.nodeRuntimeDir
+      ? fileCheck("Bundled npm command", config.npmCommand, true)
+      : commandCheck("System npm command", config.npmCommand, process.env.NODE_ENV === "production"),
     directoryCheck("Bundled Maker npm cache seed", path.join(config.workspaceRoot, "data", "npm-cache", "_npx"), process.env.NODE_ENV === "production"),
     directoryCheck("App data directory", config.dataDir, true),
     directoryCheck("MCP log directory", config.mcpLogDir, true),
@@ -63,6 +67,12 @@ export function getDesktopResourceReadiness(): DesktopResourceReadiness {
     mode: process.env.NODE_ENV === "production" ? "production" : "development",
     resources: checks,
   };
+}
+
+function ensureDiagnosticRuntimeDirectories() {
+  for (const directoryPath of [config.dataDir, config.mcpLogDir, config.makerNpmCacheDir]) {
+    fs.mkdirSync(directoryPath, { recursive: true });
+  }
 }
 
 export async function createDiagnosticBundle(projectId?: string): Promise<DiagnosticBundleResult> {
@@ -210,6 +220,19 @@ function fileCheck(label: string, filePath: string, required: boolean): DesktopR
     label,
     path: filePath,
     exists: fs.existsSync(filePath) && fs.statSync(filePath).isFile(),
+    kind: "file",
+    required,
+  };
+}
+
+function commandCheck(label: string, command: string, required: boolean): DesktopResourceCheck {
+  const result = process.platform === "win32"
+    ? spawnSync("where.exe", [command], { stdio: "ignore" })
+    : spawnSync("sh", ["-lc", `command -v ${JSON.stringify(command)}`], { stdio: "ignore" });
+  return {
+    label,
+    path: command,
+    exists: result.status === 0,
     kind: "file",
     required,
   };

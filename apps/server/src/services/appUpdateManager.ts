@@ -13,6 +13,7 @@ const staticManifestUrls = [
   `https://raw.githubusercontent.com/${githubOwner}/${githubRepo}/${updateFeedRef}/app-update-manifest.json`,
   `https://cdn.jsdelivr.net/gh/${githubOwner}/${githubRepo}@${updateFeedRef}/app-update-manifest.json`,
 ];
+const updateManifestUnavailableMessage = "远端更新清单暂时无法访问，已显示安装包内置版本记录。请稍后重试，或检查本机网络、代理、防火墙和 GitHub 访问状态。";
 
 export type AppReleaseAssetSummary = {
   id: number;
@@ -338,8 +339,8 @@ function readBundledUpdateManifest(manifestErrorMessages: string[]): ReadAppUpda
     })),
   ];
   const manifestError = manifestErrorMessages.length
-    ? `远端静态更新清单不可用，已显示随包内置版本记录：${manifestErrorMessages.join("；")}`
-    : "远端静态更新清单不可用，已显示随包内置版本记录。";
+    ? `${updateManifestUnavailableMessage}\n详细信息：${formatManifestErrorDetails(manifestErrorMessages)}`
+    : updateManifestUnavailableMessage;
   return {
     latestVersion: tagName,
     releases: [release],
@@ -348,6 +349,18 @@ function readBundledUpdateManifest(manifestErrorMessages: string[]): ReadAppUpda
     announcementError: manifestError,
     error: manifestError,
   };
+}
+
+function formatManifestErrorDetails(messages: string[]) {
+  return messages
+    .map((message, index) => {
+      const sourceLabel = index === 0 ? "GitHub raw" : index === 1 ? "jsDelivr CDN" : `下载源 ${index + 1}`;
+      const reason = message.includes(": ")
+        ? message.slice(message.indexOf(": ") + 2)
+        : message;
+      return `${sourceLabel}: ${reason}`;
+    })
+    .join("；");
 }
 
 export async function downloadAndOpenAppUpdate(releaseId: number, assetId?: number, releaseFallback?: AppReleaseSummary) {

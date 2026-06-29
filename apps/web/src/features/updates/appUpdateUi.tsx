@@ -76,7 +76,7 @@ export function useAppUpdateUi(forceDeveloperTest = false): AppUpdateUiState {
           ? current
           : nextInstallerAsset?.downloadSources[0]?.url,
       );
-      setNotice(nextStatus.error ?? (nextStatus.updateAvailable ? `检测到新版本 ${nextStatus.latestVersion}` : "当前已是最新版本"));
+      setNotice(formatUpdateStatusNotice(nextStatus));
     } catch (error) {
       if (forceDeveloperTest) {
         const nextStatus = createDeveloperTestUpdateStatus();
@@ -85,7 +85,7 @@ export function useAppUpdateUi(forceDeveloperTest = false): AppUpdateUiState {
         setSelectedReleaseId(String(nextStatus.latestRelease!.id));
         setNotice("开发者模式本地更新链路测试已启用；该测试项不会下载安装到本机。");
       } else {
-        setNotice(error instanceof Error ? error.message : String(error));
+        setNotice(formatUpdateErrorNotice(error));
       }
     } finally {
       setLoading(false);
@@ -146,6 +146,18 @@ export function useAppUpdateUi(forceDeveloperTest = false): AppUpdateUiState {
   }, [refresh]);
 
   return { status, releases, loading, downloading, notice, downloadStatus, selectedReleaseId, selectedSourceUrl, setSelectedReleaseId: selectRelease, setSelectedSourceUrl, refresh, downloadSelected, openRelease };
+}
+
+function formatUpdateStatusNotice(status: AppUpdateStatus) {
+  if (status.error) return formatUpdateErrorNotice(status.error);
+  return status.updateAvailable ? `检测到新版本 ${status.latestVersion}` : "当前已是最新版本";
+}
+
+function formatUpdateErrorNotice(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const firstLine = message.split(/\r?\n/)[0]?.trim();
+  if (firstLine) return firstLine;
+  return "远端更新清单暂时无法访问，请稍后重试。";
 }
 
 export function VersionPill({

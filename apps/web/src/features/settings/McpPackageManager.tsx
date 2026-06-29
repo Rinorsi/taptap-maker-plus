@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, Download, RefreshCw, Trash2 } from "lucide-react";
+import { CheckCircle2, ChevronRight, Download, Package, RefreshCw, Trash2, Wrench } from "lucide-react";
 import {
   getMcpPackageStatus,
   installMcpPackage,
@@ -17,8 +17,10 @@ type Props = {
   onDeveloperUnlock?: () => void;
 };
 
+const DEFAULT_CHANGELOG_TEXT = "暂无更新日志";
+
 const pendingUninstallSteps = [
-  { id: "stop_runtime", label: "停止 MCP runtime", status: "done", detail: "正在请求停止当前 MCP runtime。" },
+  { id: "stop_runtime", label: "停止 MCP 运行时", status: "done", detail: "正在请求停止当前 MCP 运行时。" },
   { id: "clear_settings", label: "清理版本设置", status: "done", detail: "等待清理桌面端 MCP 包版本设置。" },
   { id: "clear_cache", label: "清理 npm-cache", status: "done", detail: "等待清理本地 MCP 包缓存。" },
   { id: "preserve_projects", label: "保留 Maker 项目", status: "done", detail: "不会删除 Maker 项目目录。" },
@@ -71,6 +73,104 @@ function formatTime(value?: string) {
   return date.toLocaleString();
 }
 
+function formatReleaseNotesSource(status?: McpPackageUpdateStatus) {
+  if (!status) return "更新日志来源";
+  if (status.releaseNotesSource === "cloud") return "云端更新日志";
+  if (status.releaseNotesSource === "local") return "本地兜底更新日志";
+  return "随包兜底更新日志";
+}
+
+function formatReleaseNotesError(status?: McpPackageUpdateStatus) {
+  if (!status?.releaseNotesError) return "";
+  const firstError = status.releaseNotesError.split("；").find(Boolean) ?? status.releaseNotesError;
+  return `云端更新日志读取失败，已使用兜底内容：${firstError}`;
+}
+
+function getReleaseNotesForVersion(status: McpPackageUpdateStatus | undefined, version: string) {
+  const content = status?.releaseNotes?.trim() || DEFAULT_CHANGELOG_TEXT;
+  const normalizedVersion = version.trim().replace(/^v/i, "");
+  if (!normalizedVersion) return content;
+
+  const lines = content.split("\n");
+  const headingPattern = /^##\s+@taptap\/maker@(.+?)\s*$/;
+  let startIndex = -1;
+  let endIndex = lines.length;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = headingPattern.exec(lines[index].trim());
+    if (!match) continue;
+    const headingVersion = match[1].trim().replace(/^v/i, "");
+    if (startIndex >= 0) {
+      endIndex = index;
+      break;
+    }
+    if (headingVersion === normalizedVersion) {
+      startIndex = index;
+    }
+  }
+
+  if (startIndex < 0) {
+    return [
+      `## @taptap/maker@${normalizedVersion}`,
+      "",
+      "当前更新日志中没有找到这个版本的条目。"
+    ].join("\n");
+  }
+
+  return lines.slice(startIndex, endIndex).join("\n").trim() || DEFAULT_CHANGELOG_TEXT;
+}
+
+function isBetaVersion(version: string) {
+  return version.toLowerCase().includes("-beta");
+}
+
+function BetaVersionMenuHeader({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer select-none items-center justify-between gap-3 text-[11px] font-bold text-text">
+      <span>显示 Beta 版本</span>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.currentTarget.checked)}
+        className="h-3.5 w-3.5 accent-brand"
+      />
+    </label>
+  );
+}
+
+function VersionSummaryPill({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "brand" | "neutral" | "muted";
+}) {
+  return (
+    <div className="flex w-fit max-w-[160px] flex-col gap-1">
+      <span className="truncate text-[9px] font-bold text-text-subtle">{label}</span>
+      <span
+        className={cn(
+          "min-w-0 truncate rounded-md px-2 py-1 text-center font-mono text-[12px] font-bold shadow-sm",
+          tone === "brand" && "border border-brand/20 bg-brand/10 text-brand",
+          tone === "neutral" && "border border-border-soft/60 bg-surface-raised text-text",
+          tone === "muted" && "bg-surface-muted text-text-muted",
+        )}
+        title={value}
+      >
+        v{value}
+      </span>
+    </div>
+  );
+}
+
 export function McpPackageManager({ busy, compact = false, onDeveloperUnlock }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const developerUnlockClicksRef = useRef<number[]>([]);
@@ -86,6 +186,7 @@ export function McpPackageManager({ busy, compact = false, onDeveloperUnlock }: 
   const [layoutWidth, setLayoutWidth] = useState(0);
   const [developerUnlockToastMounted, setDeveloperUnlockToastMounted] = useState(false);
   const [developerUnlockToastActive, setDeveloperUnlockToastActive] = useState(false);
+  const [showBetaVersions, setShowBetaVersions] = useState(false);
 
   useEffect(() => {
     void refreshStatus(true);
@@ -137,16 +238,48 @@ export function McpPackageManager({ busy, compact = false, onDeveloperUnlock }: 
 
   async function handleInstall() {
     if (!status || !selectedVersion) return;
-    const nextSpec = `${status.packageName}@${selectedVersion}`;
+    await installSelectedPackage(status, selectedVersion, "install");
+  }
+
+  async function handleRepairInstall() {
     setWorking(true);
     setOperation("install");
     setUninstallResult(undefined);
-    setNotice("正在安装并预热 MCP 包缓存...");
+    setNotice("正在检查并修复本机 MCP 包缓存...");
+    try {
+      const response = await getMcpPackageStatus(true);
+      const nextStatus = response.status;
+      setStatus(nextStatus);
+      const nextVersion = nextStatus.latestVersion ?? nextStatus.availableVersions.at(-1) ?? nextStatus.currentVersion;
+      if (!nextVersion) {
+        throw new Error(nextStatus.registryError
+          ? `无法读取可安装的 MCP 版本：${nextStatus.registryError}`
+          : "无法读取可安装的 MCP 版本。");
+      }
+      setSelectedVersion(nextVersion);
+      await installSelectedPackage(nextStatus, nextVersion, "repair");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+      setWorking(false);
+      setOperation(undefined);
+    }
+  }
+
+  async function installSelectedPackage(nextStatus: McpPackageUpdateStatus, version: string, mode: "install" | "repair") {
+    const nextSpec = `${nextStatus.packageName}@${version}`;
+    setWorking(true);
+    setOperation("install");
+    setUninstallResult(undefined);
+    setNotice(mode === "repair" ? "正在安装并修复本机 MCP 包缓存..." : "正在安装并预热 MCP 包缓存...");
     try {
       const result = await installMcpPackage(nextSpec);
       setStatus(result.status);
-      setSelectedVersion(result.status.currentVersion ?? selectedVersion);
-      setNotice(`已安装：${result.status.packageSpec}。重新启动 MCP 后使用此版本。`);
+      setSelectedVersion(result.status.currentVersion ?? version);
+      setNotice(
+        mode === "repair"
+          ? `已修复 MCP 包环境：${result.status.packageSpec}。重新启动 MCP 后使用此版本。`
+          : `已安装：${result.status.packageSpec}。重新启动 MCP 后使用此版本。`
+      );
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
@@ -160,7 +293,7 @@ export function McpPackageManager({ busy, compact = false, onDeveloperUnlock }: 
     setWorking(true);
     setOperation("uninstall");
     setUninstallResult(undefined);
-    setNotice("正在停止 MCP runtime 并清理本地 MCP 包缓存...");
+    setNotice("正在停止 MCP 运行时并清理本地 MCP 包缓存...");
     try {
       const result = await uninstallMcpPackage();
       setStatus(result.status);
@@ -204,7 +337,8 @@ export function McpPackageManager({ busy, compact = false, onDeveloperUnlock }: 
   }
 
   const disabled = Boolean(busy || working);
-  const versionOptions = [...(status?.availableVersions ?? [])]
+  const visibleVersions = (status?.availableVersions ?? []).filter((version) => showBetaVersions || !isBetaVersion(version));
+  const versionOptions = [...visibleVersions]
     .reverse()
     .map((version) => ({
       value: version,
@@ -216,87 +350,117 @@ export function McpPackageManager({ busy, compact = false, onDeveloperUnlock }: 
   const uninstallSteps = uninstallResult?.steps ?? (operation === "uninstall" ? pendingUninstallSteps : []);
   const useOriginalLayout = layoutWidth >= 725;
   const useTwoColumnActions = layoutWidth >= 560;
+  const releaseNotesVersion = selectedVersion || status?.latestVersion || status?.currentVersion || "";
+  const releaseNotesContent = getReleaseNotesForVersion(status, releaseNotesVersion);
+
+  useEffect(() => {
+    if (!status || versionOptions.length === 0) return;
+    if (versionOptions.some((option) => option.value === selectedVersion)) return;
+    setSelectedVersion(versionOptions[0].value);
+  }, [selectedVersion, status, versionOptions]);
+
+  const betaVersionMenuHeader = (
+    <BetaVersionMenuHeader checked={showBetaVersions} onChange={setShowBetaVersions} />
+  );
 
   if (compact) {
     return (
-      <div className="rounded-panel border border-border-soft bg-surface-raised">
-        <div className="border-b border-border-soft px-3 py-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <span className="block truncate text-[12px] font-bold text-text">MCP 包状态</span>
-              <span className="mt-0.5 block truncate font-mono text-[10px] text-text-subtle" title={status?.packageSpec ?? "-"}>
-                {status?.packageSpec ?? "等待检查"}
-              </span>
+      <div className="flex flex-col w-full gap-4">
+        {/* 1. Info Header (Enclosed in a card so it doesn't look lonely) */}
+        <div className="flex flex-col gap-2 min-w-0">
+          <span className="text-[11px] font-bold text-text-muted tracking-wider ml-1">MCP 运行时</span>
+
+          <div className="flex flex-col bg-surface-app/40 border border-border-soft/50 rounded-panel p-3 gap-2 shadow-sm relative overflow-hidden">
+            <div className="flex flex-wrap gap-2 min-w-0 relative z-10">
+              <VersionSummaryPill label="本地版本" value={localStatus} tone={localStatus === "未安装" ? "muted" : "brand"} />
+              <VersionSummaryPill label="云端版本" value={cloudStatus} tone={status?.registryError ? "muted" : "neutral"} />
             </div>
-            <Button variant="outline" size="sm" onClick={() => void refreshStatus(true)} disabled={disabled} className="h-7 shrink-0 px-2 text-[10px]">
-              <RefreshCw className={cn("mr-1 h-3 w-3", operation === "check" && "animate-spin")} />
-              查云端
-            </Button>
+            <span className="text-[10px] text-text-muted font-mono truncate w-full relative z-10" title={status?.packageSpec ?? "-"}>
+              {status?.packageSpec ?? "等待检查..."}
+            </span>
+            <Package className="absolute -right-2 -bottom-2 w-16 h-16 text-text-subtle opacity-[0.03] pointer-events-none" />
           </div>
-          {notice ? <div className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-brand">{notice}</div> : null}
         </div>
 
-        <div className="grid grid-cols-2 gap-1.5 border-b border-border-soft px-3 py-2 text-[10px] text-text-subtle">
-          <CompactStatus label="本地" value={localStatus} title={status?.cachePath} />
-          <CompactStatus label="云端" value={cloudStatus} />
-          <CompactStatus label="检查" value={formatTime(status?.lastCheckedAt)} />
-          <CompactStatus label="安装" value={formatTime(status?.lastInstalledAt)} />
-        </div>
-
-        <div className="grid gap-2 border-b border-border-soft px-3 py-2.5">
-          <SelectField
-            id="mcp-package-version-compact"
-            value={selectedVersion}
-            options={versionOptions.length ? versionOptions : [{ value: "", label: "请先检查更新" }]}
-            onChange={setSelectedVersion}
-            className="h-8 w-full text-[11px]"
-            ariaLabel="选择 MCP 包版本"
-          />
-          <Button variant="outline" size="sm" onClick={() => void handleInstall()} disabled={disabled || !canInstall} className="h-8 w-full text-[11px]">
-            <Download className="mr-1 h-3.5 w-3.5" />
-            安装/替换所选版本
-          </Button>
-        </div>
-
-        <details className="group">
-          <summary className="cursor-pointer px-3 py-2 text-[11px] font-bold text-text-muted hover:text-text">
-            更新日志
-          </summary>
-          <div className="border-t border-border-soft px-3 py-2">
-            <div className="mb-2 truncate font-mono text-[10px] text-text-subtle" title={status?.releaseNotesPath ?? "-"}>
-              {status?.releaseNotesPath ?? "-"}
+        {/* 2. Actions Row (Responsive wrap) */}
+        <div className="flex flex-col gap-2 min-w-0">
+          <span className="text-[11px] font-bold text-text-muted uppercase tracking-wider ml-1 shrink-0">版本控制</span>
+          <div className="flex flex-wrap items-center gap-2 w-full">
+            <div className="flex-1 min-w-[140px]">
+              <SelectField
+                id="mcp-package-version-compact"
+                value={selectedVersion}
+                options={versionOptions.length ? versionOptions : [{ value: "", label: "请先检查" }]}
+                onChange={setSelectedVersion}
+                className="h-8 text-[11px] w-full bg-surface-app border-border-soft hover:bg-surface-hover hover:border-border-soft shadow-sm"
+                ariaLabel="选择版本"
+                menuHeader={betaVersionMenuHeader}
+              />
             </div>
-            <pre className="max-h-36 overflow-auto whitespace-pre-wrap rounded-control border border-border bg-surface-app px-2 py-2 text-[11px] leading-relaxed text-text scrollbar-thin">
-              {status?.releaseNotes ?? "暂无更新日志"}
-            </pre>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                className="text-text-muted hover:text-text transition-colors disabled:opacity-50 h-8 w-8 flex items-center justify-center rounded-md hover:bg-surface-hover border border-border-soft bg-surface-app shadow-sm"
+                onClick={() => void refreshStatus(true)}
+                disabled={disabled}
+                title="检查云端更新"
+              >
+                <RefreshCw className={cn("w-3.5 h-3.5", operation === "check" && "animate-spin")} />
+              </button>
+              <button
+                className="text-brand/90 hover:text-brand transition-colors disabled:opacity-50 h-8 w-8 flex items-center justify-center rounded-md bg-brand/10 hover:bg-brand/20 border border-brand/20 shadow-sm"
+                onClick={() => void handleInstall()}
+                disabled={disabled || !canInstall}
+                title="安装选定版本"
+              >
+                <Download className={cn("w-3.5 h-3.5", operation === "install" && "animate-bounce")} />
+              </button>
+            </div>
           </div>
-        </details>
+        </div>
 
-        <details className="group border-t border-border-soft">
-          <summary className="cursor-pointer px-3 py-2 text-[11px] font-bold text-red-500 hover:text-red-400">
-            卸载 MCP
+        {notice && (
+          <div className="text-[11px] font-medium text-brand bg-brand/5 px-3 py-2 rounded-md border border-brand/20 leading-relaxed shadow-sm">
+            {notice}
+          </div>
+        )}
+
+        {/* 3. Advanced Options Accordion */}
+        <details className="group border-t border-border-soft/30">
+          <summary className="cursor-pointer px-3 py-3 text-[12px] font-bold text-text-muted hover:text-text list-none flex items-center justify-between transition-colors hover:bg-surface-panel/30">
+            <span>高级选项与更新日志</span>
+            <ChevronRight className="w-4 h-4 transition-transform group-open:rotate-90 text-text-muted/70 group-hover:text-text-muted" />
           </summary>
-          <div className="grid gap-2 border-t border-border-soft px-3 py-2">
-            <p className="text-[11px] leading-relaxed text-text-subtle">
-              停止当前 MCP runtime，清理版本设置和 npm-cache，不删除 Maker 项目目录。
-            </p>
-            <UninstallStepList steps={uninstallSteps} working={operation === "uninstall"} />
-            <input
-              value={uninstallConfirmText}
-              onChange={(event) => setUninstallConfirmText(event.target.value)}
-              placeholder="输入：卸载 MCP"
-              className="h-8 rounded-control border border-border bg-surface-app px-2 text-[11px] text-text outline-none focus:border-red-500"
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void handleUninstall()}
-              disabled={disabled || uninstallConfirmText !== "卸载 MCP"}
-              className="h-8 w-full text-[11px] hover:border-red-500 hover:text-red-500"
+          <div className="px-3 pt-2.5 pb-3 flex flex-col gap-3">
+            <div className="flex flex-col gap-2 min-w-0 border-b border-border-soft/30 pb-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-bold text-text-muted uppercase tracking-wider shrink-0">更新日志</span>
+                <span className="min-w-0 truncate text-right text-[10px] text-text-subtle" title={status?.releaseNotesPath ?? "-"}>
+                  {formatReleaseNotesSource(status)}
+                </span>
+              </div>
+              {status?.releaseNotesError ? (
+                <div className="rounded-control border border-amber-500/20 bg-amber-500/5 px-2 py-1 text-[10px] leading-relaxed text-amber-500">
+                  {formatReleaseNotesError(status)}
+                </div>
+              ) : null}
+              <ReleaseNotesMarkdown content={releaseNotesContent} compact />
+            </div>
+            <button
+              className="flex w-full items-center justify-center gap-2 rounded-md border border-border-soft bg-surface-app px-4 py-2.5 text-[11px] font-bold text-text hover:bg-surface-hover hover:text-text transition-colors shadow-sm"
+              onClick={() => void handleRepairInstall()}
+              disabled={disabled}
             >
-              <Trash2 className="mr-1 h-3.5 w-3.5" />
-              确认卸载 MCP
-            </Button>
+              <Wrench className="h-3.5 w-3.5 text-text-muted" />
+              一键安装 / 修复本地环境
+            </button>
+            <button
+              className="flex w-full items-center justify-center gap-2 rounded-md border border-red-900/30 bg-red-500/5 px-4 py-2.5 text-[11px] font-bold text-red-500 hover:bg-red-500/10 transition-colors shadow-sm"
+              onClick={() => void handleUninstall()}
+              disabled={disabled}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {uninstallConfirmText === "卸载 MCP" ? "确认卸载" : "卸载 MCP 运行时"}
+            </button>
           </div>
         </details>
       </div>
@@ -374,7 +538,7 @@ export function McpPackageManager({ busy, compact = false, onDeveloperUnlock }: 
             )}
           >
             <div className={cn("flex flex-col md:flex-row md:items-center gap-2", useOriginalLayout ? "justify-center md:justify-start" : "justify-center")}>
-              <span className="text-[15px] font-bold text-text tracking-wide">MCP Runtime</span>
+              <span className="text-[15px] font-bold text-text tracking-wide">MCP 运行时</span>
               <span className="text-[10px] px-2 py-0.5 rounded bg-brand/10 text-brand font-mono border border-brand/20 shadow-[0_0_8px_rgba(0,217,197,0.1)] w-fit mx-auto md:mx-0">
                 {status?.packageName ?? "@taptap/maker"}
               </span>
@@ -432,11 +596,26 @@ export function McpPackageManager({ busy, compact = false, onDeveloperUnlock }: 
                 onChange={setSelectedVersion}
                 className="flex-1 min-w-0 h-8 text-[11px]"
                 ariaLabel="选择 MCP 包版本"
+                menuHeader={betaVersionMenuHeader}
               />
               <Button size="sm" onClick={() => void handleInstall()} disabled={disabled || !canInstall} className="h-8 px-3 shrink-0 bg-brand text-white shadow-[0_0_10px_rgba(0,217,197,0.2)] hover:bg-brand/90 transition-colors">
                 安装
               </Button>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void handleRepairInstall()}
+              disabled={disabled}
+              className="h-8 w-full gap-1.5"
+              title="检查云端版本并修复本机 MCP 包缓存；运行时会在当前 Maker 项目目录启动。"
+            >
+              <Wrench className="h-3.5 w-3.5" />
+              一键安装/修复 MCP
+            </Button>
+            <span className="text-[10px] leading-relaxed text-text-subtle">
+              安装到本机 MCP 包缓存；启动运行时时使用当前项目目录。
+            </span>
           </div>
 
           <div className="flex flex-col gap-2 p-3 rounded-lg border border-red-500/10 bg-red-500/5 transition-colors hover:border-red-500/30">
@@ -495,14 +674,102 @@ export function McpPackageManager({ busy, compact = false, onDeveloperUnlock }: 
 
           <div className="flex flex-col gap-2">
             <span className="text-[10px] font-bold text-text-subtle">版本日志</span>
-            <pre className="m-0 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-border-soft bg-surface-panel p-3 text-[11.5px] leading-relaxed text-text-subtle font-sans scrollbar-thin">
-              {status?.releaseNotes ?? "暂无更新日志"}
-            </pre>
+            <div className="truncate font-mono text-[10px] text-text-subtle" title={status?.releaseNotesPath ?? "-"}>
+              {formatReleaseNotesSource(status)} · {status?.releaseNotesPath ?? "-"}
+            </div>
+            {status?.releaseNotesError ? (
+              <div className="rounded-control border border-amber-500/20 bg-amber-500/5 px-2 py-1 text-[10px] leading-relaxed text-amber-500">
+                {formatReleaseNotesError(status)}
+              </div>
+            ) : null}
+            <ReleaseNotesMarkdown content={releaseNotesContent} />
           </div>
         </div>
       </details>
     </div>
   );
+}
+
+function ReleaseNotesMarkdown({ content, compact = false }: { content: string; compact?: boolean }) {
+  const lines = content.split("\n");
+  return (
+    <div className={cn(
+      "max-h-48 overflow-auto rounded-lg border border-border-soft bg-surface-panel p-3 scrollbar-thin",
+      "flex flex-col text-text-subtle",
+      compact ? "gap-1.5 text-[11px] leading-relaxed" : "gap-2 text-[12px] leading-relaxed",
+    )}>
+      {lines.map((line, index) => renderReleaseNotesMarkdownLine(line, index, compact))}
+    </div>
+  );
+}
+
+function renderReleaseNotesMarkdownLine(line: string, index: number, compact: boolean) {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("# ")) {
+    return (
+      <h3 key={index} className={cn("m-0 font-bold text-text", compact ? "text-[13px]" : "text-[15px]")}>
+        {renderReleaseNotesInlineMarkdown(trimmed.slice(2))}
+      </h3>
+    );
+  }
+  if (trimmed.startsWith("## ")) {
+    return (
+      <h4 key={index} className={cn("m-0 font-bold text-text", compact ? "text-[12px]" : "text-[14px]")}>
+        {renderReleaseNotesInlineMarkdown(trimmed.slice(3))}
+      </h4>
+    );
+  }
+  if (trimmed.startsWith("### ")) {
+    return (
+      <h5 key={index} className={cn("m-0 font-semibold text-text", compact ? "text-[11px]" : "text-[13px]")}>
+        {renderReleaseNotesInlineMarkdown(trimmed.slice(4))}
+      </h5>
+    );
+  }
+  if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+    return (
+      <div key={index} className="flex items-start gap-2">
+        <span className="mt-[0.58em] h-1 w-1 shrink-0 rounded-full bg-brand" />
+        <span className="min-w-0">{renderReleaseNotesInlineMarkdown(trimmed.slice(2))}</span>
+      </div>
+    );
+  }
+  if (/^\d+\.\s/.test(trimmed)) {
+    const marker = trimmed.match(/^(\d+)\.\s/);
+    const text = trimmed.replace(/^\d+\.\s/, "");
+    return (
+      <div key={index} className="grid grid-cols-[auto_1fr] gap-2">
+        <span className="font-mono text-brand">{marker?.[1]}.</span>
+        <span className="min-w-0">{renderReleaseNotesInlineMarkdown(text)}</span>
+      </div>
+    );
+  }
+  if (trimmed.startsWith("> ")) {
+    return (
+      <blockquote key={index} className="m-0 rounded-r-md border-l-2 border-brand/50 bg-brand/5 py-1.5 pl-3 text-text-subtle">
+        {renderReleaseNotesInlineMarkdown(trimmed.slice(2))}
+      </blockquote>
+    );
+  }
+  return (
+    <p key={index} className="m-0">
+      {renderReleaseNotesInlineMarkdown(trimmed)}
+    </p>
+  );
+}
+
+function renderReleaseNotesInlineMarkdown(text: string) {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean);
+  return parts.map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={index} className="font-bold text-text">{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return <code key={index} className="rounded border border-border-soft bg-surface-muted px-1 py-0.5 font-mono text-[0.92em] text-brand">{part.slice(1, -1)}</code>;
+    }
+    return <span key={index}>{part}</span>;
+  });
 }
 
 function CompactStatus({ label, value, title }: { label: string; value: string; title?: string }) {

@@ -191,6 +191,10 @@ export function AppUpdatePanel({
     [latestRelease, state.releases, state.selectedReleaseId],
   );
   const installerAsset = useMemo(() => selectedRelease?.assets.find((asset) => /\.exe$/i.test(asset.name)), [selectedRelease]);
+  const selectedDownloadSource = useMemo(
+    () => installerAsset?.downloadSources.find((source) => source.url === state.selectedSourceUrl) ?? installerAsset?.downloadSources[0],
+    [installerAsset, state.selectedSourceUrl],
+  );
   const releaseOptions = state.releases.map((release) => ({
     value: String(release.id),
     label: `${release.tagName}${release.id === latestRelease?.id ? " · 最新" : ""}`,
@@ -302,6 +306,11 @@ export function AppUpdatePanel({
                   <span className="truncate max-w-[300px]" title={installerAsset.name}>
                     {installerAsset.name}
                   </span>
+                  {selectedDownloadSource ? (
+                    <span className="shrink-0 rounded bg-surface-muted px-2 py-0.5 text-[11px] font-medium text-text-subtle" title={selectedDownloadSource.url}>
+                      当前源：{selectedDownloadSource.label}
+                    </span>
+                  ) : null}
                   {state.downloadStatus && (
                     <span className="truncate text-text-subtle shrink-0 max-w-[200px]" title={state.downloadStatus.installerPath}>
                       · 保存至：{state.downloadStatus.installerPath}

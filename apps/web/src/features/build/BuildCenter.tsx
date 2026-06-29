@@ -7,6 +7,7 @@ import { Input } from "../../components/ui/Input";
 import { Label } from "../../components/ui/Label";
 import { SelectField } from "../../components/ui/SelectField";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../../components/ui/Card";
+import { formatRuntimeStatus } from "../../lib/runtimeStatus";
 import { cn, formatBytes } from "../../lib/utils";
 
 type Props = {
@@ -55,7 +56,7 @@ export function BuildCenter({ project, runtime, tools, tasks, busy, onCallTool, 
   return (
     <section className="flex h-full min-h-0 flex-col gap-4 overflow-hidden p-4 md:p-6">
       <div className="grid shrink-0 gap-3 md:grid-cols-4">
-        <BuildStat icon={<Server className="h-4 w-4" />} label="MCP runtime" value={runtime?.status ?? "idle"} tone={runtime?.status === "ready" ? "good" : "neutral"} />
+        <BuildStat icon={<Server className="h-4 w-4" />} label="MCP 状态" value={formatRuntimeStatus(runtime?.status)} tone={runtime?.status === "ready" ? "good" : "neutral"} />
         <BuildStat icon={<Hammer className="h-4 w-4" />} label="构建工具" value={buildTool ? buildTool.name : "未加载"} tone={buildTool ? "brand" : "bad"} />
         <BuildStat icon={<Play className="h-4 w-4" />} label="构建记录" value={`${buildTasks.length} 条`} tone="neutral" />
         <BuildStat icon={<FileClock className="h-4 w-4" />} label="日志文件" value={`${logs?.buildLogs.length ?? 0} 个`} tone={latestBuild ? "brand" : "neutral"} />
@@ -66,7 +67,7 @@ export function BuildCenter({ project, runtime, tools, tasks, busy, onCallTool, 
           <div>
             <ShieldAlert className="mx-auto mb-3 h-8 w-8 text-text-subtle" />
             <h2 className="m-0 text-base font-bold text-text">未发现 maker_build_current_directory</h2>
-            <p className="mt-2 text-sm text-text-muted">启动 MCP runtime 并刷新 tools/list 后才能显示真实构建 schema。</p>
+            <p className="mt-2 text-sm text-text-muted">启动 MCP 并刷新 tools/list 后才能显示真实构建 schema。</p>
           </div>
         </div>
       ) : (

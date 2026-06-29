@@ -448,6 +448,8 @@ export type McpPackageUpdateStatus = {
   cacheEntryCount: number;
   releaseNotes: string;
   releaseNotesPath: string;
+  releaseNotesSource: "cloud" | "local" | "fallback";
+  releaseNotesError?: string;
   availableVersions: string[];
   registryError?: string;
 };
@@ -571,6 +573,13 @@ export type DiagnosticBundleResult = {
   includedFiles: string[];
   skippedFiles: string[];
   resourceReadiness: DesktopResourceReadiness;
+};
+
+export type DeveloperDiagnosticsSnapshot = {
+  readiness?: DesktopReadiness;
+  resourceReadiness?: DesktopResourceReadiness;
+  frontendLogCount: number;
+  recentFrontendErrors: FrontendDiagnosticEntry[];
 };
 
 export type StatusLiteResponse = {
@@ -708,6 +717,12 @@ let apiBase = readDesktopApiBase();
 function apiUrl(path: string) {
   if (!apiBase || !path.startsWith("/api/")) return path;
   return `${apiBase}${path}`;
+}
+
+export function apiResourceUrl(path?: string) {
+  if (!path) return undefined;
+  if (/^https?:\/\//i.test(path) || path.startsWith("data:")) return path;
+  return apiUrl(path);
 }
 
 function clearDesktopApiBase() {

@@ -11,6 +11,7 @@ export type ProjectSummary = {
   lastScannedAt?: string;
   runtime?: RuntimeSummary;
   selected?: boolean;
+  iconUrl?: string;
 };
 
 export type RuntimeStatus = "idle" | "starting" | "ready" | "disconnected" | "error";

@@ -24,6 +24,7 @@ type RawViewerProps = {
   emptyText?: string;
   className?: string;
   height?: string;
+  compactGutter?: boolean;
 };
 
 function readCodeViewerPreferences() {
@@ -64,7 +65,8 @@ export function RawViewer({
   copySuccessMessage,
   emptyText = "暂无内容",
   className,
-  height = "320px"
+  height = "320px",
+  compactGutter = false
 }: RawViewerProps) {
   const documentTheme = useDocumentTheme();
   const preferences = useCodeViewerPreferences();
@@ -124,7 +126,10 @@ export function RawViewer({
               scrollBeyondLastLine: false,
               wordWrap: wrapLines ? "on" : "off",
               lineNumbers: preferences.lineNumbers === "show" ? "on" : "off",
-              folding: true,
+              lineNumbersMinChars: compactGutter ? 2 : 5,
+              lineDecorationsWidth: compactGutter ? 4 : 10,
+              glyphMargin: false,
+              folding: !compactGutter,
               automaticLayout: true,
               renderLineHighlight: "none",
               fontSize,

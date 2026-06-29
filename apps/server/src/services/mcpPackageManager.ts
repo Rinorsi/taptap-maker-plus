@@ -1,13 +1,26 @@
 import { execa } from "execa";
 import fs from "node:fs";
 import path from "node:path";
-import { config, setMakerPackage } from "../lib/config.js";
+import { buildManagedRuntimeEnv, config, setMakerPackage } from "../lib/config.js";
 import { deleteAppSettings, getAppSetting, setAppSetting } from "../lib/db.js";
+import {
+  extractPackageName,
+  extractPackageVersionToken,
+  findCachedMakerPackage,
+  type CachedMakerPackage
+} from "./makerPackageCache.js";
 import { runtimeManager } from "./mcpRuntime.js";
 
 const MAKER_PACKAGE_SETTING_KEY = "maker_package_spec";
 const DEFAULT_CHANGELOG_TEXT = "暂无更新日志";
 const RELEASE_NOTES_FILE_NAME = "mcp-release-notes.md";
+const GITHUB_OWNER = "Rinorsi";
+const GITHUB_REPO = "taptap-maker-plus";
+const UPDATE_FEED_REF = "updates-feed";
+const REMOTE_RELEASE_NOTES_URLS = [
+  `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${UPDATE_FEED_REF}/${RELEASE_NOTES_FILE_NAME}`,
+  `https://cdn.jsdelivr.net/gh/${GITHUB_OWNER}/${GITHUB_REPO}@${UPDATE_FEED_REF}/${RELEASE_NOTES_FILE_NAME}`
+];
 const MCP_PACKAGE_SETTING_KEYS = [
   MAKER_PACKAGE_SETTING_KEY,
   "maker_package_resolved_version",
@@ -34,6 +47,8 @@ export type McpPackageUpdateStatus = {
   cacheEntryCount: number;
   releaseNotes: string;
   releaseNotesPath: string;
+  releaseNotesSource: "cloud" | "local" | "fallback";
+  releaseNotesError?: string;
   availableVersions: string[];
   registryError?: string;
 };
@@ -69,11 +84,51 @@ export function loadStoredMakerPackage() {
   if (stored) setMakerPackage(stored);
 }
 
-export function getMcpReleaseNotes() {
+export type McpReleaseNotes = {
+  text: string;
+  source: "cloud" | "local" | "fallback";
+  path: string;
+  error?: string;
+};
+
+export async function getMcpReleaseNotes(): Promise<McpReleaseNotes> {
+  const remoteErrors: string[] = [];
+  for (const releaseNotesUrl of REMOTE_RELEASE_NOTES_URLS) {
+    try {
+      return {
+        text: await fetchRemoteReleaseNotes(releaseNotesUrl),
+        source: "cloud",
+        path: releaseNotesUrl
+      };
+    } catch (error) {
+      remoteErrors.push(`${releaseNotesUrl}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   const releaseNotesPath = getMcpReleaseNotesPath();
-  if (!fs.existsSync(releaseNotesPath)) return DEFAULT_CHANGELOG_TEXT;
+  if (!fs.existsSync(releaseNotesPath)) {
+    return {
+      text: DEFAULT_CHANGELOG_TEXT,
+      source: "fallback",
+      path: releaseNotesPath,
+      error: remoteErrors.length ? remoteErrors.join("；") : undefined
+    };
+  }
   const text = fs.readFileSync(releaseNotesPath, "utf8").trim();
-  return text || DEFAULT_CHANGELOG_TEXT;
+  if (text) {
+    return {
+      text,
+      source: "local",
+      path: releaseNotesPath,
+      error: remoteErrors.length ? remoteErrors.join("；") : undefined
+    };
+  }
+  return {
+    text: DEFAULT_CHANGELOG_TEXT,
+    source: "fallback",
+    path: releaseNotesPath,
+    error: remoteErrors.length ? remoteErrors.join("；") : undefined
+  };
 }
 
 export function getMcpReleaseNotesPath() {
@@ -85,12 +140,16 @@ export async function getMcpPackageUpdateStatus(options: { checkRegistry?: boole
   const packageName = extractPackageName(packageSpec);
   const configuredPackageSpec = getAppSetting(MAKER_PACKAGE_SETTING_KEY);
   const storedCurrentVersion = getAppSetting("maker_package_resolved_version");
-  const currentVersion = storedCurrentVersion ?? (configuredPackageSpec ? extractFixedPackageVersion(packageSpec) : undefined);
-  const packageConfigured = Boolean(configuredPackageSpec || storedCurrentVersion);
+  const cachedPackage = findCachedMakerPackage(packageSpec);
+  const currentVersion = storedCurrentVersion
+    ?? (configuredPackageSpec ? extractFixedPackageVersion(packageSpec) : undefined)
+    ?? cachedPackage?.version;
+  const packageConfigured = Boolean(configuredPackageSpec || storedCurrentVersion || cachedPackage);
   const cacheStats = readCacheStats(config.makerNpmCacheDir);
   let latestVersion: string | undefined;
   let availableVersions: string[] = [];
   let registryError: string | undefined;
+  const releaseNotes = await getMcpReleaseNotes();
 
   if (options.checkRegistry) {
     try {
@@ -107,6 +166,9 @@ export async function getMcpPackageUpdateStatus(options: { checkRegistry?: boole
     latestVersion = getAppSetting("maker_package_latest_version");
     availableVersions = parseStoredVersions(getAppSetting("maker_package_versions"));
   }
+  if (currentVersion && !availableVersions.includes(currentVersion)) {
+    availableVersions = [...availableVersions, currentVersion];
+  }
 
   return {
     packageName,
@@ -117,39 +179,49 @@ export async function getMcpPackageUpdateStatus(options: { checkRegistry?: boole
     updateAvailable: Boolean(currentVersion && latestVersion && currentVersion !== latestVersion),
     lastCheckedAt: getAppSetting("maker_package_last_checked_at"),
     lastInstalledAt: getAppSetting("maker_package_last_installed_at"),
-    localInstalled: Boolean(packageConfigured && currentVersion && cacheStats.exists && cacheStats.entryCount > 0),
+    localInstalled: Boolean(packageConfigured && currentVersion && cachedPackage),
     packageConfigured,
     cachePath: config.makerNpmCacheDir,
     cacheExists: cacheStats.exists,
     cacheSizeBytes: cacheStats.sizeBytes,
     cacheEntryCount: cacheStats.entryCount,
-    releaseNotes: getMcpReleaseNotes(),
-    releaseNotesPath: getMcpReleaseNotesPath(),
+    releaseNotes: releaseNotes.text,
+    releaseNotesPath: releaseNotes.path,
+    releaseNotesSource: releaseNotes.source,
+    releaseNotesError: releaseNotes.error,
     availableVersions,
     registryError
   };
+}
+
+async function fetchRemoteReleaseNotes(releaseNotesUrl: string) {
+  const response = await fetch(releaseNotesUrl, {
+    headers: {
+      "Accept": "text/markdown,text/plain,*/*",
+      "User-Agent": "TapTap-Maker-Plus-MCP-Updater"
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} ${response.statusText}`);
+  }
+  const text = (await response.text()).trim();
+  if (!text) throw new Error("远端 Maker MCP 更新日志为空。");
+  return text;
 }
 
 export async function installMcpPackage(packageSpec: string): Promise<McpPackageInstallResult> {
   const nextPackageSpec = packageSpec.trim();
   if (!nextPackageSpec) throw new Error("MCP package spec is required");
   const packageName = extractPackageName(nextPackageSpec);
-  const resolvedVersion = await readPackageVersion(nextPackageSpec);
+  const resolvedVersion = extractFixedPackageVersion(nextPackageSpec)
+    ?? readCachedPackageVersion(packageName)
+    ?? await readPackageVersion(nextPackageSpec);
   const installedAt = new Date().toISOString();
-  const result = await execa(config.npmCommand, ["exec", "--yes", "--package", nextPackageSpec, "--", "taptap-maker", "--help"], {
-    env: {
-      ...process.env,
-      npm_config_cache: config.makerNpmCacheDir,
-      NPM_CONFIG_CACHE: config.makerNpmCacheDir
-    },
-    timeout: 120_000,
-    reject: false
-  });
-  const installOutput = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
 
-  if (result.failed) {
-    throw new Error(installOutput || `Failed to install ${nextPackageSpec}`);
-  }
+  const cachedPackage = findCachedMakerPackage(nextPackageSpec);
+  const installOutput = cachedPackage
+    ? await activateCachedMakerPackage(nextPackageSpec, cachedPackage)
+    : await installMakerPackageFromNpm(nextPackageSpec);
 
   setAppSetting(MAKER_PACKAGE_SETTING_KEY, nextPackageSpec);
   setAppSetting("maker_package_resolved_version", resolvedVersion);
@@ -164,6 +236,67 @@ export async function installMcpPackage(packageSpec: string): Promise<McpPackage
     status: await getMcpPackageUpdateStatus(),
     installOutput
   };
+}
+
+async function activateCachedMakerPackage(packageSpec: string, cachedPackage: CachedMakerPackage) {
+  const launch = cachedPackage.shimPath
+    ? { command: cachedPackage.shimPath, args: ["--help"] }
+    : cachedPackage.binPath
+      ? { command: config.nodeCommand, args: [cachedPackage.binPath, "--help"] }
+      : undefined;
+
+  if (!launch) {
+    throw new Error(formatCachedActivationFailure({
+      packageSpec,
+      cachedPackage,
+      output: "Cached package has no executable taptap-maker bin.",
+    }));
+  }
+
+  const result = await execa(launch.command, launch.args, {
+    env: buildManagedRuntimeEnv(),
+    timeout: 30_000,
+    reject: false,
+  });
+  const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+  if (result.failed) {
+    throw new Error(formatCachedActivationFailure({
+      packageSpec,
+      cachedPackage,
+      exitCode: result.exitCode,
+      output,
+    }));
+  }
+
+  return [
+    `Activated cached MCP package: ${packageSpec}`,
+    `cached package: ${cachedPackage.packageJsonPath}`,
+    `launch command: ${launch.command} ${launch.args.join(" ")}`,
+    output,
+  ].filter(Boolean).join("\n");
+}
+
+async function installMakerPackageFromNpm(packageSpec: string) {
+  const npmArgs = ["exec", "--yes", "--package", packageSpec, "--", "taptap-maker", "--help"];
+  const result = await execa(config.npmCommand, npmArgs, {
+    env: buildManagedRuntimeEnv(),
+    timeout: 120_000,
+    reject: false
+  });
+  const installOutput = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+
+  if (result.failed) {
+    throw new Error(formatMcpPackageInstallFailure({
+      packageSpec,
+      npmCommand: config.npmCommand,
+      npmArgs,
+      npmCacheDir: config.makerNpmCacheDir,
+      exitCode: result.exitCode,
+      output: installOutput
+    }));
+  }
+
+  return installOutput;
 }
 
 export async function uninstallMcpPackage(): Promise<McpPackageUninstallResult> {
@@ -262,26 +395,6 @@ function readCacheStats(cachePath: string) {
   return { exists: true, sizeBytes, entryCount };
 }
 
-function extractPackageName(packageSpec: string) {
-  const trimmed = packageSpec.trim();
-  if (trimmed.startsWith("@")) {
-    const [scope, name] = trimmed.split("/");
-    const packageName = `${scope}/${(name ?? "").split("@")[0]}`;
-    if (scope && name) return packageName;
-  }
-  return trimmed.split("@")[0] || trimmed;
-}
-
-function extractPackageVersionToken(packageSpec: string) {
-  const trimmed = packageSpec.trim();
-  if (trimmed.startsWith("@")) {
-    const version = trimmed.split("/")[1]?.split("@")[1];
-    return version || undefined;
-  }
-  const version = trimmed.split("@")[1];
-  return version || undefined;
-}
-
 function extractFixedPackageVersion(packageSpec: string) {
   const version = extractPackageVersionToken(packageSpec);
   return version && /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version) ? version : undefined;
@@ -293,7 +406,7 @@ async function readLatestVersion(packageName: string) {
 
 async function readPackageVersions(packageName: string) {
   const result = await execa(config.npmCommand, ["view", packageName, "versions", "--json"], {
-    env: process.env,
+    env: buildManagedRuntimeEnv(),
     timeout: 30_000
   });
   const parsed = JSON.parse(result.stdout.trim()) as unknown;
@@ -314,11 +427,62 @@ function parseStoredVersions(value?: string) {
 
 async function readPackageVersion(packageSpec: string) {
   const result = await execa(config.npmCommand, ["view", packageSpec, "version", "--json"], {
-    env: process.env,
+    env: buildManagedRuntimeEnv(),
     timeout: 30_000
   });
   const text = result.stdout.trim();
   const parsed = JSON.parse(text) as unknown;
   if (typeof parsed === "string" && parsed.trim()) return parsed.trim();
   throw new Error(`Unable to read package version for ${packageSpec}`);
+}
+
+function readCachedPackageVersion(packageName: string) {
+  const cachedPackage = findCachedMakerPackage(packageName);
+  return cachedPackage?.version;
+}
+
+function formatMcpPackageInstallFailure({
+  packageSpec,
+  npmCommand,
+  npmArgs,
+  npmCacheDir,
+  exitCode,
+  output
+}: {
+  packageSpec: string;
+  npmCommand: string;
+  npmArgs: string[];
+  npmCacheDir: string;
+  exitCode: number | undefined;
+  output: string;
+}) {
+  return [
+    `MCP 包安装失败：${packageSpec}`,
+    `npm 命令：${npmCommand} ${npmArgs.join(" ")}`,
+    `npm cache：${npmCacheDir}`,
+    exitCode === undefined ? undefined : `退出码：${exitCode}`,
+    output ? `失败详情：\n${output}` : "失败详情：<empty>",
+    "请导出高级诊断报告，诊断包会包含 desktop-runtime-manifest、npm-cache/_logs、MCP runtime 日志和当前 MCP 包状态。"
+  ].filter(Boolean).join("\n");
+}
+
+function formatCachedActivationFailure({
+  packageSpec,
+  cachedPackage,
+  exitCode,
+  output
+}: {
+  packageSpec: string;
+  cachedPackage: CachedMakerPackage;
+  exitCode?: number;
+  output: string;
+}) {
+  return [
+    `本机缓存 MCP 包激活失败：${packageSpec}`,
+    `缓存 package.json：${cachedPackage.packageJsonPath}`,
+    `npm cache：${config.makerNpmCacheDir}`,
+    exitCode === undefined ? undefined : `退出码：${exitCode}`,
+    output ? `失败详情：\n${output}` : "失败详情：<empty>",
+    "请导出高级诊断报告，诊断包会包含 desktop-runtime-manifest、npm-cache/_logs、MCP runtime 日志和当前 MCP 包状态。"
+  ].filter(Boolean).join("\n");
 }

@@ -6,6 +6,7 @@ import type { AssetSummary, ProjectSummary, RuntimeSummary, TaskRecord, ToolSumm
 import type { WorkbenchModule } from "../../app/routes";
 import type { InspectorSelection } from "./AgentInspectorPanel";
 import { addDeveloperLogEntry } from "../../lib/developerMode";
+import { formatRuntimeStatus } from "../../lib/runtimeStatus";
 import { cn } from "../../lib/utils";
 
 type Props = {
@@ -81,7 +82,9 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
     onOpenLogs();
   }
 
-  const runtimeStatus = runtime?.status?.toUpperCase() ?? "IDLE";
+  const runtimeStatus = runtime?.status ?? "idle";
+  const runtimeReady = runtimeStatus === "ready";
+  const runtimeStatusLabel = formatRuntimeStatus(runtimeStatus);
 
   useEffect(() => {
     if (!searchFocusSignal) return;
@@ -202,21 +205,21 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
             size="sm"
             className={cn(
               "h-7 px-2.5 text-[11px] font-medium border-border-soft transition-colors",
-              runtimeStatus === "READY"
+              runtimeReady
                 ? "bg-surface-panel hover:bg-red-500/10 text-red-400 hover:text-red-300 hover:border-red-500/30"
                 : "bg-surface-panel hover:bg-brand/10 text-text hover:text-brand hover:border-brand/30"
             )}
             onClick={() => {
-              if (runtimeStatus === "READY") {
+              if (runtimeReady) {
                 onStopRuntime?.();
               } else {
                 onStartRuntime?.();
               }
             }}
-            title={runtimeStatus === "READY" ? "停止 MCP 服务" : project ? "启动 MCP 服务" : "请先选择或导入 Maker 项目"}
+            title={runtimeReady ? "停止 MCP" : project ? "启动 MCP" : "请先选择或导入 Maker 项目"}
           >
             <Power className="w-3.5 h-3.5 mr-1.5" />
-            {runtimeStatus === "READY" ? "停止服务" : "启动 MCP"}
+            {runtimeReady ? "停止 MCP" : "启动 MCP"}
           </Button>
 
           <button
@@ -226,12 +229,12 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
           >
             <div className={cn(
               "w-2.5 h-2.5 rounded-full border transition-all duration-500",
-              runtimeStatus === "READY"
+              runtimeReady
                 ? "bg-[#00d9c5] border-[#00ffeb] shadow-[0_0_8px_rgba(0,217,197,0.8)]"
                 : "bg-gray-500 border-gray-400 opacity-40"
             )} />
             <span className="text-[9px] text-text-subtle font-medium leading-none">
-              {runtimeStatus === "READY" ? `${toolCount} Tools` : "服务未启动"}
+              {runtimeReady ? `${toolCount} 个工具` : runtimeStatusLabel}
             </span>
           </button>
         </div>

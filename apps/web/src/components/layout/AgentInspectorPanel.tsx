@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   ArrowLeft,
-  Info, Cpu, Terminal, Play, RefreshCw, Activity, 
-  Search, Loader2,
+  Info, Cpu, Terminal, Play, RefreshCw, Activity,
+  Search, Loader2, ChevronRight, Power,
   FileJson, PanelRightClose, Copy, Trash2, AlertCircle, AlertTriangle, ListChecks, Download, Wrench,
   Box, Film, Image as ImageIcon, Package, CheckCircle2, Clock, Music
 } from "lucide-react";
@@ -14,10 +14,12 @@ import { CodeEditorPanel } from "../ui/CodeEditorPanel";
 import { Input } from "../ui/Input";
 import { AppContextMenu } from "../../commands";
 import { copyText } from "../../lib/clipboard";
+import { formatRuntimeStatus } from "../../lib/runtimeStatus";
 import { cn } from "../../lib/utils";
 import { classifyTaskError, getTaskCopyPayload, getTaskPayloadDisplay, getVideoConcurrencyTaskId, isTaskError, isTaskSuccess, isVideoConcurrencyError, taskHasMcpErrorResult } from "../../lib/taskResult";
 import { getToolCategoryLabel, getToolDisplay } from "../../features/tools/toolDisplay";
 import { McpPackageManager } from "../../features/settings/McpPackageManager";
+import { ProjectIcon } from "./ProjectIcon";
 
 export type InspectorSelection =
   | { type: "project"; item: ProjectSummary }
@@ -44,6 +46,7 @@ type Props = {
   onTabChange: (tab: "status" | "tools" | "gameLogs" | "logs" | "errors") => void;
   onToggleMinimized: () => void;
   onStartRuntime: () => void;
+  onStopRuntime?: () => void;
   onRefreshTools: () => void;
   onStatusLite: () => void;
   onSelectSelection: (selection: InspectorSelection) => void;
@@ -66,19 +69,20 @@ const taskStatusFilterOptions: Array<{ value: TaskStatusFilter; label: string }>
   { value: "canceled", label: "取消" },
 ];
 
-export function AgentInspectorPanel({ 
-  project, 
-  tools, 
-  tasks, 
-  selection, 
+export function AgentInspectorPanel({
+  project,
+  tools,
+  tasks,
+  selection,
   busy,
   notice,
-  minimized, 
-  activeTab, 
-  onTabChange, 
-  onToggleMinimized, 
-  onStartRuntime, 
-  onRefreshTools, 
+  minimized,
+  activeTab,
+  onTabChange,
+  onToggleMinimized,
+  onStartRuntime,
+  onStopRuntime,
+  onRefreshTools,
   onStatusLite,
   onSelectSelection,
   onClearTasks,
@@ -219,33 +223,33 @@ export function AgentInspectorPanel({
     <div className="h-full w-full flex min-h-0 overflow-hidden bg-surface-panel select-none">
       {/* Left Vertical Tab Strip Column */}
       <div className="w-12 shrink-0 border-r border-border bg-surface-muted/40 flex flex-col items-center py-3.5 gap-4">
-        <TabIconButton 
-          active={activeTab === "status" && !minimized} 
-          onClick={() => handleTabClick("status")} 
+        <TabIconButton
+          active={activeTab === "status" && !minimized}
+          onClick={() => handleTabClick("status")}
           icon={<Activity className="w-5 h-5" />}
           label="MCP 状态"
         />
-        <TabIconButton 
-          active={activeTab === "tools" && !minimized} 
-          onClick={() => handleTabClick("tools")} 
+        <TabIconButton
+          active={activeTab === "tools" && !minimized}
+          onClick={() => handleTabClick("tools")}
           icon={<Cpu className="w-5 h-5" />}
           label="MCP 工具箱 (MCP Tools)"
         />
         <TabIconButton
-          active={activeTab === "logs" && !minimized} 
-          onClick={() => handleTabClick("logs")} 
+          active={activeTab === "logs" && !minimized}
+          onClick={() => handleTabClick("logs")}
           icon={<ListChecks className="w-5 h-5" />}
           label="任务记录"
           badgeCount={tasks.filter(t => t.status === "running").length}
         />
-        <TabIconButton 
-          active={activeTab === "errors" && !minimized} 
-          onClick={() => handleTabClick("errors")} 
+        <TabIconButton
+          active={activeTab === "errors" && !minimized}
+          onClick={() => handleTabClick("errors")}
           icon={<AlertTriangle className="w-5 h-5" />}
           label="错误详情"
           badgeCount={tasks.filter(t => t.status === "failed").length}
         />
-        <TabIconButton 
+        <TabIconButton
           active={activeTab === "gameLogs" && !minimized}
           onClick={() => handleTabClick("gameLogs")}
           icon={<Terminal className="w-5 h-5" />}
@@ -255,7 +259,7 @@ export function AgentInspectorPanel({
 
       {/* Main Panel Content Area (only visible when expanded) */}
       {!minimized && (
-        <div className="flex-1 min-w-0 p-3.5 flex flex-col gap-3.5 overflow-hidden h-full">
+        <div className="flex-1 min-w-0 p-3 flex flex-col gap-3 overflow-hidden h-full">
           {/* Header */}
           <div className="flex items-start justify-between gap-3 shrink-0">
             <div className="min-w-0 flex items-start gap-2 flex-1">
@@ -292,7 +296,7 @@ export function AgentInspectorPanel({
           {/* Body content based on tab */}
           <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
             {activeTab === "status" && (
-              <div className="flex-1 overflow-y-auto pr-1 flex min-w-0 flex-col gap-3.5 scrollbar-thin">
+              <div className="flex-1 overflow-y-auto pr-1 pb-8 flex min-w-0 flex-col gap-3 scrollbar-thin">
                 {selectedReferenceReport ? (
                   <AssetReferenceReportView report={selectedReferenceReport} />
                 ) : currentStatusSelection?.type === "asset" ? (
@@ -303,10 +307,11 @@ export function AgentInspectorPanel({
                   <DefaultInspector
                     project={project}
                     tools={tools}
-                    tasks={tasks} 
+                    tasks={tasks}
                     busy={busy}
                     notice={notice}
-                    onStartRuntime={onStartRuntime} 
+                    onStartRuntime={onStartRuntime}
+                    onStopRuntime={onStopRuntime}
                     onRefreshTools={onRefreshTools}
                     onStatusLite={onStatusLite}
                   />
@@ -338,10 +343,10 @@ export function AgentInspectorPanel({
             )}
 
             {activeTab === "errors" && (
-              <ErrorsTab 
-                tasks={tasks.filter(isTaskError)} 
+              <ErrorsTab
+                tasks={tasks.filter(isTaskError)}
                 selectedTask={currentErrorTask}
-                onSelectTask={(task) => setSelectedErrorTask(task)} 
+                onSelectTask={(task) => setSelectedErrorTask(task)}
                 onClearTasks={onClearTasks}
                 onRecoverVideoTask={onRecoverVideoTask}
                 recoveringVideoTaskId={recoveringVideoTaskId}
@@ -376,7 +381,7 @@ function TabIconButton({ active, onClick, icon, label, badgeCount }: { active: b
   );
 }
 
-function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime, onRefreshTools, onStatusLite }: Pick<Props, "project" | "tools" | "tasks" | "busy" | "notice" | "onStartRuntime" | "onRefreshTools" | "onStatusLite">) {
+function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime, onStopRuntime, onRefreshTools, onStatusLite }: Pick<Props, "project" | "tools" | "tasks" | "busy" | "notice" | "onStartRuntime" | "onStopRuntime" | "onRefreshTools" | "onStatusLite">) {
   const runtime = project?.runtime;
   const [desktopReadiness, setDesktopReadiness] = useState<DesktopReadiness>();
   const [agentContext, setAgentContext] = useState<AgentContextSnapshot>();
@@ -391,10 +396,11 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
   const viteProxyTarget = desktopReadiness?.mode === "development"
     ? "固定 /api -> 127.0.0.1:8787"
     : "生产内置服务";
+  const runtimeStatusLabel = formatRuntimeStatus(runtimeStatus);
   const currentAction = busy
     ? notice || "正在执行..."
     : starting
-      ? "MCP 正在启动，等待 runtime 返回 PID"
+      ? "MCP 正在启动，等待返回 PID"
       : notice || "空闲";
   const diagnosticsRaw = useMemo(
     () =>
@@ -455,55 +461,119 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-2.5">
-      <div className={cn("rounded-panel border p-3", ready ? "border-brand/25 bg-brand/5" : runtimeStatus === "error" ? "border-[#b03939]/25 bg-[#b03939]/5" : "border-border-soft bg-surface-raised")}>
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <strong className="block truncate text-sm text-text">{project?.name ?? "未选择项目"}</strong>
-            <span className="mt-0.5 block truncate text-[10px] text-text-subtle">{project?.rootPath ?? "请先选择一个 Maker 项目"}</span>
+    <div className="flex min-h-full w-full min-w-0 flex-col">
+      <div className="flex min-w-0 flex-col gap-3 pb-2 shrink-0 relative">
+
+        {/* Soft elegant background aura */}
+        <div className={cn(
+          "absolute top-0 right-0 w-48 h-48 rounded-full blur-[70px] opacity-[0.06] pointer-events-none transition-colors duration-1000",
+          ready ? "bg-emerald-500" : runtimeStatus === "error" ? "bg-rose-500" : "bg-brand"
+        )}></div>
+
+        {/* 1. Header (Vertical Stack with Breathing Room) */}
+        <div className="flex flex-col gap-4 relative z-10 w-full">
+
+          <div className="flex items-center gap-3.5 min-w-0 w-full">
+            <div className="relative h-11 w-11 shrink-0">
+              <ProjectIcon project={project} className="h-11 w-11 rounded-lg border border-border-soft shadow-sm" />
+              <div className={cn("absolute bottom-0.5 right-0.5 w-3 h-3 rounded-full z-10 border-2 border-surface-panel transition-colors shadow-sm", ready ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]" : runtimeStatus === "error" ? "bg-rose-500" : "bg-text-muted")}></div>
+              {(ready || starting) && (
+                <div className={cn("absolute bottom-0.5 right-0.5 w-3 h-3 rounded-full animate-ping opacity-60", ready ? "bg-emerald-500" : "bg-amber-500")}></div>
+              )}
+            </div>
+
+            <div className="flex flex-col min-w-0 justify-center">
+              <span className="text-[14px] font-bold text-text tracking-tight truncate leading-tight mb-1" title={project?.name ?? "未选择项目"}>
+                {project?.name ?? "未选择项目"}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span className={cn(
+                  "w-1.5 h-1.5 rounded-full shrink-0",
+                  ready ? "bg-emerald-500" : runtimeStatus === "error" ? "bg-rose-500" : runtimeStatus === "starting" ? "bg-amber-500 animate-pulse" : "bg-text-muted"
+                )}></span>
+                <span className="text-[10px] font-medium text-text-subtle truncate leading-none mt-px">
+                  {runtimeStatusLabel}
+                </span>
+              </div>
+            </div>
           </div>
-          <span className={cn("shrink-0 rounded-pill px-2 py-0.5 text-[10px] font-bold uppercase", ready ? "bg-brand/15 text-brand-strong" : runtimeStatus === "error" ? "bg-[#b03939]/10 text-[#b03939]" : "bg-surface-muted text-text-muted")}>
-            {runtimeStatus}
-          </span>
+
+          <div className="flex items-center gap-2 w-full">
+            <button
+              className={cn(
+                "flex-1 text-[12px] font-bold px-4 py-2.5 rounded-md transition-all inline-flex items-center justify-center gap-1.5 shadow-sm whitespace-nowrap",
+                starting || busy
+                  ? "bg-surface-muted text-text-muted cursor-not-allowed border border-border-soft/50"
+                  : ready
+                    ? "bg-surface-app text-text hover:bg-surface-hover border border-border-soft"
+                    : "bg-brand text-brand-fg hover:opacity-90 border border-brand/20 shadow-brand/20"
+              )}
+              onClick={() => {
+                if (!project) {
+                  alert("请先在首页选择一个项目");
+                  window.location.hash = "#/";
+                } else if (ready && onStopRuntime) {
+                  onStopRuntime();
+                } else {
+                  onStartRuntime();
+                }
+              }}
+              disabled={starting || busy}
+            >
+              {starting || busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : ready ? <Power className="w-3.5 h-3.5 text-rose-500" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+              {starting ? "启动中..." : busy ? "执行中..." : ready ? "停止 MCP" : !project ? "选择项目" : "启动 MCP"}
+            </button>
+            <button
+              className="w-10 h-10 flex items-center justify-center rounded-md text-text-muted hover:text-text hover:bg-surface-hover transition-colors shrink-0 bg-surface-app border border-border-soft shadow-sm"
+              onClick={onStatusLite}
+              disabled={!project || busy}
+              title="状态检查"
+            >
+              <Activity className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* 2. Stats (Premium Mac-style grouped list) */}
+        <div className="flex flex-col bg-surface-app/30 rounded-panel border border-border-soft/40 relative z-10 shadow-sm">
+          <div className="flex items-center justify-between gap-3 px-3 py-2.5 border-b border-border-soft/30 min-w-0">
+            <span className="text-[11px] text-text-subtle font-medium shrink-0">当前动作</span>
+            <span className="text-[11px] text-text font-semibold truncate text-right min-w-0" title={currentAction}>
+              {currentAction || "-"}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 px-3 py-2.5 min-w-0">
+            <span className="text-[11px] text-text-subtle font-medium shrink-0">可用工具箱</span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Box className="w-3.5 h-3.5 text-brand opacity-80" />
+              <span className="text-[11px] font-bold text-text">{tools.length}</span>
+              <div className="w-px h-3 bg-border-soft/60 mx-1.5"></div>
+              <button
+                className="text-text-muted hover:text-text transition-colors flex items-center justify-center shrink-0"
+                onClick={onRefreshTools}
+                disabled={!project || busy}
+                title="刷新工具"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="rounded-panel border border-border-soft bg-surface-raised divide-y divide-border-soft overflow-hidden">
-        <InfoRow label="当前动作" value={currentAction} />
-        <InfoRow label="工具箱状态" value={`${tools.length} 个可用`} />
+      <div className="h-px w-full bg-border-soft/40 shrink-0 mb-2"></div>
+
+      <div className="py-2 shrink-0 w-full pb-3">
+        <McpPackageManager busy={busy} compact />
       </div>
 
-      {runtime?.lastError ? (
-        <CodeEditorPanel title="MCP runtime 错误" language="stderr" value={runtime.lastError} maxHeight="180px" />
-      ) : null}
-      {developerError ? (
-        <p className="m-0 rounded-panel border border-[#b03939]/20 bg-[#b03939]/5 p-2 text-[11px] text-[#b03939]">
-          {developerError}
-        </p>
-      ) : null}
-      
-      <div className="grid gap-2 mt-2">
-        <Button onClick={onStartRuntime} disabled={starting || busy} className="w-full gap-2 text-xs h-9 shadow-sm">
-          {starting || busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-current" />}
-          {starting ? "MCP 启动中..." : busy ? "正在执行..." : !project ? "先选择项目" : ready ? "重启 MCP" : "启动 MCP"}
-        </Button>
-        <div className="grid grid-cols-2 gap-2">
-          <Button variant="outline" onClick={onRefreshTools} disabled={!project || busy} className="gap-1.5 text-xs h-8 shadow-sm">
-            <RefreshCw className="w-3.5 h-3.5" /> 刷新工具
-          </Button>
-          <Button variant="outline" onClick={onStatusLite} disabled={!project || busy} className="gap-1.5 text-xs h-8 shadow-sm">
-            <Activity className="w-3.5 h-3.5" /> 状态检查
-          </Button>
-        </div>
-      </div>
-
-      <McpPackageManager busy={busy} compact />
-
-      <details className="mt-2 shrink-0 rounded-panel border border-border-soft bg-surface-raised overflow-hidden">
-        <summary className="cursor-pointer px-3 py-2 text-[11px] font-bold text-text-muted hover:text-text bg-surface-muted/30">
-          高级诊断选项卡 (Developer)
+      <details className="group shrink-0 border-t border-border-soft/30">
+        <summary className="cursor-pointer px-3 py-3 text-[12px] font-bold text-text-muted hover:text-text list-none flex items-center justify-between transition-colors hover:bg-surface-panel/30">
+          <span>高级诊断选项卡 (Developer)</span>
+          <ChevronRight className="w-4 h-4 transition-transform group-open:rotate-90 text-text-muted/70 group-hover:text-text-muted" />
         </summary>
-        <div className="p-3 grid gap-1.5 border-t border-border-soft text-[10px] min-w-0">
+        <div className="px-3 pb-6 pt-2.5 grid gap-1.5 text-[10px] min-w-0 bg-surface-panel/10">
           <InfoRowCompact label="本地 API" value={localApiUrl} />
           <InfoRowCompact label="Vite 代理" value={viteProxyTarget} />
           <InfoRowCompact label="MCP cwd" value={runtime?.cwd ?? project?.rootPath ?? "-"} />
@@ -527,23 +597,26 @@ function DefaultInspector({ project, tools, tasks, busy, notice, onStartRuntime,
         </div>
 
         {hasAgentContextRaw ? (
-          <details className="border-t border-border-soft shrink-0 group">
-            <summary className="cursor-pointer px-3 py-2 text-[11px] font-bold text-text-muted hover:text-text bg-surface-muted/20">
-              raw agent context
+          <details className="border-t border-border-soft/30 shrink-0 group/raw">
+            <summary className="cursor-pointer px-3 py-2.5 text-[11px] font-bold text-text-muted hover:text-text list-none flex items-center justify-between transition-colors bg-surface-panel/10">
+              <span>raw agent context</span>
+              <ChevronRight className="w-4 h-4 transition-transform group-open/raw:rotate-90 text-text-muted/70 group-hover:text-text-muted" />
             </summary>
-            <div className="h-[520px]">
-              <RawViewer
-                title="raw agent context"
-                value={agentContextRaw}
-                height="100%"
-                emptyText="暂无 agent context"
-                className="rounded-none border-0 h-full"
-              />
+            <div className="h-[520px] bg-surface-panel/10 px-3 pb-3">
+              <div className="h-full rounded-md border border-border-soft overflow-hidden shadow-sm">
+                <RawViewer
+                  title="raw agent context"
+                  value={agentContextRaw}
+                  height="100%"
+                  emptyText="暂无 agent context"
+                  className="rounded-none border-0 h-full"
+                  compactGutter
+                />
+              </div>
             </div>
           </details>
         ) : null}
       </details>
-
     </div>
   );
 }
@@ -564,7 +637,7 @@ function RuntimeLogSnapshot({
   if (loading) {
     return (
       <section className="p-3 text-[11px] text-text-muted">
-        正在读取 runtime / build 日志摘要...
+        正在读取 MCP / build 日志摘要...
       </section>
     );
   }
@@ -597,7 +670,7 @@ function RuntimeLogSnapshot({
         <RuntimeLogFileRow projectId={projectId} label="runtime.log" file={runtime.runtimeLog} />
         <RuntimeLogFileRow projectId={projectId} label="watcher.out.log" file={runtime.watcherOut} />
         <RuntimeLogFileRow projectId={projectId} label="watcher.err.log" file={runtime.watcherErr} />
-        <InfoRowCompact label="runtime level" value={levelSummary || "-"} />
+        <InfoRowCompact label="MCP 日志级别" value={levelSummary || "-"} />
         <InfoRowCompact label="build logs" value={`${buildLogs.buildLogs.length} 个`} />
       </div>
 
@@ -913,10 +986,10 @@ function TaskInspector({
 }) {
   const recoveryTaskId = getVideoConcurrencyTaskId(task);
   const recoveryState = recoveryTaskId ? getRecoveryState(recoveryTaskId, recoveringVideoTaskId, videoRecoveryCooldowns) : undefined;
-  
-  const statusDisplay = task.status === "failed" ? "失败" : 
-                        task.status === "succeeded" ? "成功" : 
-                        task.status === "running" ? "运行中" : 
+
+  const statusDisplay = task.status === "failed" ? "失败" :
+                        task.status === "succeeded" ? "成功" :
+                        task.status === "running" ? "运行中" :
                         task.status === "queued" ? "排队中" : task.status;
 
   return (
@@ -1120,12 +1193,12 @@ function ProjectInspector({ project }: { project: ProjectSummary }) {
         <InfoRow label="路径" value={project.rootPath} />
         <InfoRow label="配置文件" value={project.configPath} />
         <InfoRow label="makerProjectId" value={project.makerProjectId} />
-        <InfoRow label="MCP 状态" value={runtime?.status ?? "idle"} />
+        <InfoRow label="MCP 状态" value={formatRuntimeStatus(runtime?.status)} />
         <InfoRow label="工具数量" value={runtime?.toolCount !== undefined ? `${runtime.toolCount} 个` : "-"} />
         <InfoRow label="MCP cwd" value={runtime?.cwd ?? project.rootPath} />
       </div>
       {runtime?.lastError ? (
-        <CodeEditorPanel title="MCP runtime 错误" language="stderr" value={runtime.lastError} maxHeight="220px" />
+          <CodeEditorPanel title="MCP 错误" language="stderr" value={runtime.lastError} maxHeight="220px" />
       ) : null}
     </div>
   );
@@ -1406,22 +1479,22 @@ function ConsoleTab({
                         <strong className="truncate text-[13px] font-bold leading-none text-text">{t.toolName}</strong>
                         <span className={cn(
                           "shrink-0 rounded px-1.5 py-0.5 text-[9px] font-extrabold leading-none tracking-wider",
-                          isFailed ? "bg-[#b03939]/10 text-[#b03939]" : 
-                          isSuccess ? "bg-[#246b2f]/10 text-[#246b2f]" : 
-                          isRunning ? "bg-brand/10 text-brand-strong" : 
+                          isFailed ? "bg-[#b03939]/10 text-[#b03939]" :
+                          isSuccess ? "bg-[#246b2f]/10 text-[#246b2f]" :
+                          isRunning ? "bg-brand/10 text-brand-strong" :
                           "bg-surface-muted text-text-subtle"
                         )}>
-                          {hasErrorInResult ? "失败 (MCP 报错)" : 
-                           isFailed ? "失败" : 
-                           isSuccess ? "成功" : 
-                           isRunning ? "运行中" : 
+                          {hasErrorInResult ? "失败 (MCP 报错)" :
+                           isFailed ? "失败" :
+                           isSuccess ? "成功" :
+                           isRunning ? "运行中" :
                            t.status === "queued" ? "排队中" : t.status}
                         </span>
                       </div>
                       <span className="mt-1.5 truncate font-mono text-[10px] text-text-subtle">{t.inputSummary}</span>
                     </div>
                   </button>
-                  <button 
+                  <button
                     onClick={(e) => { e.stopPropagation(); onDeleteTask(t.taskId); }}
                     className="absolute right-1 top-1/2 -translate-y-1/2 p-1.5 opacity-0 group-hover:opacity-100 hover:bg-red-500/10 text-text-muted hover:text-red-500 rounded transition-all bg-surface-panel/80 backdrop-blur"
                     title="删除记录"
@@ -1489,7 +1562,7 @@ function ErrorsTab({
           const isConcurrencyError = isVideoConcurrencyError(task);
           const oldTaskId = getVideoConcurrencyTaskId(task);
           const recoveryState = oldTaskId ? getRecoveryState(oldTaskId, recoveringVideoTaskId, videoRecoveryCooldowns) : undefined;
-          
+
           return (
             <AppContextMenu key={task.taskId} context={{ objectType: "task", taskId: task.taskId }}>
             <button type="button" onClick={() => onSelectTask(task)} className="rounded-card border border-[#b03939]/25 bg-[#b03939]/5 p-3 text-left hover:bg-[#b03939]/10">
@@ -1500,7 +1573,7 @@ function ErrorsTab({
                 </span>
               </div>
               <p className="m-0 line-clamp-3 text-[11px] leading-relaxed text-text-muted">{task.errorMessage || task.rawResultJson || task.inputSummary}</p>
-              
+
               {isConcurrencyError && oldTaskId && recoveryState && (
                 <div className="mt-3 p-3 bg-surface-app border border-brand/20 rounded-lg flex flex-col gap-2.5 shadow-inner" onClick={e => e.stopPropagation()}>
                   <div className="flex items-center gap-1.5 text-brand">
@@ -1513,7 +1586,7 @@ function ErrorsTab({
                   <RecoveryButton taskId={oldTaskId} state={recoveryState} onRecoverVideoTask={onRecoverVideoTask} />
                 </div>
               )}
-              
+
               <div className="mt-2 flex justify-end">
                 <span
                   role="button"

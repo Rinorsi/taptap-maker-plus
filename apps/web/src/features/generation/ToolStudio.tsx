@@ -125,7 +125,7 @@ export function ToolStudio({ category, title, project, tools, assets, tasks, bus
         <aside className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-surface-panel shadow-sm animate-in fade-in slide-in-from-left-4 duration-500 delay-100">
           <div className="border-b border-border-soft px-5 py-4 bg-surface-muted/30">
             <h2 className="m-0 text-[13px] font-bold uppercase tracking-widest text-text-subtle flex items-center gap-2">
-              <Boxes className="w-4 h-4" /> 工具引擎目录
+              <Boxes className="w-4 h-4" /> MCP 工具目录
             </h2>
           </div>
           <div className="flex-1 overflow-y-auto p-3 scrollbar-thin">

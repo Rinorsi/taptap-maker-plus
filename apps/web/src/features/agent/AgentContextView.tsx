@@ -3,6 +3,7 @@ import { Bot, Clock, Database, FileText, FolderOpen, ListChecks, Loader2, Refres
 import { getAgentContext, getDesktopReadiness, type AgentContextSnapshot, type AgentPageState, type AgentSelectionReference, type DesktopReadiness, type ProjectSummary } from "../../api";
 import { RawViewer } from "../../components/developer/RawViewer";
 import { Button } from "../../components/ui/Button";
+import { formatRuntimeStatus } from "../../lib/runtimeStatus";
 import { cn } from "../../lib/utils";
 
 type Props = {
@@ -51,7 +52,7 @@ export function AgentContextView({ project, page }: Props) {
           </span>
           <h1 className="m-0 truncate text-xl font-bold text-text">开发者模式 / 助手上下文</h1>
           <p className="m-0 mt-1 max-w-3xl text-sm text-text-muted">
-            只读取 Fastify 汇总的桌面、项目、runtime、工具、任务、资产、工作流和日志摘要，不执行 MCP 工具。
+            只读取 Fastify 汇总的桌面、项目、MCP 运行时、工具、任务、资产、工作流和日志摘要，不执行 MCP 工具。
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => void refreshContext()} disabled={loading} className="h-8 shrink-0 gap-1.5 px-2.5 text-xs">
@@ -65,7 +66,7 @@ export function AgentContextView({ project, page }: Props) {
       ) : null}
 
       <div className="grid shrink-0 gap-3 md:grid-cols-4">
-        <ContextStat icon={<Server className="h-4 w-4" />} label="MCP runtime" value={runtimeStatus} tone={runtimeStatus === "ready" ? "good" : runtimeStatus === "error" ? "bad" : "neutral"} />
+        <ContextStat icon={<Server className="h-4 w-4" />} label="MCP 状态" value={formatRuntimeStatus(runtimeStatus)} tone={runtimeStatus === "ready" ? "good" : runtimeStatus === "error" ? "bad" : "neutral"} />
         <ContextStat icon={<Wrench className="h-4 w-4" />} label="API" value={readiness ? `${readiness.server.host}:${readiness.server.port}` : "-"} tone={readiness?.ok ? "good" : "neutral"} />
         <ContextStat icon={<Sparkles className="h-4 w-4" />} label="工具" value={String(context?.counts.tools ?? 0)} tone="brand" />
         <ContextStat icon={<ListChecks className="h-4 w-4" />} label="任务" value={String(context?.counts.tasks ?? 0)} tone="neutral" />

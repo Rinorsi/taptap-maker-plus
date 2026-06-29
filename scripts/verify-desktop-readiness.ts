@@ -16,6 +16,7 @@ const webDistDesktopLoading = path.join(workspaceRoot, "apps", "web", "dist", "d
 const serverDistIndex = path.join(workspaceRoot, "apps", "server", "dist", "index.js");
 const desktopDistDir = path.join(workspaceRoot, "desktop-dist");
 const desktopSeededNpmCacheDir = path.join(desktopDistDir, "data", "npm-cache");
+const desktopRuntimeManifestPath = path.join(desktopDistDir, "desktop-runtime-manifest.json");
 const webIdentityName = 'name="taptap-maker-plus"';
 const webIdentityContent = 'content="web"';
 const optionalBundledReadOnlyPaths = [
@@ -230,6 +231,28 @@ function findMakerPackageCache(cacheRoot: string): MakerPackageCache | undefined
   return undefined;
 }
 
+function requireDesktopRuntimeManifest(makerCache: MakerPackageCache) {
+  requireFile(desktopRuntimeManifestPath);
+  const manifest = readJsonObject(desktopRuntimeManifestPath);
+  const nodeRuntime = requireObject(manifest.nodeRuntime, "desktop-runtime-manifest.json nodeRuntime");
+  requireExactString(nodeRuntime.node, "node-runtime/node.exe", "desktop-runtime-manifest.json nodeRuntime.node");
+  requireExactString(nodeRuntime.npm, "node-runtime/npm.cmd", "desktop-runtime-manifest.json nodeRuntime.npm");
+  requireExactString(nodeRuntime.npx, "node-runtime/npx.cmd", "desktop-runtime-manifest.json nodeRuntime.npx");
+  requireString(nodeRuntime.nodeVersion, "desktop-runtime-manifest.json nodeRuntime.nodeVersion");
+  requireString(nodeRuntime.npmVersion, "desktop-runtime-manifest.json nodeRuntime.npmVersion");
+  requireString(nodeRuntime.npxVersion, "desktop-runtime-manifest.json nodeRuntime.npxVersion");
+  const makerPackage = requireObject(manifest.makerPackage, "desktop-runtime-manifest.json makerPackage");
+  requireExactString(makerPackage.name, "@taptap/maker", "desktop-runtime-manifest.json makerPackage.name");
+  requireExactString(makerPackage.version, makerCache.version, "desktop-runtime-manifest.json makerPackage.version");
+  requireExactString(
+    makerPackage.packageJson,
+    path.relative(desktopDistDir, makerCache.packageJsonPath).replaceAll(path.sep, "/"),
+    "desktop-runtime-manifest.json makerPackage.packageJson"
+  );
+  requireExactString(manifest.npmCache, "data/npm-cache", "desktop-runtime-manifest.json npmCache");
+  return manifest;
+}
+
 function requireCargoTauriDependency(cargoToml: string, crateName: string) {
   const match = cargoToml.match(new RegExp(`^${crateName} = \\{ version = "([^"]+)"`, "m"));
   if (!match) {
@@ -257,7 +280,7 @@ function requireTauriConfig(rootPackage: JsonObject, tauriCliPackage: JsonObject
   requirePackageScript(rootPackage, "sync:version", "node scripts/sync-app-version.mjs");
   requirePackageScript(rootPackage, "build", "npm run sync:version && npm run build --workspace @taptap/server && npm run build --workspace @taptap/web");
   requirePackageScript(rootPackage, "prepare:desktop", "node scripts/prepare-desktop-resources.mjs");
-  requirePackageScript(rootPackage, "build:desktop", "npm run build && npm run sync:version && npm run prepare:desktop");
+  requirePackageScript(rootPackage, "build:desktop", "npm run build && npm run sync:version && npm run prepare:desktop && npm run verify:desktop");
   requireDirectory(resolveFromDir(tauriConfigPath, frontendDist));
 
   const app = requireObject(tauriConfig.app, "tauri.conf.json app");
@@ -277,6 +300,7 @@ function requireTauriConfig(rootPackage: JsonObject, tauriCliPackage: JsonObject
   requireFile(path.join(desktopDistDir, "apps", "server", "dist", "index.js"));
   requireFile(path.join(desktopDistDir, "apps", "server", "package.json"));
   requireFile(path.join(desktopDistDir, "apps", "web", "dist", "index.html"));
+  requireFile(desktopRuntimeManifestPath);
   requireFile(path.join(desktopDistDir, "node-runtime", "node.exe"));
   requireFile(path.join(desktopDistDir, "node-runtime", "npm.cmd"));
   requireFile(path.join(desktopDistDir, "node-runtime", "npx.cmd"));
@@ -290,6 +314,7 @@ function requireTauriConfig(rootPackage: JsonObject, tauriCliPackage: JsonObject
   if (!bundledMakerCache) {
     throw new Error("No bundled @taptap/maker package found under desktop-dist/data/npm-cache/_npx");
   }
+  requireDesktopRuntimeManifest(bundledMakerCache);
   for (const relativePath of optionalBundledReadOnlyPaths) {
     const sourcePath = path.join(workspaceRoot, relativePath);
     const outputPath = path.join(desktopDistDir, relativePath);
@@ -372,6 +397,7 @@ const bundledMakerCache = findMakerPackageCache(desktopSeededNpmCacheDir);
 if (!bundledMakerCache) {
   throw new Error("No bundled @taptap/maker package found under desktop-dist/data/npm-cache/_npx");
 }
+const runtimeManifest = requireDesktopRuntimeManifest(bundledMakerCache);
 
 const versions = {
   node: commandVersion("node", ["-v"]),
@@ -402,6 +428,12 @@ console.log(JSON.stringify({
     bundledPackageDir: relative(bundledMakerCache.packageDir),
     bundledPackageJson: relative(bundledMakerCache.packageJsonPath),
     bundledVersion: bundledMakerCache.version,
+    runtimeManifest: {
+      nodeVersion: requireString(requireObject(runtimeManifest.nodeRuntime, "desktop-runtime-manifest.json nodeRuntime").nodeVersion, "desktop-runtime-manifest.json nodeRuntime.nodeVersion"),
+      npmVersion: requireString(requireObject(runtimeManifest.nodeRuntime, "desktop-runtime-manifest.json nodeRuntime").npmVersion, "desktop-runtime-manifest.json nodeRuntime.npmVersion"),
+      npxVersion: requireString(requireObject(runtimeManifest.nodeRuntime, "desktop-runtime-manifest.json nodeRuntime").npxVersion, "desktop-runtime-manifest.json nodeRuntime.npxVersion"),
+      makerVersion: bundledMakerCache.version
+    },
     bin: relative(bundledMakerCache.binPath),
     main: relative(bundledMakerCache.mainPath)
   },

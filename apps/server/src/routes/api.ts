@@ -62,6 +62,7 @@ import { getProjectBuildLogs } from "../services/projectLogs.js";
 import { scanModelPackages, organizeModelPackage, bindModelPackage, discardModelPackage, restoreModelPackage, updateResourceTable, runModelPackageBatchAction } from "../services/modelPackage.js";
 import { convertMdlToGltf, inspectMdlFile } from "../services/urhoMdl.js";
 import { createDiagnosticBundle, getDesktopResourceReadiness, resolveDiagnosticBundlePath } from "../services/diagnosticBundle.js";
+import { resolveProjectIconPath, withProjectIconUrl } from "../services/projectIcon.js";
 import type { AppSettingsPreferencesResponse, MakerWorkflowGraph, ProjectSummary, ToolSummary, WorkflowNodeRunResult, WorkflowRunStatus } from "../types.js";
 
 const callToolSchema = z.object({
@@ -422,12 +423,12 @@ function sendAssetFileOperationError(reply: FastifyReply, error: unknown) {
 }
 
 function withRuntime(project: ProjectSummary) {
-  return {
+  return withProjectIconUrl({
     ...project,
     configExists: fs.existsSync(project.configPath),
     toolCount: listTools(project.id).length,
     runtime: runtimeManager.getSummary(project.id)
-  };
+  });
 }
 
 async function indexProjectAssets(project: ProjectSummary) {
@@ -1055,6 +1056,13 @@ export async function registerApiRoutes(app: FastifyInstance) {
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId", async (request) => {
     const project = requireProject(request.params.projectId);
     return { project: withRuntime(project) };
+  });
+
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/icon", async (request, reply) => {
+    const project = requireProject(request.params.projectId);
+    const iconPath = resolveProjectIconPath(project);
+    if (!iconPath) return reply.code(404).send({ error: "Project icon not found" });
+    return sendAssetFile(reply, iconPath, request.headers.range);
   });
 
   app.post<{ Params: { projectId: string } }>("/api/projects/:projectId/select", async (request) => {

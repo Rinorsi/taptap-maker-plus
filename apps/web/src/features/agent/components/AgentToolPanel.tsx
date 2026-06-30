@@ -1,4 +1,4 @@
-import { Activity, Bot, Braces, FileText, GitCompare, Globe, ListChecks, PackageOpen, Terminal, Wrench, X } from "lucide-react";
+import { Activity, Bot, Braces, FileText, GitCompare, Globe, ListChecks, PackageOpen, Terminal, Wrench } from "lucide-react";
 import type { ReactNode } from "react";
 import type { AgentActionKind, AgentActionPreviewRecord, AgentContextSnapshot, AgentMessageRecord, AgentPageState, CompressedAgentContext, PiAgentRuntimeStatus } from "../api";
 import type { DesktopReadiness, ProjectSummary, RuntimeStatus } from "../../../api";
@@ -64,28 +64,19 @@ export function AgentToolPanel({
   page: AgentPageState;
 }) {
   const activeToolTab = toolTabs.find((tab) => tab.id === activeTab);
-  const ActiveToolIcon = activeToolTab?.icon;
 
   return (
     <aside className="flex h-full min-h-0 flex-col bg-agent-panel text-agent-text relative z-10">
       {activeTab === "launcher" ? (
         <div className="flex-1 overflow-y-auto bg-agent-bg p-5">
-          <div className="mb-5 flex items-start justify-between gap-4">
+          <div className="mb-5">
             <div className="min-w-0">
               <p className="m-0 text-[11px] font-semibold uppercase tracking-wider text-agent-accent">Agent workspace</p>
               <h2 className="m-0 mt-1 text-lg font-semibold text-agent-text">单一多功能画布</h2>
               <p className="m-0 mt-2 max-w-2xl text-xs leading-5 text-agent-muted">
-                右侧只保留一个聚焦 surface。任务、Diff、终端、浏览器、文件和日志通过模式切换进入，不在画布内部常驻左右分栏。
+                右侧只保留一个聚焦 surface。任务、Diff、终端、浏览器、文件和日志通过当前画布切换进入，不在画布内部常驻左右分栏。
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => onActiveTabChange("closed")}
-              className="rounded-control p-1 text-agent-muted hover:bg-agent-surface hover:text-agent-text"
-              title="关闭工作区"
-            >
-              <X className="h-4 w-4" />
-            </button>
           </div>
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
             {toolTabs.map((tab) => {
@@ -119,30 +110,30 @@ export function AgentToolPanel({
         </div>
       ) : (
         <>
-          <div className="flex h-[48px] shrink-0 items-center justify-between border-b border-agent-border bg-agent-panel px-4">
-            <div className="flex min-w-0 items-center gap-3 text-sm font-medium text-agent-text">
-              {ActiveToolIcon ? <ActiveToolIcon className="h-4 w-4 shrink-0 text-agent-accent" /> : null}
-              <div className="min-w-0">
-                <div className="truncate">{activeToolTab?.label ?? "工作画布"}</div>
-                <div className="truncate text-[11px] font-normal text-agent-muted">当前 surface 独占右侧画布，需要对比时再临时切换。</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => onActiveTabChange("launcher")}
-                className="text-[11px] text-agent-subtle hover:text-agent-text"
-              >
-                返回列表
-              </button>
-              <button
-                type="button"
-                onClick={() => onActiveTabChange("closed")}
-                className="rounded-control p-1 text-agent-muted hover:bg-agent-surface hover:text-agent-text"
-                title="关闭面板"
-              >
-                <X className="h-4 w-4" />
-              </button>
+          <div className="shrink-0 border-b border-agent-border bg-agent-panel">
+            <div className="flex gap-1 overflow-x-auto px-3 py-2 pr-12">
+              {toolTabs.map((tab) => {
+                const Icon = tab.icon;
+                const selected = tab.id === activeTab;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => onActiveTabChange(tab.id)}
+                    className={cn(
+                      "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-control px-2.5 text-[11px] font-medium transition-colors",
+                      selected
+                        ? "bg-agent-surface text-agent-text"
+                        : "text-agent-muted hover:bg-agent-surface hover:text-agent-text"
+                    )}
+                    title={selected ? activeToolTab?.description : tab.description}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {tab.label}
+                    {tab.state === "stub" ? <span className="text-[10px] text-agent-subtle">待接入</span> : null}
+                  </button>
+                );
+              })}
             </div>
           </div>
 

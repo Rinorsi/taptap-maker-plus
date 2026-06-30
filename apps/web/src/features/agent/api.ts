@@ -58,7 +58,7 @@ export async function listAgentSessions(): Promise<AgentControlSurfaceResponse> 
   return json<AgentControlSurfaceResponse>(await apiFetch("/api/agent/sessions"));
 }
 
-export async function createAgentSession(input: { title?: string; mode?: AgentMode; projectId?: string }): Promise<AgentSessionDetailResponse> {
+export async function createAgentSession(input: { title?: string; projectId?: string }): Promise<AgentSessionDetailResponse> {
   return json<AgentSessionDetailResponse>(
     await apiFetch("/api/agent/sessions", {
       method: "POST",

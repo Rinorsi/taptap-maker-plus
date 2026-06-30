@@ -1,17 +1,5 @@
 import type { AgentContextSnapshot, AgentSelectionReference } from "../../api";
 
-export const modeLabels = {
-  observe: "观察",
-  draft: "草拟",
-  execute: "执行"
-} as const;
-
-export const modeDescriptions = {
-  observe: "只读上下文",
-  draft: "生成草案",
-  execute: "需要审批"
-} as const;
-
 export function buildContextRows(context?: AgentContextSnapshot) {
   return [
     { label: "项目", value: String(context?.counts.projects ?? 0) },

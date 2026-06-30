@@ -110,7 +110,6 @@ export function useAgentWorkspace({ project, page }: AgentWorkspaceProps): Agent
     try {
       const created = await createAgentSession({
         title: project?.name ? `${project.name} Agent 会话` : "新 Agent 会话",
-        mode: "observe",
         projectId: project?.id
       });
       setPi(created.pi);
@@ -141,18 +140,33 @@ export function useAgentWorkspace({ project, page }: AgentWorkspaceProps): Agent
     }
   }
 
-  async function archiveSession() {
-    if (!activeSession) return;
+  async function renameSession(sessionId: string, title: string) {
+    const nextTitle = title.trim();
+    if (!nextTitle) return;
+    setError("");
+    try {
+      const detail = await updateAgentSession(sessionId, { title: nextTitle });
+      setActiveSession((current) => current?.id === detail.session.id ? detail.session : current);
+      setSessions((items) => items.map((item) => item.id === detail.session.id ? detail.session : item));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  async function archiveSession(sessionId = activeSession?.id) {
+    if (!sessionId) return;
     setLoading(true);
     setError("");
     try {
-      const result = await archiveAgentSession(activeSession.id);
+      const result = await archiveAgentSession(sessionId);
       setSessions(result.sessions);
       setPi(result.pi);
-      if (result.activeSession) {
+      if (activeSession?.id === sessionId && result.activeSession) {
         await loadSession(result.activeSession.id, false);
-      } else {
+      } else if (activeSession?.id === sessionId) {
         clearSessionDetail();
+      } else {
+        setSessions(result.sessions);
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -273,6 +287,7 @@ export function useAgentWorkspace({ project, page }: AgentWorkspaceProps): Agent
     refreshWorkspace,
     loadSession,
     createSession,
+    renameSession,
     archiveSession,
     sendMessage,
     changeMode,

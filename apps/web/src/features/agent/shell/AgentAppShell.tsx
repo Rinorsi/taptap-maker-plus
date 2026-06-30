@@ -2,13 +2,11 @@ import { useState } from "react";
 import type { AgentPageState, ProjectSummary } from "../../../api";
 import type { AgentWorkspaceTab } from "../types";
 import { useAgentWorkspace } from "../hooks/useAgentWorkspace";
-import { AgentShellHeader } from "./AgentShellHeader";
 import { AgentShellLayout } from "./AgentShellLayout";
 
 export function AgentAppShell({
   project,
   page,
-  onExit,
 }: {
   project?: ProjectSummary;
   page: AgentPageState;
@@ -21,16 +19,6 @@ export function AgentAppShell({
 
   return (
     <section className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-agent-bg text-agent-text">
-      <AgentShellHeader
-        project={viewModel.selectedProject}
-        activeSession={agent.activeSession}
-        runtimeStatus={viewModel.runtimeStatus}
-        pi={agent.pi}
-        loading={agent.loading}
-        onExit={onExit}
-        onRefresh={() => void agent.refreshWorkspace()}
-        onModeChange={(mode) => void agent.changeMode(mode)}
-      />
       <AgentShellLayout
         sessionRailCollapsed={sessionRailCollapsed}
         activeTab={activeTab}
@@ -53,9 +41,9 @@ export function AgentAppShell({
         onToggleSessionRail={() => setSessionRailCollapsed((value) => !value)}
         onNewSession={() => void agent.createSession()}
         onSelectSession={(sessionId) => void agent.loadSession(sessionId)}
+        onRenameSession={(sessionId, title) => void agent.renameSession(sessionId, title)}
         onActiveTabChange={setActiveTab}
-        onArchiveSession={() => void agent.archiveSession()}
-        onModeChange={(mode) => void agent.changeMode(mode)}
+        onArchiveSession={(sessionId) => void agent.archiveSession(sessionId)}
         onDecideActionPreview={(previewId, decision) => void agent.decideActionPreview(previewId, decision)}
         onCreateActionPreview={(input) => void agent.createActionPreview(input)}
         onExecuteActionPreview={(previewId) => void agent.executeActionPreview(previewId)}

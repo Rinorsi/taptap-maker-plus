@@ -1,4 +1,5 @@
 import { Group, Panel, Separator } from "react-resizable-panels";
+import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import type { AgentWorkspaceTab } from "../types";
 import { AgentChatPanel } from "../components/AgentChatPanel";
 import { AgentSessionSidebar } from "../components/AgentSessionSidebar";
@@ -38,9 +39,9 @@ export function AgentShellLayout({
   onToggleSessionRail,
   onNewSession,
   onSelectSession,
+  onRenameSession,
   onActiveTabChange,
   onArchiveSession,
-  onModeChange,
   onDecideActionPreview,
   onCreateActionPreview,
   onExecuteActionPreview,
@@ -67,9 +68,9 @@ export function AgentShellLayout({
   onToggleSessionRail: () => void;
   onNewSession: () => void;
   onSelectSession: (sessionId: string) => void;
+  onRenameSession: (sessionId: string, title: string) => void;
   onActiveTabChange: (tab: AgentWorkspaceTab) => void;
-  onArchiveSession: () => void;
-  onModeChange: (mode: AgentSessionRecord["mode"]) => void;
+  onArchiveSession: (sessionId?: string) => void;
   onDecideActionPreview: (previewId: string, decision: "approved" | "rejected") => void;
   onCreateActionPreview: (input: { actionKind: AgentActionKind; projectId?: string; args?: Record<string, unknown> }) => void;
   onExecuteActionPreview: (previewId: string) => void;
@@ -93,17 +94,24 @@ export function AgentShellLayout({
             onToggleCollapsed={onToggleSessionRail}
             onNewSession={onNewSession}
             onSelectSession={onSelectSession}
+            onRenameSession={onRenameSession}
+            onArchiveSession={onArchiveSession}
           />
         </div>
       </aside>
 
-      <Group
-        id="agent-shell-workspace"
-        orientation="horizontal"
-        className="min-h-0 min-w-0 flex-1"
-        defaultLayout={{ chat: 38, workspace: 62 }}
-      >
-        <Panel id="chat" minSize="340px" defaultSize="38%" className="min-w-0">
+      <div className="relative min-h-0 min-w-0 flex-1">
+        <WorkspaceToggleButton
+          open={activeTab !== "closed"}
+          onClick={() => onActiveTabChange(activeTab === "closed" ? "launcher" : "closed")}
+        />
+        <Group
+          id="agent-shell-workspace"
+          orientation="horizontal"
+          className="min-h-0 min-w-0 flex-1"
+          defaultLayout={{ chat: 38, workspace: 62 }}
+        >
+          <Panel id="chat" minSize="340px" defaultSize="38%" className="min-w-0">
           <div className="flex h-full min-h-0 flex-col bg-agent-bg">
             <AgentChatPanel
               projectName={selectedProject?.name}
@@ -113,22 +121,20 @@ export function AgentShellLayout({
               messages={messages}
               actionPreviews={actionPreviews}
               loading={loading}
-              onArchive={onArchiveSession}
-              onModeChange={onModeChange}
               onDecideActionPreview={onDecideActionPreview}
               onExecuteActionPreview={onExecuteActionPreview}
               onSynced={onSynced}
-              onOpenWorkspace={() => onActiveTabChange("launcher")}
-              workspaceOpen={activeTab !== "closed"}
+              pendingPreviewCount={pendingPreviewCount}
+              activeRunCount={0}
             />
           </div>
-        </Panel>
-        {activeTab !== "closed" && (
+          </Panel>
+          {activeTab !== "closed" && (
           <Separator
             className="w-1 bg-agent-border-soft transition-colors hover:bg-agent-accent/30 data-[resize-handle-active]:bg-agent-accent/50"
           />
-        )}
-        {activeTab !== "closed" && (
+          )}
+          {activeTab !== "closed" && (
           <Panel id="workspace" minSize="560px" defaultSize={activeTab === "launcher" ? "46%" : "62%"} className="min-w-0">
             <div className="relative z-10 flex h-full min-h-0 flex-col border-l border-agent-border-soft bg-agent-panel shadow-panel">
               <div className="min-h-0 flex-1 overflow-hidden">
@@ -154,8 +160,29 @@ export function AgentShellLayout({
               </div>
             </div>
           </Panel>
-        )}
-      </Group>
+          )}
+        </Group>
+      </div>
     </div>
+  );
+}
+
+function WorkspaceToggleButton({
+  open,
+  onClick,
+}: {
+  open: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="absolute right-3 top-3 z-30 inline-flex h-8 w-8 items-center justify-center rounded-control border border-agent-border bg-agent-panel text-agent-muted shadow-sm transition-colors hover:bg-agent-surface hover:text-agent-text"
+      title={open ? "收起工作区" : "展开工作区"}
+      aria-label={open ? "收起工作区" : "展开工作区"}
+    >
+      {open ? <PanelRightClose className="h-3.5 w-3.5" /> : <PanelRightOpen className="h-3.5 w-3.5" />}
+    </button>
   );
 }

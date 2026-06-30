@@ -18,8 +18,8 @@ import { getPiAgentRuntimeStatus } from "./piRuntimeBridge.js";
 import type { AgentMessageRecord, AgentMode, AgentPageState } from "../types.js";
 
 const DEFAULT_ASSISTANT_REPLY = [
-  "已收到。Pi Runtime Bridge 还未接入真实 Agent 后端，本阶段只会整理上下文、草拟计划和等待确认。",
-  "工作区上下文已经刷新；需要执行类动作时，仍会先生成动作预览。"
+  "已收到。Pi Runtime Bridge 还未接入真实 Agent 后端，本阶段只会整理上下文并生成可审查的动作预览。",
+  "工作区上下文已经刷新；涉及文件变更、命令执行或外部探测时，会先进入动作预览。"
 ].join("\n");
 
 export function getAgentControlSurface() {

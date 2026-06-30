@@ -1,5 +1,5 @@
-import { PanelRightOpen } from "lucide-react";
-import type { AgentActionPreviewRecord, AgentMessageRecord, AgentMode, AgentPageState, AgentSessionRecord } from "../api";
+import { Loader2 } from "lucide-react";
+import type { AgentActionPreviewRecord, AgentMessageRecord, AgentPageState, AgentSessionRecord } from "../api";
 import { cn } from "../../../lib/utils";
 import { formatShortTime } from "../utils";
 import { AssistantUiChatSurface } from "./AssistantUiChatSurface";
@@ -12,13 +12,11 @@ export function AgentChatPanel({
   messages,
   actionPreviews,
   loading,
-  onArchive,
-  onModeChange,
   onDecideActionPreview,
   onExecuteActionPreview,
   onSynced,
-  onOpenWorkspace,
-  workspaceOpen
+  pendingPreviewCount,
+  activeRunCount
 }: {
   projectName?: string;
   projectId?: string;
@@ -27,36 +25,18 @@ export function AgentChatPanel({
   messages: AgentMessageRecord[];
   actionPreviews: AgentActionPreviewRecord[];
   loading: boolean;
-  onArchive: () => void;
-  onModeChange: (mode: AgentMode) => void;
   onDecideActionPreview: (previewId: string, decision: "approved" | "rejected") => void;
   onExecuteActionPreview: (previewId: string) => void;
   onSynced: () => void;
-  onOpenWorkspace: () => void;
-  workspaceOpen: boolean;
+  pendingPreviewCount: number;
+  activeRunCount: number;
 }) {
-  const pendingPreviewCount = actionPreviews.filter((preview) => preview.status === "pending").length;
+  const runStatusBar = pendingPreviewCount > 0 || activeRunCount > 0 ? (
+    <AgentRunStatusBar pendingPreviewCount={pendingPreviewCount} activeRunCount={activeRunCount} />
+  ) : null;
   
   return (
     <aside className="flex h-full min-h-0 flex-col bg-transparent relative">
-      <div className="pointer-events-none absolute right-4 top-4 z-20 flex items-center gap-2">
-        {pendingPreviewCount > 0 ? (
-          <span className="rounded-pill border border-agent-warning/30 bg-agent-warning/10 px-2.5 py-1 text-[11px] font-medium text-agent-warning">
-            {pendingPreviewCount} 个动作待确认
-          </span>
-        ) : null}
-        <button
-          type="button"
-          onClick={onOpenWorkspace}
-          disabled={workspaceOpen}
-          className="pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-control border border-agent-border bg-agent-panel px-2.5 text-[11px] font-medium text-agent-muted shadow-sm transition-colors hover:bg-agent-surface hover:text-agent-text disabled:opacity-45"
-          title={workspaceOpen ? "工作区已打开" : "打开工作区"}
-        >
-          <PanelRightOpen className="h-3.5 w-3.5" />
-          工作区
-        </button>
-      </div>
-
       <div className="min-h-0 flex-1 overflow-hidden relative">
         {activeSession ? (
           <AssistantUiChatSurface
@@ -65,6 +45,7 @@ export function AgentChatPanel({
             projectId={projectId}
             page={page}
             onSynced={onSynced}
+            runStatusBar={runStatusBar}
           />
         ) : messages.length ? (
           <div className="flex h-full flex-col gap-3 overflow-y-auto px-4 py-4">
@@ -85,14 +66,26 @@ export function AgentChatPanel({
           </div>
         )}
       </div>
-      {!activeSession ? (
-        <div className="shrink-0 border-t border-agent-border bg-agent-panel p-3 text-center">
-          <button type="button" onClick={onArchive} disabled={!activeSession || loading} className="text-xs font-semibold text-agent-muted hover:text-agent-warning disabled:opacity-40">
-            归档当前会话
-          </button>
-        </div>
-      ) : null}
     </aside>
+  );
+}
+
+function AgentRunStatusBar({
+  pendingPreviewCount,
+  activeRunCount,
+}: {
+  pendingPreviewCount: number;
+  activeRunCount: number;
+}) {
+  const segments: string[] = [];
+  if (activeRunCount > 0) segments.push(`正在进行 ${activeRunCount} 个任务`);
+  if (pendingPreviewCount > 0) segments.push(`${pendingPreviewCount} 个动作待处理`);
+
+  return (
+    <div className="flex min-h-8 items-center gap-2 rounded-control border border-agent-border bg-agent-panel px-3 text-[12px] text-agent-muted shadow-sm">
+      {activeRunCount > 0 ? <Loader2 className="h-3.5 w-3.5 animate-spin text-agent-accent" /> : null}
+      <span className="truncate">{segments.join(" · ")}</span>
+    </div>
   );
 }
 

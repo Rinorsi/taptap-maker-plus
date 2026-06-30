@@ -23,7 +23,7 @@ import {
   RefreshCwIcon,
   SquareIcon,
 } from "lucide-react";
-import { type FC } from "react";
+import { type FC, type ReactNode } from "react";
 import { Button } from "../../../components/ui/Button";
 import { cn } from "../../../lib/utils";
 import { MarkdownText } from "./MarkdownText";
@@ -33,7 +33,7 @@ import { TooltipIconButton } from "./TooltipIconButton";
 const isNewChatView = (state: AssistantState) =>
   state.thread.messages.length === 0 && (!state.thread.isLoading || state.threads.isLoading);
 
-export const Thread: FC = () => {
+export const Thread: FC<{ runStatusBar?: ReactNode }> = ({ runStatusBar }) => {
   const isEmpty = useAuiState(isNewChatView);
 
   return (
@@ -65,6 +65,7 @@ export const Thread: FC = () => {
           )}
         >
           <ThreadScrollToBottom />
+          {runStatusBar ? <div className="px-4">{runStatusBar}</div> : null}
           <Composer />
         </ThreadPrimitive.ViewportFooter>
       </ThreadPrimitive.Viewport>
@@ -107,7 +108,7 @@ const Composer: FC = () => (
     <div className="flex w-full flex-col gap-2 rounded-panel border border-agent-border bg-agent-panel p-2 shadow-sm transition-colors focus-within:border-agent-accent focus-within:ring-1 focus-within:ring-agent-accent/20">
       <ComposerPrimitive.Input
         placeholder="输入对话内容... (@ 引用上下文，/ 使用快捷指令)"
-        className="max-h-[30vh] min-h-10 w-full resize-none bg-transparent px-3 py-2 text-[14px] leading-relaxed text-agent-text outline-none placeholder:text-agent-muted font-mono"
+        className="max-h-[30vh] min-h-10 w-full resize-none bg-transparent px-3 py-2 font-sans text-[14px] font-normal leading-relaxed text-agent-text outline-none placeholder:font-normal placeholder:text-agent-muted"
         rows={1}
         autoFocus
         aria-label="Agent Message Input"
@@ -229,7 +230,7 @@ const UserActionBar: FC = () => (
 const EditComposer: FC = () => (
   <MessagePrimitive.Root className="flex flex-col px-4 mb-4">
     <ComposerPrimitive.Root className="ms-auto flex w-full max-w-[85%] flex-col rounded-card border border-agent-border bg-agent-panel shadow-sm">
-      <ComposerPrimitive.Input className="min-h-14 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-[13px] text-agent-text outline-none" autoFocus />
+      <ComposerPrimitive.Input className="min-h-14 w-full resize-none bg-transparent px-4 pt-3 pb-1 font-sans text-[13px] font-normal text-agent-text outline-none" autoFocus />
       <div className="mx-3 mb-3 mt-2 flex items-center justify-end gap-2">
         <ComposerPrimitive.Cancel asChild>
           <Button type="button" variant="ghost" className="h-7 text-agent-subtle hover:text-agent-text hover:bg-agent-surface">取消</Button>

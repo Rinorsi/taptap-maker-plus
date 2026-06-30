@@ -6,6 +6,7 @@ import {
   useLocalRuntime
 } from "@assistant-ui/react";
 import { useMemo } from "react";
+import type { ReactNode } from "react";
 import type { AgentMessageRecord, AgentPageState, AgentSessionRecord } from "../api";
 import { sendAgentMessage } from "../api";
 import { Thread } from "../assistant-ui/Thread";
@@ -15,13 +16,15 @@ export function AssistantUiChatSurface({
   messages,
   projectId,
   page,
-  onSynced
+  onSynced,
+  runStatusBar
 }: {
   activeSession: AgentSessionRecord;
   messages: AgentMessageRecord[];
   projectId?: string;
   page: AgentPageState;
   onSynced: () => void;
+  runStatusBar?: ReactNode;
 }) {
   const initialMessages = useMemo(() => toAssistantUiMessages(messages), [messages]);
   const adapter = useMemo<ChatModelAdapter>(() => ({
@@ -47,7 +50,7 @@ export function AssistantUiChatSurface({
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <Thread />
+      <Thread runStatusBar={runStatusBar} />
     </AssistantRuntimeProvider>
   );
 }

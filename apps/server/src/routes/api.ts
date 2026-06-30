@@ -55,7 +55,7 @@ import { runtimeManager } from "../services/mcpRuntime.js";
 import { getMcpPackageUpdateStatus, installMcpPackage, uninstallMcpPackage } from "../services/mcpPackageManager.js";
 import { checkAppUpdate, downloadAndOpenAppUpdate, getAppUpdateDownloadStatus, listAppReleases, openExternalUrl, startAppUpdateDownload } from "../services/appUpdateManager.js";
 import { executeToolCall, syncCreditRecordsFromTasks } from "../services/toolExecution.js";
-import { buildAgentContext } from "../agent/contextBuilder.js";
+import { registerAgentRoutes } from "../agent/routes.js";
 import { appVersion } from "../generated/appVersion.js";
 import { bindExistingMakerProject, initMakerCloudProject, listMakerCloudProjects, loginMaker, resolveMakerCloudProjectTargetDir, scanExistingMakerProjects, setMakerToken } from "../services/makerOnboarding.js";
 import { getProjectBuildLogs } from "../services/projectLogs.js";
@@ -308,36 +308,6 @@ const workflowRunSchema = z.object({
   graph: workflowGraphSchema,
   nodeIds: z.array(z.string()).min(1)
 });
-
-const agentContextQuerySchema = z.object({
-  projectId: z.string().min(1).optional(),
-  activeTab: z.enum(["status", "tools", "logs", "errors"]).optional(),
-  selectionType: z.enum(["project", "tool", "task", "asset"]).optional(),
-  projectSelectionId: z.string().min(1).optional(),
-  toolName: z.string().min(1).optional(),
-  taskId: z.string().min(1).optional(),
-  assetRelativePath: z.string().min(1).optional()
-});
-
-function pageStateFromQuery(query: z.infer<typeof agentContextQuerySchema>) {
-  const page = {
-    activeTab: query.activeTab,
-    selection: undefined as ReturnType<typeof buildAgentContext>["page"]["selection"]
-  };
-  if (query.selectionType === "project" && query.projectSelectionId) {
-    page.selection = { type: "project", projectId: query.projectSelectionId };
-  }
-  if (query.selectionType === "tool" && query.toolName) {
-    page.selection = { type: "tool", toolName: query.toolName };
-  }
-  if (query.selectionType === "task" && query.taskId) {
-    page.selection = { type: "task", taskId: query.taskId };
-  }
-  if (query.selectionType === "asset" && query.assetRelativePath) {
-    page.selection = { type: "asset", relativePath: query.assetRelativePath };
-  }
-  return page;
-}
 
 function extractArguments(body: z.infer<typeof callToolSchema>): Record<string, unknown> {
   return body.toolArgs ?? body.arguments ?? {};
@@ -921,11 +891,7 @@ export async function registerApiRoutes(app: FastifyInstance) {
     }
   }));
 
-  app.get<{ Querystring: unknown }>("/api/agent/context", async (request, reply) => {
-    const parsed = agentContextQuerySchema.safeParse(request.query ?? {});
-    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
-    return { context: buildAgentContext({ projectId: parsed.data.projectId, page: pageStateFromQuery(parsed.data) }) };
-  });
+  registerAgentRoutes(app);
 
   app.post("/api/onboarding/login", async (_request, reply) => {
     try {

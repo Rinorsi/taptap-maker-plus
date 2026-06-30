@@ -112,6 +112,7 @@ type Props = {
   appUpdateAvailable?: boolean;
   appLatestVersion?: string;
   onOpenModule: (module: WorkbenchModule) => void;
+  onExitAgent: () => void;
   activeSettingsTab: SettingsTab;
   sidebarCollapsed: boolean;
   onActiveSettingsTabChange: (tab: SettingsTab) => void;
@@ -307,7 +308,7 @@ export function WorkbenchViewport(props: Props) {
         />
       ) : null}
       {props.activeModule === "agent" ? (
-        <AgentContextView project={props.project} page={props.agentPage} />
+        <AgentContextView project={props.project} page={props.agentPage} onExit={props.onExitAgent} />
       ) : null}
       {props.activeModule === "runs" ? (
         <RunsView
@@ -347,7 +348,7 @@ export function WorkbenchViewport(props: Props) {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -10 }}
           transition={{ duration: 0.2 }}
-          className="absolute inset-0 overflow-auto"
+          className={props.activeModule === "agent" ? "absolute inset-0 overflow-hidden" : "absolute inset-0 overflow-auto"}
         >
           <Suspense fallback={<WorkbenchModuleFallback />}>
             {moduleView}

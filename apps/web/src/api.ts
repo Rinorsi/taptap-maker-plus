@@ -332,47 +332,25 @@ export type ProjectBuildLogsSummary = {
   buildLogs: ProjectBuildLogEntry[];
 };
 
-export type AgentRightPanelTab = "status" | "tools" | "gameLogs" | "logs" | "errors";
-
-export type AgentSelectionReference =
-  | { type: "project"; projectId: string }
-  | { type: "tool"; toolName: string }
-  | { type: "task"; taskId: string }
-  | { type: "asset"; relativePath: string };
-
-export type AgentPageState = {
-  activeTab?: AgentRightPanelTab;
-  selection?: AgentSelectionReference;
-};
-
-export type AgentContextSnapshot = {
-  generatedAt: string;
-  selectedProjectId?: string;
-  page: AgentPageState;
-  project?: ProjectSummary;
-  projects: ProjectSummary[];
-  runtime?: RuntimeSummary;
-  tools: ToolSummary[];
-  toolsListSnapshot?: Pick<ToolsListSnapshot, "projectId" | "updatedAt">;
-  tasks: TaskRecord[];
-  generations: GenerationRecord[];
-  assets: AssetSummary[];
-  workflows: WorkflowGraphRecord[];
-  workflowRuns: WorkflowRunRecord[];
-  credits: CreditRecord[];
-  buildLogs?: ProjectBuildLogsSummary;
-  counts: {
-    projects: number;
-    tools: number;
-    tasks: number;
-    generations: number;
-    assets: number;
-    workflows: number;
-    workflowRuns: number;
-    credits: number;
-    buildLogs: number;
-  };
-};
+export type {
+  AgentActionKind,
+  AgentActionPreviewRecord,
+  AgentBrowserProbeResult,
+  AgentContextSnapshot,
+  AgentContextSnapshotRecord,
+  AgentControlSurfaceResponse,
+  AgentMessageRecord,
+  AgentMessageRole,
+  AgentMode,
+  AgentPageState,
+  AgentRightPanelTab,
+  AgentSelectionReference,
+  AgentSessionRecord,
+  AgentTerminalSnapshot,
+  AgentTerminalSnapshotCommandId,
+  CompressedAgentContext,
+  PiAgentRuntimeStatus
+} from "./features/agent/contracts";
 
 export type DesktopReadinessPaths = {
   dataDir?: string;
@@ -751,7 +729,7 @@ async function discoverDesktopApiBase() {
   return "";
 }
 
-async function apiFetch(path: string, init?: RequestInit) {
+export async function apiFetch(path: string, init?: RequestInit) {
   try {
     return await fetch(apiUrl(path), init);
   } catch (error) {
@@ -770,7 +748,7 @@ async function apiFetch(path: string, init?: RequestInit) {
   }
 }
 
-const json = async <T>(response: Response): Promise<T> => {
+export const json = async <T>(response: Response): Promise<T> => {
   if (!response.ok) throw new Error(await response.text());
   return response.json() as Promise<T>;
 };
@@ -1197,21 +1175,21 @@ export async function getBuildLogs(projectId: string): Promise<ProjectBuildLogsS
   return data.logs;
 }
 
-export async function getAgentContext(projectId?: string, page?: AgentPageState): Promise<AgentContextSnapshot> {
-  const params = new URLSearchParams();
-  if (projectId) params.set("projectId", projectId);
-  if (page?.activeTab) params.set("activeTab", page.activeTab);
-  if (page?.selection) {
-    params.set("selectionType", page.selection.type);
-    if (page.selection.type === "project") params.set("projectSelectionId", page.selection.projectId);
-    if (page.selection.type === "tool") params.set("toolName", page.selection.toolName);
-    if (page.selection.type === "task") params.set("taskId", page.selection.taskId);
-    if (page.selection.type === "asset") params.set("assetRelativePath", page.selection.relativePath);
-  }
-  const query = params.toString();
-  const data = await json<{ context: AgentContextSnapshot }>(await apiFetch(`/api/agent/context${query ? `?${query}` : ""}`));
-  return data.context;
-}
+export {
+  archiveAgentSession,
+  createAgentActionPreview,
+  createAgentSession,
+  decideAgentActionPreview,
+  executeAgentActionPreview,
+  getAgentCompressedContext,
+  getAgentContext,
+  getAgentSession,
+  listAgentSessions,
+  probeAgentBrowserUrl,
+  runAgentTerminalSnapshot,
+  sendAgentMessage,
+  updateAgentSession
+} from "./features/agent/api";
 
 export async function getDesktopReadiness(): Promise<DesktopReadiness> {
   return json<DesktopReadiness>(await apiFetch("/api/desktop/readiness"));

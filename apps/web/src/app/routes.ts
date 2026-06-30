@@ -24,6 +24,6 @@ export const workbenchRoutes: WorkbenchRoute[] = [
   { id: "about", label: "关于", shortLabel: "关于" },
   { id: "runs", label: "运行记录", shortLabel: "记录", developerOnly: true, hiddenPageNote: "未开发完的隐藏页面，禁止使用" },
   { id: "build", label: "构建中心", shortLabel: "构建", developerOnly: true, hiddenPageNote: "未开发完的隐藏页面，禁止使用" },
-  { id: "agent", label: "助手上下文", shortLabel: "助手", developerOnly: true, hiddenPageNote: "未开发完的隐藏页面，禁止使用" },
+  { id: "agent", label: "Agent 工作台", shortLabel: "Agent" },
   { id: "settings", label: "设置", shortLabel: "设置" },
 ];

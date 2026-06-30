@@ -42,7 +42,7 @@ export function applyWindowMinimumSize() {
 }
 
 export function isDeveloperOnlyModule(module: WorkbenchModule) {
-  return module === "studio-canvas" || module === "runs" || module === "build" || module === "agent";
+  return module === "studio-canvas" || module === "runs" || module === "build";
 }
 
 export function resolvePanelCollapsed(preference: PanelPreference, storageKey: string) {

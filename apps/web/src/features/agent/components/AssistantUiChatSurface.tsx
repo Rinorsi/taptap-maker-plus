@@ -1,0 +1,74 @@
+import {
+  AssistantRuntimeProvider,
+  type ChatModelAdapter,
+  type ThreadMessage,
+  type ThreadMessageLike,
+  useLocalRuntime
+} from "@assistant-ui/react";
+import { useMemo } from "react";
+import type { AgentMessageRecord, AgentPageState, AgentSessionRecord } from "../api";
+import { sendAgentMessage } from "../api";
+import { Thread } from "../assistant-ui/Thread";
+
+export function AssistantUiChatSurface({
+  activeSession,
+  messages,
+  projectId,
+  page,
+  onSynced
+}: {
+  activeSession: AgentSessionRecord;
+  messages: AgentMessageRecord[];
+  projectId?: string;
+  page: AgentPageState;
+  onSynced: () => void;
+}) {
+  const initialMessages = useMemo(() => toAssistantUiMessages(messages), [messages]);
+  const adapter = useMemo<ChatModelAdapter>(() => ({
+    async *run(options) {
+      const latestUserText = readLatestUserText(options.messages);
+      if (!latestUserText) {
+        yield { content: [{ type: "text", text: "没有读取到用户输入。" }] };
+        return;
+      }
+      const result = await sendAgentMessage(activeSession.id, {
+        content: latestUserText,
+        projectId,
+        page
+      });
+      await onSynced();
+      yield { content: [{ type: "text", text: result.assistantMessage.content || "Agent 未返回内容。" }] };
+    }
+  }), [activeSession.id, onSynced, page, projectId]);
+  const runtime = useLocalRuntime(adapter, {
+    initialMessages,
+    unstable_enableMessageQueue: true
+  });
+
+  return (
+    <AssistantRuntimeProvider runtime={runtime}>
+      <Thread />
+    </AssistantRuntimeProvider>
+  );
+}
+
+function toAssistantUiMessages(messages: AgentMessageRecord[]): ThreadMessageLike[] {
+  return messages
+    .filter((message) => message.role !== "system")
+    .map((message) => ({
+      role: message.role,
+      content: [{ type: "text", text: message.content }]
+    }));
+}
+
+function readLatestUserText(messages: readonly ThreadMessage[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role !== "user") continue;
+    return message.content
+      .map((part) => (part.type === "text" ? part.text : ""))
+      .join("\n")
+      .trim();
+  }
+  return "";
+}

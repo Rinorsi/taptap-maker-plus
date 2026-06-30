@@ -19,7 +19,9 @@ type Props = {
   tools: ToolSummary[];
   assets: AssetSummary[];
   tasks: TaskRecord[];
+  agentActive: boolean;
   onThemeToggle: () => void;
+  onToggleAgent: () => void;
   onOpenSettings: () => void;
   onSelectProject: (projectId: string) => void;
   onOpenModule: (module: WorkbenchModule) => void;
@@ -48,7 +50,7 @@ function isWindowDragTarget(target: EventTarget | null) {
   );
 }
 
-export function TopBar({ project, runtime, notice, toolCount, theme, projects = [], tools = [], assets = [], tasks = [], onThemeToggle, onOpenSettings, onSelectProject, onOpenModule, onOpenLogs, onOpenTools, onSelect, appMenu, searchFocusSignal = 0, onStartRuntime, onStopRuntime }: Props) {
+export function TopBar({ project, runtime, notice, toolCount, theme, projects = [], tools = [], assets = [], tasks = [], agentActive, onThemeToggle, onToggleAgent, onOpenSettings, onSelectProject, onOpenModule, onOpenLogs, onOpenTools, onSelect, appMenu, searchFocusSignal = 0, onStartRuntime, onStopRuntime }: Props) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -143,9 +145,40 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
     }
   }
 
+  if (agentActive) {
+    return (
+      <header
+        className="relative z-[999] flex h-[42px] shrink-0 select-none items-center justify-between border-b border-white/10 bg-[#0f1117] px-3 text-zinc-300"
+        onPointerDown={handleTitlebarPointerDown}
+        onPointerMove={handleTitlebarPointerMove}
+        onPointerUp={clearTitlebarPointer}
+        onPointerCancel={clearTitlebarPointer}
+        onDoubleClick={handleTitlebarDoubleClick}
+      >
+        <button
+          type="button"
+          className="flex h-8 items-center gap-2 rounded-md px-2 text-[12px] font-semibold text-zinc-300 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+          onClick={onToggleAgent}
+          title="返回工作台"
+          aria-label="返回工作台"
+          data-no-window-drag
+        >
+          <img src="/files.png" alt="" className="h-6 rounded-md object-contain" />
+          <span>Agent 工作台</span>
+        </button>
+        <div className="flex items-center gap-2" data-no-window-drag>
+          <Button variant="ghost" size="icon" onClick={onThemeToggle} title="切换主题" className="h-8 w-8 text-zinc-400 hover:bg-white/10 hover:text-white">
+            <ThemeToggleIcon theme={theme} />
+          </Button>
+          <DesktopWindowControls />
+        </div>
+      </header>
+    );
+  }
+
   return (
     <header
-      className="flex items-center gap-4 px-4 h-[52px] border-b border-border bg-surface-panel z-[80] shrink-0 relative select-none"
+      className="flex items-center gap-4 px-4 h-[52px] border-b border-border bg-surface-panel z-[999] shrink-0 relative select-none"
       onPointerDown={handleTitlebarPointerDown}
       onPointerMove={handleTitlebarPointerMove}
       onPointerUp={clearTitlebarPointer}
@@ -153,9 +186,19 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
       onDoubleClick={handleTitlebarDoubleClick}
     >
       <div className="flex items-center min-w-0 shrink-0 w-[520px] pl-1 gap-3">
-        <div className="flex items-center gap-1.5 select-none pointer-events-none mr-2">
-          <img src="/files.png" alt="Plus" className="h-[28px] rounded-lg object-contain" />
-        </div>
+        <button
+          type="button"
+          className={cn(
+            "mr-2 flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35",
+            agentActive ? "bg-surface-muted shadow-[0_0_0_1px_rgba(0,217,197,0.28)]" : "",
+          )}
+          onClick={onToggleAgent}
+          title={agentActive ? "返回工作台" : "打开 Agent 工作台"}
+          aria-label={agentActive ? "返回工作台" : "打开 Agent 工作台"}
+          data-no-window-drag
+        >
+          <img src="/files.png" alt="" className="h-[28px] rounded-lg object-contain" />
+        </button>
         <div className="min-w-0">{appMenu}</div>
       </div>
 

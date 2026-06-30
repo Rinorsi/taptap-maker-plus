@@ -146,9 +146,64 @@ sqlite.exec(`
     created_at TEXT NOT NULL,
     FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS agent_sessions (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    project_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    archived_at TEXT,
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS agent_messages (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    context_snapshot_id TEXT,
+    metadata_json TEXT NOT NULL,
+    FOREIGN KEY(session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS agent_context_snapshots (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    project_id TEXT,
+    snapshot_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS agent_action_previews (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    project_id TEXT,
+    status TEXT NOT NULL,
+    action_kind TEXT NOT NULL,
+    tool_name TEXT,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    args_json TEXT NOT NULL,
+    affected_paths_json TEXT NOT NULL,
+    risk_level TEXT NOT NULL,
+    expected_cost_text TEXT,
+    expected_duration_text TEXT,
+    created_at TEXT NOT NULL,
+    decided_at TEXT,
+    decision TEXT,
+    decision_reason TEXT,
+    raw_json TEXT NOT NULL,
+    FOREIGN KEY(session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL
+  );
 `);
 
-const parseJson = <T>(value: string, fallback: T): T => {
+export const parseJson = <T>(value: string, fallback: T): T => {
   try {
     return JSON.parse(value) as T;
   } catch {
@@ -327,6 +382,10 @@ export function deleteAppSettings(keys: string[]) {
 
 export function resetDesktopState() {
   const tx = sqlite.transaction(() => {
+    sqlite.prepare("DELETE FROM agent_action_previews").run();
+    sqlite.prepare("DELETE FROM agent_context_snapshots").run();
+    sqlite.prepare("DELETE FROM agent_messages").run();
+    sqlite.prepare("DELETE FROM agent_sessions").run();
     sqlite.prepare("DELETE FROM workflow_runs").run();
     sqlite.prepare("DELETE FROM workflow_graphs").run();
     sqlite.prepare("DELETE FROM credit_ledger").run();

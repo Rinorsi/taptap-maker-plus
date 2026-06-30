@@ -318,7 +318,7 @@ export type ProjectBuildLogsSummary = {
   buildLogs: ProjectBuildLogEntry[];
 };
 
-export type AgentRightPanelTab = "status" | "tools" | "logs" | "errors";
+export type AgentRightPanelTab = "status" | "tools" | "gameLogs" | "logs" | "errors";
 
 export type AgentSelectionReference =
   | { type: "project"; projectId: string }
@@ -358,6 +358,72 @@ export type AgentContextSnapshot = {
     credits: number;
     buildLogs: number;
   };
+};
+
+export type AgentMode = "observe" | "draft" | "execute";
+
+export type AgentMessageRole = "user" | "assistant" | "system";
+
+export type AgentSessionRecord = {
+  id: string;
+  title: string;
+  mode: AgentMode;
+  projectId?: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt?: string;
+};
+
+export type AgentMessageRecord = {
+  id: string;
+  sessionId: string;
+  role: AgentMessageRole;
+  content: string;
+  createdAt: string;
+  contextSnapshotId?: string;
+  metadata: Record<string, unknown>;
+};
+
+export type AgentContextSnapshotRecord = {
+  id: string;
+  sessionId: string;
+  projectId?: string;
+  snapshot: AgentContextSnapshot;
+  createdAt: string;
+};
+
+export type AgentActionPreviewStatus = "pending" | "approved" | "rejected" | "executed" | "canceled";
+
+export type AgentApprovalDecision = "approved" | "rejected";
+
+export type AgentActionPreviewRecord = {
+  id: string;
+  sessionId: string;
+  projectId?: string;
+  status: AgentActionPreviewStatus;
+  actionKind: string;
+  toolName?: string;
+  title: string;
+  summary: string;
+  args: Record<string, unknown>;
+  affectedPaths: string[];
+  riskLevel: "low" | "medium" | "high";
+  expectedCostText?: string;
+  expectedDurationText?: string;
+  createdAt: string;
+  decidedAt?: string;
+  decision?: AgentApprovalDecision;
+  decisionReason?: string;
+  raw: Record<string, unknown>;
+};
+
+export type PiAgentRuntimeStatus = {
+  connected: boolean;
+  integrationMode: "not_connected" | "sdk" | "rpc";
+  packageName: "@earendil-works/pi-coding-agent";
+  sdkPreferred: boolean;
+  rpcFallbackAvailable: boolean;
+  lastError?: string;
 };
 
 export type AppSettingsPreferences = Record<string, unknown>;

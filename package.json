@@ -30,7 +30,6 @@
     "set:version-from-manifest": "node scripts/set-app-version-from-manifest.mjs"
   },
   "devDependencies": {
-    "@mastra/core": "^1.45.0",
     "@playwright/test": "^1.61.0",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/cli": "^2.11.3",

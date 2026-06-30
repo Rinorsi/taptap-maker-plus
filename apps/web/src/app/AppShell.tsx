@@ -87,6 +87,7 @@ import {
   type Command,
 } from "../commands";
 import { copyText } from "../lib/clipboard";
+import { cn } from "../lib/utils";
 import { ContextMenuStyles } from "../components/ui/ContextMenuStyles";
 import { PromptDialog, type PromptConfig } from "../components/ui/PromptDialog";
 import { ConfirmDialog, type ConfirmConfig } from "../components/ui/ConfirmDialog";
@@ -164,6 +165,10 @@ export function AppShell() {
     return resolveInitialModule(Boolean(hasProject));
   });
   const [lastNonSettingsModule, setLastNonSettingsModule] = useState<WorkbenchModule>(() => {
+    const hasProject = localStorage.getItem("taptap.selectedProjectId");
+    return resolveInitialModule(Boolean(hasProject));
+  });
+  const [agentReturnModule, setAgentReturnModule] = useState<WorkbenchModule>(() => {
     const hasProject = localStorage.getItem("taptap.selectedProjectId");
     return resolveInitialModule(Boolean(hasProject));
   });
@@ -1770,6 +1775,18 @@ export function AppShell() {
     }
     setLastNonSettingsModule(module);
     setActiveModule(module);
+  }
+
+  function toggleAgentModule() {
+    if (activeModule === "agent") {
+      const fallbackModule = selectedProject ? resolveDefaultProjectModule() : "home";
+      const nextModule = agentReturnModule === "agent" || agentReturnModule === "settings" ? fallbackModule : agentReturnModule;
+      setActiveModule(nextModule);
+      setLastNonSettingsModule(nextModule);
+      return;
+    }
+    setAgentReturnModule(activeModule === "settings" ? lastNonSettingsModule : activeModule);
+    selectModule("agent");
   }
 
   function exitSettings() {
@@ -3848,6 +3865,7 @@ export function AppShell() {
 
   const runtimeView = runtime ?? selectedProject?.runtime;
   const isSettingsModule = activeModule === "settings";
+  const isAgentModule = activeModule === "agent";
   const effectiveSidebarCollapsed = isSettingsModule ? false : sidebarCollapsed;
   const effectiveSidebarWidth = isSettingsModule ? sidebarWidth : sidebarCollapsed ? 56 : sidebarWidth;
   const agentPage: AgentPageState = useMemo(
@@ -3913,7 +3931,10 @@ export function AppShell() {
          }}
       />
       <div
-        className="w-full h-full flex flex-col app-background overflow-hidden text-text rounded-[10px] border border-border-soft shadow-panel"
+        className={cn(
+          "w-full h-full flex flex-col overflow-hidden text-text",
+          isAgentModule ? "bg-[#18181b]" : "app-background rounded-[10px] border border-border-soft shadow-panel"
+        )}
         onClick={() => {
           setFallbackMenu(undefined);
           setEditableMenu(undefined);
@@ -3931,11 +3952,13 @@ export function AppShell() {
           tools={tools}
           assets={assets}
           tasks={tasks}
+          agentActive={isAgentModule}
           onThemeToggle={() => {
             const nextTheme = theme === "light" ? "dark" : "light";
             writeLocalPreference(settingsPreferenceKeys.themePreference, nextTheme);
             playThemeCinema(nextTheme);
           }}
+          onToggleAgent={toggleAgentModule}
           onOpenSettings={() => selectModule("settings")}
           onSelectProject={handleSelectProject}
           onOpenModule={selectModule}
@@ -3964,6 +3987,7 @@ export function AppShell() {
             } as React.CSSProperties
           }
         >
+          {!isAgentModule ? (
           <div
             className="relative shrink-0 h-full"
             style={{ width: effectiveSidebarWidth }}
@@ -3995,6 +4019,7 @@ export function AppShell() {
               />
             )}
           </div>
+          ) : null}
 
           <div
             className={[
@@ -4061,6 +4086,7 @@ export function AppShell() {
               onResetInitialState={handleResetInitialState}
               onThemePreferenceChange={handleThemePreferenceChange}
               onOpenModule={selectModule}
+              onExitAgent={toggleAgentModule}
               activeSettingsTab={activeSettingsTab}
               sidebarCollapsed={effectiveSidebarCollapsed}
               onActiveSettingsTabChange={setActiveSettingsTab}
@@ -4075,6 +4101,7 @@ export function AppShell() {
             />
           </div>
 
+          {!isAgentModule ? (
           <div
             className="relative shrink-0 flex h-full border-l border-border bg-surface-panel"
             style={{
@@ -4119,6 +4146,7 @@ export function AppShell() {
               videoRecoveryCooldowns={videoRecoveryCooldowns}
             />
           </div>
+          ) : null}
         </div>
         <CommandPalette
           open={commandPaletteOpen}

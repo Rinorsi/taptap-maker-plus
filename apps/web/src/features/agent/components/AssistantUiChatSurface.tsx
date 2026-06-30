@@ -53,12 +53,26 @@ export function AssistantUiChatSurface({
 }
 
 function toAssistantUiMessages(messages: AgentMessageRecord[]): ThreadMessageLike[] {
-  return messages
-    .filter((message) => message.role !== "system")
-    .map((message) => ({
+  const result: ThreadMessageLike[] = [];
+  const filtered = messages.filter((message) => message.role !== "system");
+  for (let i = 0; i < filtered.length; i++) {
+    const message = filtered[i];
+    const prevMessage = result[result.length - 1];
+    const prevContent = prevMessage?.content;
+    const prevText = Array.isArray(prevContent) && prevContent.length > 0 && typeof prevContent[0] === "object" && "type" in prevContent[0] && prevContent[0].type === "text" ? prevContent[0].text : null;
+    if (
+      message.role === "assistant" &&
+      prevMessage?.role === "assistant" &&
+      prevText === message.content
+    ) {
+      continue;
+    }
+    result.push({
       role: message.role,
       content: [{ type: "text", text: message.content }]
-    }));
+    });
+  }
+  return result;
 }
 
 function readLatestUserText(messages: readonly ThreadMessage[]) {

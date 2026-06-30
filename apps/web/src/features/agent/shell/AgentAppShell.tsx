@@ -15,12 +15,12 @@ export function AgentAppShell({
   onExit: () => void;
 }) {
   const [sessionRailCollapsed, setSessionRailCollapsed] = useState(false);
-  const [activeTab, setActiveTab] = useState<AgentWorkspaceTab>("context");
+  const [activeTab, setActiveTab] = useState<AgentWorkspaceTab>("overview");
   const agent = useAgentWorkspace({ project, page });
   const { viewModel } = agent;
 
   return (
-    <section className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[#15171d] text-zinc-200">
+    <section className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-agent-bg text-agent-text">
       <AgentShellHeader
         project={viewModel.selectedProject}
         activeSession={agent.activeSession}

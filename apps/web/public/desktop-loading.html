@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TapTap 制造 Plus</title>
     <style>
+      @font-face {
+        font-family: "MiSans";
+        src: url("/fonts/MiSans-Bold.otf") format("opentype");
+        font-weight: 700;
+        font-style: normal;
+        font-display: swap;
+      }
+
       :root {
         --brand: #00D9C5;
         --brand-glow: rgba(0, 217, 197, 0.2);
@@ -50,7 +58,8 @@
         margin: 0;
         background-color: var(--bg-color);
         color: var(--text-primary);
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+        font-family: "MiSans", "Microsoft YaHei", "PingFang SC", "Segoe UI", system-ui, sans-serif;
+        font-weight: 700;
         overflow: hidden;
         cursor: default;
         user-select: none;

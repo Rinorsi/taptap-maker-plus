@@ -1,6 +1,15 @@
 @import "tailwindcss";
 @config "../tailwind.config.js";
 @source "../";
+
+@font-face {
+  font-family: "MiSans";
+  src: url("/fonts/MiSans-Bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 @layer base {
   :root[data-theme="light"] {
     color-scheme: light;
@@ -23,6 +32,17 @@
     --radius-pill: 999px;
     --shadow-panel: 0 18px 40px rgba(6, 10, 38, 0.08);
     --shadow-popover: 0 12px 32px -6px rgba(6, 10, 38, 0.16);
+
+    --agent-bg: color-mix(in srgb, var(--surface-app) 96%, var(--color-brand) 4%);
+    --agent-panel: var(--surface-panel);
+    --agent-surface: var(--surface-muted);
+    --agent-border: var(--color-border);
+    --agent-border-soft: var(--color-border-soft);
+    --agent-text: var(--color-text);
+    --agent-muted: var(--color-text-muted);
+    --agent-subtle: var(--color-text-subtle);
+    --agent-accent: var(--color-brand);
+    --agent-warning: #ea580c;
   }
 
   :root[data-theme="dark"] {
@@ -46,6 +66,17 @@
     --radius-pill: 999px;
     --shadow-panel: 0 18px 40px rgba(0, 0, 0, 0.32);
     --shadow-popover: 0 12px 32px -6px rgba(0, 0, 0, 0.46);
+
+    --agent-bg: color-mix(in srgb, var(--surface-app) 88%, black 12%);
+    --agent-panel: var(--surface-panel);
+    --agent-surface: var(--surface-muted);
+    --agent-border: var(--color-border);
+    --agent-border-soft: var(--color-border-soft);
+    --agent-text: var(--color-text);
+    --agent-muted: var(--color-text-muted);
+    --agent-subtle: var(--color-text-subtle);
+    --agent-accent: var(--color-brand);
+    --agent-warning: #F59E0B;
   }
 
   * { 
@@ -76,7 +107,8 @@
   body { 
     background-color: transparent;
     color: var(--color-text); 
-    font-family: Inter, "Segoe UI", system-ui, sans-serif; 
+    font-family: "MiSans", "Microsoft YaHei", "PingFang SC", "Segoe UI", system-ui, sans-serif;
+    font-weight: 700;
     overflow: hidden; 
   }
 }

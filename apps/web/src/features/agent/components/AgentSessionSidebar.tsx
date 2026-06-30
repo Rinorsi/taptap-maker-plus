@@ -1,4 +1,5 @@
 import { Calendar, Search, SquarePen, MessageSquare, Puzzle, AtSign, ChevronLeft, ChevronRight } from "lucide-react";
+import type { ComponentType } from "react";
 import type { AgentSessionRecord } from "../api";
 import type { ProjectSummary } from "../../../api";
 import { cn } from "../../../lib/utils";
@@ -37,8 +38,8 @@ export function AgentSessionSidebar({
     return p ? p.name : pId;
   };
   return (
-    <aside className="flex h-full min-h-0 flex-col overflow-hidden bg-black/40 backdrop-blur-2xl border-r border-white/[0.05] text-zinc-300 relative group transition-all">
-      <div className={cn("mt-4 flex shrink-0 flex-col gap-1.5 transition-[padding] duration-300 ease-out", collapsed ? "items-center px-2" : "px-4")}>
+    <aside className="flex h-full min-h-0 flex-col overflow-hidden bg-surface-panel border-r border-border text-text relative group transition-all">
+      <div className={cn("mt-4 flex shrink-0 flex-col gap-1.5 transition-[padding] duration-300 ease-out", collapsed ? "items-center px-2" : "px-3")}>
         <div className="flex items-center gap-1 w-full">
           <div className="flex-1 min-w-0">
             <SidebarItem icon={SquarePen} label="新对话" onClick={onNewSession} disabled={loading} collapsed={collapsed} />
@@ -47,7 +48,7 @@ export function AgentSessionSidebar({
             <button
               type="button"
               onClick={onToggleCollapsed}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-500 hover:bg-white/10 hover:text-white transition-colors"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-text-subtle hover:bg-surface-muted hover:text-text transition-colors"
               title="折叠会话栏"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -57,21 +58,22 @@ export function AgentSessionSidebar({
             <button
               type="button"
               onClick={onToggleCollapsed}
-              className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-500 hover:bg-white/10 hover:text-white transition-colors"
+              className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-text-subtle hover:bg-surface-muted hover:text-text transition-colors"
               title="展开会话栏"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
           )}
         </div>
-        <SidebarItem icon={Search} label="搜索" collapsed={collapsed} />
-        <SidebarItem icon={Calendar} label="已安排" badge="1" collapsed={collapsed} />
-        <SidebarItem icon={AtSign} label="插件" collapsed={collapsed} />
+        <SidebarItem icon={Search} label="搜索" badge="待接入" collapsed={collapsed} disabled />
+        <SidebarItem icon={Puzzle} label="并行任务" badge="骨架" collapsed={collapsed} disabled />
+        <SidebarItem icon={Calendar} label="已安排" badge="待接入" collapsed={collapsed} disabled />
+        <SidebarItem icon={AtSign} label="插件" badge="待接入" collapsed={collapsed} disabled />
       </div>
 
       <div className="mt-6 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {!collapsed && (
-          <div className="mb-2 px-2 text-[11px] font-semibold text-zinc-500">
+          <div className="mb-2 px-2 text-[11px] font-semibold text-text-subtle">
             项目
           </div>
         )}
@@ -79,7 +81,7 @@ export function AgentSessionSidebar({
           Object.entries(sessionsByProject).map(([pId, groupSessions]) => (
             <div key={pId} className="mb-4">
               {!collapsed && (
-                <div className="mb-1 flex items-center gap-2 px-2 text-[12px] font-medium text-zinc-400">
+                <div className="mb-1 flex items-center gap-2 px-2 text-[12px] font-medium text-text-muted">
                   <span className="truncate">{getProjectName(pId)}</span>
                 </div>
               )}
@@ -90,20 +92,20 @@ export function AgentSessionSidebar({
                     type="button"
                     onClick={() => onSelectSession(session.id)}
                     className={cn(
-                      "group relative flex w-full items-center gap-2.5 rounded-lg text-left transition-all duration-300 ease-out",
-                      collapsed ? "h-10 justify-center px-0" : "px-3 py-2",
+                      "group relative flex w-full items-center gap-2.5 rounded-control text-left transition-colors duration-200",
+                      collapsed ? "h-9 justify-center px-0" : "px-3 py-1.5",
                       session.id === activeSessionId
-                        ? "bg-gradient-to-r from-cyan-500/10 to-transparent text-cyan-50 shadow-[inset_2px_0_0_0_rgba(34,211,238,1)]"
-                        : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200 hover:scale-[1.01]"
+                        ? "bg-surface-muted text-text border-l-[3px] border-brand rounded-l-none"
+                        : "text-text-muted hover:bg-surface-muted hover:text-text"
                     )}
                     title={session.title}
                   >
                     {collapsed ? (
-                      <MessageSquare className={cn("h-4 w-4 shrink-0 transition-all duration-300", session.id === activeSessionId ? "text-cyan-400" : "opacity-80")} />
+                      <MessageSquare className={cn("h-4 w-4 shrink-0 transition-colors duration-200", session.id === activeSessionId ? "text-brand" : "opacity-80")} />
                     ) : (
                       <>
-                        <span className="min-w-0 flex-1 truncate text-[13px] font-medium tracking-wide">{session.title}</span>
-                        <span className="shrink-0 text-[10px] text-zinc-500 group-hover:text-zinc-400">
+                        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{session.title}</span>
+                        <span className="shrink-0 text-[10px] text-text-subtle group-hover:text-text-muted">
                           {formatShortTime(session.updatedAt)}
                         </span>
                       </>
@@ -114,8 +116,8 @@ export function AgentSessionSidebar({
             </div>
           ))
         ) : (
-          <div className={cn("text-center text-xs text-muted-foreground", collapsed ? "p-2" : "p-4")}>
-            {collapsed ? "-" : "暂无会话"}
+          <div className={cn("text-center text-xs text-text-muted", collapsed ? "p-2" : "p-4")}>
+            {collapsed ? "-" : "暂无对话"}
           </div>
         )}
       </div>
@@ -123,23 +125,37 @@ export function AgentSessionSidebar({
   );
 }
 
-function SidebarItem({ icon: Icon, label, badge, onClick, disabled, collapsed }: { icon: any, label: string, badge?: string, onClick?: () => void, disabled?: boolean, collapsed: boolean }) {
+function SidebarItem({
+  icon: Icon,
+  label,
+  badge,
+  onClick,
+  disabled,
+  collapsed,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  badge?: string;
+  onClick?: () => void;
+  disabled?: boolean;
+  collapsed: boolean;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "flex items-center gap-3 rounded-lg text-left transition-all duration-300 ease-out text-zinc-400 hover:bg-white/10 hover:text-zinc-100 hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:pointer-events-none disabled:hover:scale-100",
-        collapsed ? "h-10 w-10 justify-center" : "w-full px-3 py-2"
+        "flex items-center gap-3 rounded-control text-left transition-colors text-text-muted hover:bg-surface-muted hover:text-text disabled:opacity-50 disabled:pointer-events-none",
+        collapsed ? "h-9 w-9 justify-center" : "w-full px-3 py-1.5"
       )}
       title={collapsed ? label : undefined}
     >
-      <Icon className="h-[18px] w-[18px] shrink-0 opacity-80" />
+      <Icon className="h-[16px] w-[16px] shrink-0 opacity-80" />
       {!collapsed && (
-        <span className="min-w-0 flex-1 flex justify-between items-center text-[13px] font-medium tracking-wide">
+        <span className="min-w-0 flex-1 flex justify-between items-center text-[13px] font-medium">
           {label}
-          {badge && <span className="rounded-full bg-cyan-500/20 px-2 py-0.5 text-[10px] font-bold text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.2)]">{badge}</span>}
+          {badge && <span className="rounded bg-brand/20 px-1.5 py-0.5 text-[10px] font-bold text-brand">{badge}</span>}
         </span>
       )}
     </button>

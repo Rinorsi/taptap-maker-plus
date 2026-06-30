@@ -17,6 +17,8 @@ import type {
 } from "../../api";
 
 export type AgentWorkspaceTab =
+  | "closed"
+  | "launcher"
   | "overview"
   | "files"
   | "context"

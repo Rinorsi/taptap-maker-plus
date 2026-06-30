@@ -148,7 +148,7 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
   if (agentActive) {
     return (
       <header
-        className="relative z-[999] flex h-[42px] shrink-0 select-none items-center justify-between border-b border-white/10 bg-[#0f1117] px-3 text-zinc-300"
+        className="relative z-[999] flex h-[42px] shrink-0 select-none items-center justify-between border-b border-border bg-surface-panel px-3 text-text"
         onPointerDown={handleTitlebarPointerDown}
         onPointerMove={handleTitlebarPointerMove}
         onPointerUp={clearTitlebarPointer}
@@ -157,7 +157,7 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
       >
         <button
           type="button"
-          className="flex h-8 items-center gap-2 rounded-md px-2 text-[12px] font-semibold text-zinc-300 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+          className="flex h-8 items-center gap-2 rounded-control px-2 text-[12px] font-semibold text-text transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
           onClick={onToggleAgent}
           title="返回工作台"
           aria-label="返回工作台"
@@ -167,7 +167,7 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
           <span>Agent 工作台</span>
         </button>
         <div className="flex items-center gap-2" data-no-window-drag>
-          <Button variant="ghost" size="icon" onClick={onThemeToggle} title="切换主题" className="h-8 w-8 text-zinc-400 hover:bg-white/10 hover:text-white">
+          <Button variant="ghost" size="icon" onClick={onThemeToggle} title="切换主题" className="h-8 w-8 text-text-muted hover:bg-surface-muted hover:text-text">
             <ThemeToggleIcon theme={theme} />
           </Button>
           <DesktopWindowControls />

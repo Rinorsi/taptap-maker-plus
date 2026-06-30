@@ -7,6 +7,9 @@ export default {
   darkMode: ['class', '[data-theme="dark"]'],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['MiSans', 'Microsoft YaHei', 'PingFang SC', 'Segoe UI', 'system-ui', 'sans-serif'],
+      },
       colors: {
         brand: {
           DEFAULT: 'var(--color-brand)',
@@ -26,6 +29,18 @@ export default {
           panel: 'var(--surface-panel)',
           raised: 'var(--surface-raised)',
           muted: 'var(--surface-muted)',
+        },
+        agent: {
+          bg: 'var(--agent-bg)',
+          panel: 'var(--agent-panel)',
+          surface: 'var(--agent-surface)',
+          border: 'var(--agent-border)',
+          'border-soft': 'var(--agent-border-soft)',
+          text: 'var(--agent-text)',
+          muted: 'var(--agent-muted)',
+          subtle: 'var(--agent-subtle)',
+          accent: 'var(--agent-accent)',
+          warning: 'var(--agent-warning)',
         }
       },
       borderRadius: {

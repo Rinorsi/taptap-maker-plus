@@ -51,7 +51,10 @@ function startDesktopParentMonitor() {
   desktopParentMonitor.unref();
 }
 
-await app.register(cors, { origin: true });
+await app.register(cors, {
+  origin: true,
+  methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+});
 await registerApiRoutes(app);
 await registerStaticWeb(app);
 

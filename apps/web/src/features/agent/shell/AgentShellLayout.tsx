@@ -1,5 +1,4 @@
 import { Group, Panel, Separator } from "react-resizable-panels";
-import { AlertCircle, Brain, Braces, FileText, Paperclip, Wrench } from "lucide-react";
 import type { AgentWorkspaceTab } from "../types";
 import { AgentChatPanel } from "../components/AgentChatPanel";
 import { AgentSessionSidebar } from "../components/AgentSessionSidebar";
@@ -77,11 +76,11 @@ export function AgentShellLayout({
   onSynced: () => void;
 }) {
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden bg-[#15171d]">
+    <div className="flex min-h-0 flex-1 overflow-hidden bg-agent-bg text-agent-text">
       <aside
         className={cn(
-          "hidden min-h-0 shrink-0 flex-col border-r border-white/10 bg-[#101218] lg:flex",
-          sessionRailCollapsed ? "w-[76px]" : "w-[304px]",
+          "hidden min-h-0 shrink-0 flex-col border-r border-agent-border bg-agent-panel lg:flex",
+          sessionRailCollapsed ? "w-[76px]" : "w-[260px]",
         )}
       >
         <div className="min-h-0 flex-1">
@@ -102,10 +101,10 @@ export function AgentShellLayout({
         id="agent-shell-workspace"
         orientation="horizontal"
         className="min-h-0 min-w-0 flex-1"
-        defaultLayout={{ chat: 42, workspace: 58 }}
+        defaultLayout={{ chat: 38, workspace: 62 }}
       >
-        <Panel id="chat" minSize="360px" defaultSize="42%" className="min-w-0">
-          <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(ellipse_at_top,rgba(25,30,50,1)_0%,rgba(10,10,12,1)_100%)]">
+        <Panel id="chat" minSize="340px" defaultSize="38%" className="min-w-0">
+          <div className="flex h-full min-h-0 flex-col bg-agent-bg">
             <AgentChatPanel
               projectName={selectedProject?.name}
               projectId={selectedProject?.id}
@@ -119,38 +118,43 @@ export function AgentShellLayout({
               onDecideActionPreview={onDecideActionPreview}
               onExecuteActionPreview={onExecuteActionPreview}
               onSynced={onSynced}
+              onOpenWorkspace={() => onActiveTabChange("launcher")}
+              workspaceOpen={activeTab !== "closed"}
             />
           </div>
         </Panel>
-        <Separator
-          id="agent-chat-workspace-resizer"
-          className="w-1 bg-white/5 transition-colors hover:bg-cyan-400/30 data-[resize-handle-active]:bg-cyan-300/50"
-        />
-        <Panel id="workspace" minSize="420px" defaultSize="58%" className="min-w-0">
-          <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(ellipse_at_top,rgba(25,30,50,1)_0%,rgba(10,10,12,1)_100%)]">
-            <div className="min-h-0 flex-1 overflow-hidden">
-              <AgentToolPanel
-                activeTab={activeTab}
-                onActiveTabChange={onActiveTabChange}
-                context={context}
-                compressedContext={compressedContext}
-                compressedContextSnapshotId={compressedContextSnapshotId}
-                readiness={readiness}
-                pi={pi}
-                actionPreviews={actionPreviews}
-                contextRows={contextRows}
-                pendingPreviews={pendingPreviews}
-                selectedProject={selectedProject}
-                runtimeStatus={runtimeStatus}
-                messages={messages}
-                page={page}
-                onDecideActionPreview={onDecideActionPreview}
-                onCreateActionPreview={onCreateActionPreview}
-                onExecuteActionPreview={onExecuteActionPreview}
-              />
+        {activeTab !== "closed" && (
+          <Separator
+            className="w-1 bg-agent-border-soft transition-colors hover:bg-agent-accent/30 data-[resize-handle-active]:bg-agent-accent/50"
+          />
+        )}
+        {activeTab !== "closed" && (
+          <Panel id="workspace" minSize="560px" defaultSize={activeTab === "launcher" ? "46%" : "62%"} className="min-w-0">
+            <div className="relative z-10 flex h-full min-h-0 flex-col border-l border-agent-border-soft bg-agent-panel shadow-panel">
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <AgentToolPanel
+                  activeTab={activeTab}
+                  onActiveTabChange={onActiveTabChange}
+                  context={context}
+                  compressedContext={compressedContext}
+                  compressedContextSnapshotId={compressedContextSnapshotId}
+                  readiness={readiness}
+                  pi={pi}
+                  actionPreviews={actionPreviews}
+                  contextRows={contextRows}
+                  pendingPreviews={pendingPreviews}
+                  selectedProject={selectedProject}
+                  runtimeStatus={runtimeStatus}
+                  messages={messages}
+                  page={page}
+                  onDecideActionPreview={onDecideActionPreview}
+                  onCreateActionPreview={onCreateActionPreview}
+                  onExecuteActionPreview={onExecuteActionPreview}
+                />
+              </div>
             </div>
-          </div>
-        </Panel>
+          </Panel>
+        )}
       </Group>
     </div>
   );

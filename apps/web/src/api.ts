@@ -730,6 +730,9 @@ async function discoverDesktopApiBase() {
 }
 
 export async function apiFetch(path: string, init?: RequestInit) {
+  if (path.startsWith("/api/") && !apiBase && !await discoverDesktopApiBase()) {
+    throw new Error(`本地服务未连接，无法访问 ${path}。请确认桌面端本地服务已启动。`);
+  }
   try {
     return await fetch(apiUrl(path), init);
   } catch (error) {

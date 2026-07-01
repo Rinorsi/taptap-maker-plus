@@ -155,17 +155,21 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
         onPointerCancel={clearTitlebarPointer}
         onDoubleClick={handleTitlebarDoubleClick}
       >
-        <button
-          type="button"
-          className="flex h-8 items-center gap-2 rounded-control px-2 text-[12px] font-semibold text-text transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
-          onClick={onToggleAgent}
-          title="返回工作台"
-          aria-label="返回工作台"
-          data-no-window-drag
-        >
-          <img src="/files.png" alt="" className="h-6 rounded-md object-contain" />
-          <span>Agent 工作台</span>
-        </button>
+        <div className="flex items-center rounded-control bg-surface-muted/60 p-1 shadow-inner" data-no-window-drag>
+          <button
+            type="button"
+            className="flex h-7 items-center gap-1.5 rounded-[4px] px-3 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+            onClick={onToggleAgent}
+            title="切换为生成页"
+            aria-label="切换为生成页"
+          >
+            生成页
+          </button>
+          <div className="flex h-7 items-center gap-1.5 rounded-[4px] bg-surface-panel px-3 text-[12px] font-medium text-text shadow-sm">
+            <img src="/files.png" alt="" className="h-4 w-4 rounded-[3px] object-contain" />
+            <span>Agent 工作台</span>
+          </div>
+        </div>
         <div className="flex items-center gap-2" data-no-window-drag>
           <Button variant="ghost" size="icon" onClick={onThemeToggle} title="切换主题" className="h-8 w-8 text-text-muted hover:bg-surface-muted hover:text-text">
             <ThemeToggleIcon theme={theme} />
@@ -186,19 +190,21 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
       onDoubleClick={handleTitlebarDoubleClick}
     >
       <div className="flex items-center min-w-0 shrink-0 w-[520px] pl-1 gap-3">
-        <button
-          type="button"
-          className={cn(
-            "mr-2 flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35",
-            agentActive ? "bg-surface-muted shadow-[0_0_0_1px_rgba(0,217,197,0.28)]" : "",
-          )}
-          onClick={onToggleAgent}
-          title={agentActive ? "返回工作台" : "打开 Agent 工作台"}
-          aria-label={agentActive ? "返回工作台" : "打开 Agent 工作台"}
-          data-no-window-drag
-        >
-          <img src="/files.png" alt="" className="h-[28px] rounded-lg object-contain" />
-        </button>
+        <div className="mr-2 flex items-center rounded-control bg-surface-muted/60 p-1 shadow-inner" data-no-window-drag>
+          <div className="flex h-7 items-center gap-1.5 rounded-[4px] bg-surface-panel px-3 text-[12px] font-medium text-text shadow-sm">
+            生成页
+          </div>
+          <button
+            type="button"
+            className="flex h-7 items-center gap-1.5 rounded-[4px] px-3 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+            onClick={onToggleAgent}
+            title="打开 Agent 工作台"
+            aria-label="打开 Agent 工作台"
+          >
+            <img src="/files.png" alt="" className="h-4 w-4 rounded-[3px] object-contain opacity-70" />
+            <span>Agent</span>
+          </button>
+        </div>
         <div className="min-w-0">{appMenu}</div>
       </div>
 

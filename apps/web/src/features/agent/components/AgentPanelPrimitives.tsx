@@ -3,11 +3,11 @@ import { cn } from "../../../lib/utils";
 
 export function AgentSection({ icon, title, actions, children, className }: { icon?: ReactNode; title: string; actions?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={cn("flex min-h-0 flex-col overflow-hidden bg-transparent", className)}>
-      <div className="flex h-9 shrink-0 items-center justify-between gap-3 border-b border-agent-border-soft px-3">
-        <div className="flex min-w-0 items-center gap-2">
-          {icon ? <div className="text-agent-subtle">{icon}</div> : null}
-          <h2 className="m-0 truncate text-[11px] font-semibold uppercase tracking-wider text-agent-muted">{title}</h2>
+    <section className={cn("flex min-h-0 flex-col bg-transparent", className)}>
+      <div className="flex h-8 shrink-0 items-center justify-between gap-3 px-1 mb-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          {icon ? <div className="text-agent-muted">{icon}</div> : null}
+          <h2 className="m-0 truncate text-[12px] font-medium text-agent-text">{title}</h2>
         </div>
         {actions ? <div className="shrink-0">{actions}</div> : null}
       </div>
@@ -18,7 +18,7 @@ export function AgentSection({ icon, title, actions, children, className }: { ic
 
 export function AgentInfoRow({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "bad" | "neutral" | "good" }) {
   return (
-    <div className="flex min-w-0 items-center justify-between gap-3 border-b border-agent-border-soft px-3 py-1.5 transition-colors hover:bg-agent-surface">
+    <div className="flex min-w-0 items-center justify-between gap-3 px-3 py-1.5 transition-colors hover:bg-agent-surface rounded-control">
       <span className="shrink-0 text-[11px] font-medium text-agent-subtle">{label}</span>
       <strong
         className={cn(

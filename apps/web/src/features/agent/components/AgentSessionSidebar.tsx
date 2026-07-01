@@ -64,30 +64,20 @@ export function AgentSessionSidebar({
   return (
     <aside className="flex h-full min-h-0 flex-col overflow-hidden bg-agent-panel border-r border-agent-border text-agent-text relative group transition-all">
       <div className={cn("mt-4 flex shrink-0 flex-col gap-1.5 transition-[padding] duration-300 ease-out", collapsed ? "items-center px-2" : "px-3")}>
-        <div className="flex items-center gap-1 w-full">
-          <div className="flex-1 min-w-0">
-            <SidebarItem icon={SquarePen} label="新对话" onClick={onNewSession} disabled={loading} collapsed={collapsed} />
-          </div>
-          {!collapsed && (
-            <button
-              type="button"
-              onClick={onToggleCollapsed}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-agent-subtle hover:bg-agent-surface hover:text-agent-text transition-colors"
-              title="折叠会话栏"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-          )}
-          {collapsed && (
-            <button
-              type="button"
-              onClick={onToggleCollapsed}
-              className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-agent-subtle hover:bg-agent-surface hover:text-agent-text transition-colors"
-              title="展开会话栏"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          )}
+        <div className="flex w-full mb-2 justify-center">
+          <button
+            type="button"
+            onClick={onNewSession}
+            disabled={loading}
+            className={cn(
+              "flex items-center justify-center gap-2 rounded-control border border-agent-border-soft bg-agent-bg text-agent-text transition-colors hover:bg-agent-surface disabled:opacity-50 font-medium shadow-sm",
+              collapsed ? "h-9 w-9 mx-auto" : "h-9 w-full px-3"
+            )}
+            title="新对话"
+          >
+            <SquarePen className="h-4 w-4 shrink-0 text-agent-muted" />
+            {!collapsed && <span className="text-[13px]">新对话</span>}
+          </button>
         </div>
         <SidebarItem icon={Search} label="搜索" badge="待接入" collapsed={collapsed} disabled />
         <SidebarItem icon={Calendar} label="已安排" badge="待接入" collapsed={collapsed} disabled />
@@ -116,8 +106,8 @@ export function AgentSessionSidebar({
                       "group/session relative flex w-full items-center gap-2.5 rounded-control text-left transition-colors duration-200",
                       collapsed ? "h-9 justify-center px-0" : "px-3 py-1.5",
                       session.id === activeSessionId
-                        ? "bg-agent-surface text-agent-text border-l-[3px] border-agent-accent rounded-l-none"
-                        : "text-agent-muted hover:bg-agent-surface hover:text-agent-text"
+                        ? "bg-agent-surface text-agent-text font-semibold shadow-sm border border-agent-border-soft"
+                        : "text-agent-muted hover:bg-agent-surface hover:text-agent-text border border-transparent"
                     )}
                     title={session.title}
                   >
@@ -209,6 +199,21 @@ export function AgentSessionSidebar({
           </div>
         )}
       </div>
+
+      <div className={cn("mt-auto flex shrink-0 flex-col gap-1.5 border-t border-agent-border-soft p-2 transition-[padding] duration-300 ease-out", collapsed ? "items-center" : "px-3")}>
+        <button
+          type="button"
+          onClick={onToggleCollapsed}
+          className={cn(
+            "flex h-9 items-center rounded-control text-agent-muted hover:bg-agent-surface hover:text-agent-text transition-colors",
+            collapsed ? "w-9 justify-center" : "w-full justify-between px-3"
+          )}
+          title={collapsed ? "展开侧边栏" : "收起侧边栏"}
+        >
+          {!collapsed && <span className="text-[13px] font-medium">收起侧边栏</span>}
+          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+        </button>
+      </div>
     </aside>
   );
 }
@@ -235,15 +240,15 @@ function SidebarItem({
       disabled={disabled}
       className={cn(
         "flex items-center gap-3 rounded-control text-left transition-colors text-agent-muted hover:bg-agent-surface hover:text-agent-text disabled:opacity-50 disabled:pointer-events-none",
-        collapsed ? "h-9 w-9 justify-center" : "w-full px-3 py-1.5"
+        collapsed ? "h-9 w-9 justify-center" : "w-full h-9 px-3"
       )}
       title={collapsed ? label : undefined}
     >
       <Icon className="h-[16px] w-[16px] shrink-0 opacity-80" />
       {!collapsed && (
         <span className="min-w-0 flex-1 flex justify-between items-center text-[13px] font-medium">
-          {label}
-          {badge && <span className="rounded bg-agent-accent/20 px-1.5 py-0.5 text-[10px] font-bold text-agent-accent">{badge}</span>}
+          <span className="truncate">{label}</span>
+          {badge && <span className="shrink-0 rounded bg-agent-surface px-1.5 py-0.5 text-[10px] font-medium text-agent-subtle">{badge}</span>}
         </span>
       )}
     </button>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Globe, Loader2, Search } from "lucide-react";
+import { motion } from "framer-motion";
 import type { ProjectSummary } from "../../../api";
 import type { AgentActionKind, AgentBrowserProbeResult, AgentContextSnapshot } from "../api";
 import { probeAgentBrowserUrl } from "../api";
@@ -52,25 +53,21 @@ export function AgentBrowserTab({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-agent-bg text-agent-text">
-      <div className="shrink-0 border-b border-agent-border bg-agent-panel p-3">
-        <form onSubmit={handleProbe} className="flex items-center gap-2">
-          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-control border border-agent-border bg-agent-surface px-2 py-1.5">
-            <Globe className="h-4 w-4 shrink-0 text-agent-muted" />
+      <div className="shrink-0 p-4 border-b border-agent-border-soft bg-agent-bg/50 backdrop-blur-md sticky top-0 z-10">
+        <form onSubmit={handleProbe} className="mx-auto flex max-w-2xl items-center justify-center">
+          <div className="flex w-full items-center gap-2 rounded-full border border-agent-border-soft bg-agent-panel/60 px-3 py-2 shadow-sm backdrop-blur-xl transition-colors focus-within:border-agent-border focus-within:bg-agent-panel">
+            <Globe className="h-4 w-4 shrink-0 text-agent-subtle" />
             <input
               value={inputUrl}
               onChange={(e) => setInputUrl(e.target.value)}
-              className="min-w-0 flex-1 bg-transparent text-sm text-agent-text outline-none placeholder:text-agent-subtle"
-              placeholder="输入 URL 后进行 HTTP 探测"
+              className="min-w-0 flex-1 bg-transparent px-1 text-sm text-agent-text outline-none placeholder:text-agent-subtle"
+              placeholder="输入 URL 探测服务端响应..."
             />
+            <Button type="submit" variant="ghost" size="icon" className="h-6 w-6 rounded-full hover:bg-agent-surface transition-colors" disabled={loading || !inputUrl.trim()}>
+              {loading ? <Loader2 className="h-3 w-3 animate-spin text-agent-accent" /> : <Search className="h-3 w-3 text-agent-muted" />}
+            </Button>
           </div>
-          <Button type="submit" variant="outline" size="sm" className="h-8 gap-1.5 px-3 text-[11px]" disabled={loading || !inputUrl.trim()}>
-            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
-            探测
-          </Button>
         </form>
-        <p className="m-0 mt-2 text-[11px] leading-4 text-agent-muted">
-          当前只做服务端 HTTP 探测，不提供网页渲染、点击控制或自动化浏览器能力。
-        </p>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -81,16 +78,21 @@ export function AgentBrowserTab({
         ) : null}
 
         {!probe && !error ? (
-          <div className="flex h-full min-h-[260px] items-center justify-center text-center">
-            <div className="max-w-sm rounded-panel border border-agent-border bg-agent-panel p-5 shadow-sm">
-              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-control bg-agent-surface text-agent-muted">
-                <Globe className="h-6 w-6" />
+          <div className="flex h-full min-h-[260px] items-center justify-center text-center px-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              transition={{ type: "spring", stiffness: 300, damping: 25 }}
+              className="max-w-sm rounded-[24px] border border-agent-border-soft bg-gradient-to-b from-agent-panel to-agent-bg p-8 shadow-xl"
+            >
+              <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-agent-surface shadow-inner border border-agent-border-soft">
+                <Globe className="h-6 w-6 text-agent-muted" />
               </div>
-              <h3 className="m-0 text-sm font-semibold text-agent-text">浏览器能力待接入</h3>
-              <p className="m-0 mt-2 text-xs leading-5 text-agent-muted">
-                这里不会默认打开网页。现阶段只能检查 URL 的响应状态、标题和内容类型；页面交互、截图和自动化浏览器控制需要后续接入。
+              <h3 className="m-0 text-[15px] font-semibold text-agent-text">浏览器能力待接入</h3>
+              <p className="m-0 mt-3 text-[13px] leading-relaxed text-agent-subtle">
+                现阶段只能检查 URL 的响应状态、标题和内容类型；完整的页面渲染交互、DOM解析、截图和自动化浏览器控制引擎将由后续 Pi Runtime 提供。
               </p>
-            </div>
+            </motion.div>
           </div>
         ) : null}
 

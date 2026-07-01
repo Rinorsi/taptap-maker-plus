@@ -8,7 +8,6 @@ import {
 import { useMemo } from "react";
 import type { ReactNode } from "react";
 import type { AgentMessageRecord, AgentPageState, AgentSessionRecord } from "../api";
-import { sendAgentMessage } from "../api";
 import { Thread } from "../assistant-ui/Thread";
 
 export function AssistantUiChatSurface({
@@ -17,14 +16,16 @@ export function AssistantUiChatSurface({
   projectId,
   page,
   onSynced,
-  runStatusBar
+  runStatusBar,
+  onSendMessage
 }: {
-  activeSession: AgentSessionRecord;
+  activeSession?: AgentSessionRecord;
   messages: AgentMessageRecord[];
   projectId?: string;
   page: AgentPageState;
   onSynced: () => void;
   runStatusBar?: ReactNode;
+  onSendMessage: (content: string) => Promise<void>;
 }) {
   const initialMessages = useMemo(() => toAssistantUiMessages(messages), [messages]);
   const adapter = useMemo<ChatModelAdapter>(() => ({
@@ -34,15 +35,19 @@ export function AssistantUiChatSurface({
         yield { content: [{ type: "text", text: "没有读取到用户输入。" }] };
         return;
       }
-      const result = await sendAgentMessage(activeSession.id, {
-        content: latestUserText,
-        projectId,
-        page
-      });
+      
+      try {
+        await onSendMessage(latestUserText);
+      } catch (e) {
+        yield { content: [{ type: "text", text: `发送失败: ${e instanceof Error ? e.message : String(e)}` }] };
+        return;
+      }
+      
       await onSynced();
-      yield { content: [{ type: "text", text: result.assistantMessage.content || "Agent 未返回内容。" }] };
+      // the actual response will be populated when onSynced updates the messages state
+      // but we need to yield something to finish the run, assistant-ui handles external state updates gracefully
     }
-  }), [activeSession.id, onSynced, page, projectId]);
+  }), [onSendMessage, onSynced]);
   const runtime = useLocalRuntime(adapter, {
     initialMessages,
     unstable_enableMessageQueue: true

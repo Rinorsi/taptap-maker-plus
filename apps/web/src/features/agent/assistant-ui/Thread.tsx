@@ -22,6 +22,8 @@ import {
   PencilIcon,
   RefreshCwIcon,
   SquareIcon,
+  User,
+  Bot
 } from "lucide-react";
 import { type FC, type ReactNode } from "react";
 import { Button } from "../../../components/ui/Button";
@@ -40,7 +42,10 @@ export const Thread: FC<{ runStatusBar?: ReactNode }> = ({ runStatusBar }) => {
     <ThreadPrimitive.Root
       className="aui-root aui-thread-root flex h-full min-h-0 flex-col bg-transparent"
       style={{
-        ["--thread-max-width" as string]: "48rem",
+        ["--thread-max-width" as string]: "56rem",
+        ["--composer-bg" as string]: "color-mix(in oklab, var(--agent-surface) 50%, transparent)",
+        ["--composer-radius" as string]: "1.25rem",
+        ["--composer-padding" as string]: "8px",
       }}
     >
       <ThreadPrimitive.Viewport
@@ -54,7 +59,7 @@ export const Thread: FC<{ runStatusBar?: ReactNode }> = ({ runStatusBar }) => {
           <ThreadWelcome />
         </AuiIf>
 
-        <div className="mb-14 flex flex-col gap-y-6 empty:hidden">
+        <div className="mb-10 flex flex-col gap-y-4 empty:hidden">
           <ThreadPrimitive.Messages>{() => <ThreadMessage />}</ThreadPrimitive.Messages>
         </div>
 
@@ -105,20 +110,20 @@ const ThreadWelcome: FC = () => (
 
 const Composer: FC = () => (
   <ComposerPrimitive.Root className="relative flex w-full flex-col px-4">
-    <div className="flex w-full flex-col gap-2 rounded-panel border border-agent-border bg-agent-panel p-2 shadow-sm transition-colors focus-within:border-agent-accent focus-within:ring-1 focus-within:ring-agent-accent/20">
+    <div className="flex w-full flex-col gap-2 rounded-(--composer-radius) border border-agent-border-soft bg-(--composer-bg) p-(--composer-padding) shadow-sm transition-[border-color,box-shadow,background-color] focus-within:border-agent-border focus-within:bg-agent-panel focus-within:shadow-md">
       <ComposerPrimitive.Input
         placeholder="输入对话内容... (@ 引用上下文，/ 使用快捷指令)"
-        className="max-h-[30vh] min-h-10 w-full resize-none bg-transparent px-3 py-2 font-sans text-[14px] font-normal leading-relaxed text-agent-text outline-none placeholder:font-normal placeholder:text-agent-muted"
+        className="max-h-[30vh] w-full resize-none bg-transparent px-2.5 py-1 font-sans text-[14px] font-normal leading-relaxed text-agent-text outline-none placeholder:font-normal placeholder:text-agent-subtle"
         rows={1}
         autoFocus
         aria-label="Agent Message Input"
       />
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 px-1">
         <div className="flex items-center gap-1">
-          <Button type="button" variant="ghost" size="icon" className="h-7 w-7 rounded-control text-agent-subtle hover:bg-agent-surface" title="添加上下文">
+          <Button type="button" variant="ghost" size="icon" className="h-7 w-7 rounded-full text-agent-subtle hover:bg-agent-panel hover:text-agent-text transition-colors" title="添加上下文">
             <FileTextIcon className="h-4 w-4" />
           </Button>
-          <Button type="button" variant="ghost" className="h-7 rounded-control px-2.5 text-xs font-semibold text-agent-muted hover:bg-agent-surface">
+          <Button type="button" variant="ghost" className="h-7 rounded-full px-2.5 text-xs font-medium text-agent-muted hover:bg-agent-panel hover:text-agent-text transition-colors">
             <ChartColumnIcon className="h-4 w-4" />
             当前项目上下文
           </Button>
@@ -126,14 +131,14 @@ const Composer: FC = () => (
         <div className="flex items-center gap-1.5">
           <AuiIf condition={(state) => !state.thread.isRunning}>
             <ComposerPrimitive.Send asChild>
-              <TooltipIconButton tooltip="发送消息" className="h-8 w-8 rounded-control bg-agent-accent text-white hover:brightness-110">
+              <TooltipIconButton tooltip="发送消息" className="h-8 w-8 rounded-full bg-agent-text text-agent-bg hover:opacity-80 transition-opacity shadow-sm">
                 <ArrowUpIcon className="h-4 w-4 shrink-0" />
               </TooltipIconButton>
             </ComposerPrimitive.Send>
           </AuiIf>
           <AuiIf condition={(state) => state.thread.isRunning}>
             <ComposerPrimitive.Cancel asChild>
-              <TooltipIconButton tooltip="停止生成" className="h-8 w-8 rounded-control bg-agent-surface text-agent-text hover:bg-agent-panel border border-agent-border-soft">
+              <TooltipIconButton tooltip="停止生成" className="h-8 w-8 rounded-full bg-agent-panel text-agent-text hover:bg-agent-surface border border-agent-border-soft">
                 <SquareIcon className="h-4 w-4 shrink-0 fill-current" />
               </TooltipIconButton>
             </ComposerPrimitive.Cancel>
@@ -153,25 +158,30 @@ const MessageError: FC = () => (
 );
 
 const AssistantMessage: FC = () => (
-  <MessagePrimitive.Root className="relative mx-auto w-full max-w-[var(--thread-max-width)] mb-4" data-role="assistant">
-    <div className="px-4 py-2 leading-relaxed text-[14px] text-agent-text [contain-intrinsic-size:auto_24px] [content-visibility:auto]">
-      <MessagePrimitive.Parts>
-        {({ part }) => {
-          if (part.type === "text") return <MarkdownText />;
-          if (part.type === "tool-call") return part.toolUI ?? <ToolFallback {...part} />;
-          return null;
-        }}
-      </MessagePrimitive.Parts>
-      <AuiIf condition={(state) => state.message.status?.type === "running" && state.message.parts.length === 0}>
-        <span className="animate-pulse font-sans text-agent-subtle" aria-label="Agent 正在生成">
-          ●
-        </span>
-      </AuiIf>
-      <MessageError />
+  <MessagePrimitive.Root className="group relative mx-auto flex w-full max-w-[var(--thread-max-width)] gap-3 px-4 mb-4" data-role="assistant">
+    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-control bg-agent-accent/10 text-agent-accent border border-agent-accent/20">
+      <Bot className="h-3.5 w-3.5" />
     </div>
-    <div className="-mb-7.5 ms-2 flex min-h-7 items-center pt-1.5">
-      <BranchPicker />
-      <AssistantActionBar />
+    <div className="flex-1 min-w-0 pt-1">
+      <div className="text-[14px] leading-relaxed text-agent-text [contain-intrinsic-size:auto_24px] [content-visibility:auto]">
+        <MessagePrimitive.Parts>
+          {({ part }) => {
+            if (part.type === "text") return <MarkdownText />;
+            if (part.type === "tool-call") return part.toolUI ?? <ToolFallback {...part} />;
+            return null;
+          }}
+        </MessagePrimitive.Parts>
+        <AuiIf condition={(state) => state.message.status?.type === "running" && state.message.parts.length === 0}>
+          <span className="animate-pulse font-sans text-agent-subtle" aria-label="Agent 正在生成">
+            ●
+          </span>
+        </AuiIf>
+        <MessageError />
+      </div>
+      <div className="mt-2 flex min-h-7 items-center gap-2">
+        <AssistantActionBar />
+        <BranchPicker />
+      </div>
     </div>
   </MessagePrimitive.Root>
 );
@@ -202,23 +212,23 @@ const AssistantActionBar: FC = () => (
 
 const UserMessage: FC = () => (
   <MessagePrimitive.Root
-    className="mx-auto grid w-full max-w-[var(--thread-max-width)] auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-4 mb-4 [&:where(>*)]:col-start-2"
+    className="fade-in slide-in-from-bottom-1 animate-in group mx-auto grid w-full max-w-[var(--thread-max-width)] grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-1.5 px-4 mb-4 duration-150 [&:where(>*)]:col-start-2"
     data-role="user"
   >
     <div className="relative col-start-2 min-w-0">
-      <div className="peer rounded-card bg-agent-surface px-4 py-3 text-[14px] text-agent-text empty:hidden">
+      <div className="peer rounded-[1.25rem] rounded-tr-sm bg-agent-surface text-agent-text px-3.5 py-2 text-[13.5px] leading-relaxed whitespace-pre-wrap break-words min-w-0 shadow-sm empty:hidden">
         <MessagePrimitive.Parts />
       </div>
-      <div className="absolute start-0 top-1/2 -translate-x-full -translate-y-1/2 pe-2 peer-empty:hidden">
+      <div className="absolute top-1/2 left-0 -translate-x-full -translate-y-1/2 pr-2 peer-empty:hidden">
         <UserActionBar />
       </div>
     </div>
-    <BranchPicker className="col-span-full col-start-1 row-start-3 justify-end" />
+    <BranchPicker className="col-span-full col-start-1 row-start-3 -mr-1 justify-end" />
   </MessagePrimitive.Root>
 );
 
 const UserActionBar: FC = () => (
-  <ActionBarPrimitive.Root hideWhenRunning autohide="not-last" className="flex flex-col items-end">
+  <ActionBarPrimitive.Root hideWhenRunning autohide="not-last" className="flex gap-1 text-agent-subtle opacity-0 transition group-hover:opacity-100">
     <ActionBarPrimitive.Edit asChild>
       <TooltipIconButton tooltip="编辑">
         <PencilIcon className="h-3.5 w-3.5" />

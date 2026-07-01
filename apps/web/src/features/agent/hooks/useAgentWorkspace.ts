@@ -175,24 +175,38 @@ export function useAgentWorkspace({ project, page }: AgentWorkspaceProps): Agent
     }
   }
 
-  async function sendMessage() {
-    if (!activeSession || !draft.trim()) return;
-    const content = draft.trim();
+  async function sendMessage(contentOverride?: string) {
+    const content = contentOverride?.trim() || draft.trim();
+    if (!content) return;
     setDraft("");
     setSending(true);
     setError("");
     try {
-      const result = await sendAgentMessage(activeSession.id, { content, projectId: project?.id, page });
+      let targetSessionId = activeSession?.id;
+      if (!targetSessionId) {
+        const created = await createAgentSession({
+          title: project?.name ? `${project.name} Agent 会话` : "新 Agent 会话",
+          projectId: project?.id
+        });
+        targetSessionId = created.session.id;
+      }
+      const result = await sendAgentMessage(targetSessionId, { content, projectId: project?.id, page });
       if (result.session) setActiveSession(result.session);
       setMessages(result.messages);
       setPi(result.pi);
-      const detail = await getAgentSession(activeSession.id);
+      const detail = await getAgentSession(targetSessionId);
       setContextSnapshots(detail.contextSnapshots);
       setActionPreviews(detail.actionPreviews);
       setPi(detail.pi);
-      setSessions((items) => items.map((item) => item.id === (result.session?.id ?? activeSession.id) ? (result.session ?? item) : item));
+      setSessions((items) => {
+        const existingIndex = items.findIndex(item => item.id === targetSessionId);
+        if (existingIndex >= 0) {
+          return items.map((item) => item.id === targetSessionId ? (result.session ?? detail.session ?? item) : item);
+        }
+        return [result.session ?? detail.session, ...items];
+      });
       setContext(await getAgentContext(project?.id, page));
-      const compressed = await getAgentCompressedContext(activeSession.id);
+      const compressed = await getAgentCompressedContext(targetSessionId);
       setCompressedContext(compressed.compressedContext);
       setCompressedContextSnapshotId(compressed.sourceSnapshotId);
     } catch (caught) {

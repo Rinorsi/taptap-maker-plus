@@ -57,11 +57,11 @@
     --shadow-panel: 0 18px 40px rgba(6, 10, 38, 0.08);
     --shadow-popover: 0 12px 32px -6px rgba(6, 10, 38, 0.16);
 
-    --agent-bg: color-mix(in srgb, var(--surface-app) 96%, var(--color-brand) 4%);
-    --agent-panel: var(--surface-panel);
-    --agent-surface: var(--surface-muted);
-    --agent-border: var(--color-border);
-    --agent-border-soft: var(--color-border-soft);
+    --agent-bg: #FAFAFA;
+    --agent-panel: #FFFFFF;
+    --agent-surface: rgba(0, 0, 0, 0.04);
+    --agent-border: rgba(0, 0, 0, 0.08);
+    --agent-border-soft: rgba(0, 0, 0, 0.04);
     --agent-text: var(--color-text);
     --agent-muted: var(--color-text-muted);
     --agent-subtle: var(--color-text-subtle);
@@ -91,11 +91,11 @@
     --shadow-panel: 0 18px 40px rgba(0, 0, 0, 0.32);
     --shadow-popover: 0 12px 32px -6px rgba(0, 0, 0, 0.46);
 
-    --agent-bg: color-mix(in srgb, var(--surface-app) 88%, black 12%);
-    --agent-panel: var(--surface-panel);
-    --agent-surface: var(--surface-muted);
-    --agent-border: var(--color-border);
-    --agent-border-soft: var(--color-border-soft);
+    --agent-bg: #18181A;
+    --agent-panel: #212124;
+    --agent-surface: rgba(255, 255, 255, 0.06);
+    --agent-border: rgba(255, 255, 255, 0.08);
+    --agent-border-soft: rgba(255, 255, 255, 0.04);
     --agent-text: var(--color-text);
     --agent-muted: var(--color-text-muted);
     --agent-subtle: var(--color-text-subtle);

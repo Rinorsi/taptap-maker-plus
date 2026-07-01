@@ -45,11 +45,22 @@
       "http://127.0.0.1:8825/*",
       "http://127.0.0.1:8826/*",
       "http://127.0.0.1:8827/*",
-      "http://localhost:5173/*"
+      "http://localhost:5173/*",
+      "https://maker.taptap.cn/*",
+      "https://*.maker.taptap.cn/*",
+      "https://*.tapapps.cn/*",
+      "https://*.games.tapapps.cn/*"
     ]
   },
   "windows": [
-    "main"
+    "main",
+    "maker-login",
+    "maker-preview"
+  ],
+  "webviews": [
+    "main",
+    "maker-login",
+    "maker-preview"
   ],
   "permissions": [
     "core:default",

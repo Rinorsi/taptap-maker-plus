@@ -39,8 +39,10 @@ export function ConfirmDialog({ config }: { config: ConfirmConfig }) {
             {config.title}
           </Dialog.Title>
           {config.body ? (
-            <Dialog.Description className="mt-3 max-h-[44vh] overflow-auto whitespace-pre-wrap text-sm leading-relaxed text-text-muted">
-              {config.body}
+            <Dialog.Description asChild>
+              <div className="mt-3 max-h-[44vh] overflow-auto whitespace-pre-wrap text-sm leading-relaxed text-text-muted">
+                {config.body}
+              </div>
             </Dialog.Description>
           ) : null}
           {config.requiredText ? (

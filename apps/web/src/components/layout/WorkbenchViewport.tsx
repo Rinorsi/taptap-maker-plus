@@ -308,7 +308,11 @@ export function WorkbenchViewport(props: Props) {
         />
       ) : null}
       {props.activeModule === "agent" ? (
-        <AgentContextView project={props.project} page={props.agentPage} onExit={props.onExitAgent} />
+        <AgentContextView
+          project={props.project}
+          page={props.agentPage}
+          onExit={props.onExitAgent}
+        />
       ) : null}
       {props.activeModule === "runs" ? (
         <RunsView

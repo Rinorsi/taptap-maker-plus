@@ -1,4 +1,4 @@
-import { Archive, Calendar, Check, Search, SquarePen, MessageSquare, AtSign, ChevronLeft, ChevronRight, Pencil, X } from "lucide-react";
+import { Archive, Calendar, Check, Search, MessageSquare, AtSign, ChevronLeft, ChevronRight, FolderOpen, Pencil, Plus, X } from "lucide-react";
 import { useState } from "react";
 import type { ComponentType } from "react";
 import type { AgentSessionRecord } from "../api";
@@ -11,6 +11,9 @@ export function AgentSessionSidebar({
   sessions,
   projects,
   activeSessionId,
+  previewProjectId,
+  previewInstanceActive = false,
+  previewInstanceMuted = false,
   loading,
   onToggleCollapsed,
   onNewSession,
@@ -22,6 +25,9 @@ export function AgentSessionSidebar({
   sessions: AgentSessionRecord[];
   projects: ProjectSummary[];
   activeSessionId?: string;
+  previewProjectId?: string;
+  previewInstanceActive?: boolean;
+  previewInstanceMuted?: boolean;
   loading: boolean;
   onToggleCollapsed: () => void;
   onNewSession: () => void;
@@ -64,21 +70,6 @@ export function AgentSessionSidebar({
   return (
     <aside className="flex h-full min-h-0 flex-col overflow-hidden bg-agent-panel border-r border-agent-border text-agent-text relative group transition-all">
       <div className={cn("mt-4 flex shrink-0 flex-col gap-1.5 transition-[padding] duration-300 ease-out", collapsed ? "items-center px-2" : "px-3")}>
-        <div className="flex w-full mb-2 justify-center">
-          <button
-            type="button"
-            onClick={onNewSession}
-            disabled={loading}
-            className={cn(
-              "flex items-center justify-center gap-2 rounded-control border border-agent-border-soft bg-agent-bg text-agent-text transition-colors hover:bg-agent-surface disabled:opacity-50 font-medium shadow-sm",
-              collapsed ? "h-9 w-9 mx-auto" : "h-9 w-full px-3"
-            )}
-            title="新对话"
-          >
-            <SquarePen className="h-4 w-4 shrink-0 text-agent-muted" />
-            {!collapsed && <span className="text-[13px]">新对话</span>}
-          </button>
-        </div>
         <SidebarItem icon={Search} label="搜索" badge="待接入" collapsed={collapsed} disabled />
         <SidebarItem icon={Calendar} label="已安排" badge="待接入" collapsed={collapsed} disabled />
         <SidebarItem icon={AtSign} label="插件" badge="待接入" collapsed={collapsed} disabled />
@@ -86,8 +77,15 @@ export function AgentSessionSidebar({
 
       <div className="mt-6 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {!collapsed && (
-          <div className="mb-2 px-2 text-[11px] font-semibold text-agent-subtle uppercase tracking-wider">
-            主会话区 (Session)
+          <div className="mb-2 flex h-7 items-center gap-2 px-2 text-[11px] font-semibold uppercase tracking-wider text-agent-subtle">
+            <span className="min-w-0 flex-1 truncate">主会话区 (Session)</span>
+            <button
+              type="button"
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-agent-subtle transition-colors hover:bg-agent-surface hover:text-agent-text"
+              title="选择工作区"
+            >
+              <FolderOpen className="h-3.5 w-3.5" />
+            </button>
           </div>
         )}
         {Object.keys(sessionsByProject).length > 0 ? (
@@ -96,20 +94,32 @@ export function AgentSessionSidebar({
               {!collapsed && (
                 <div className="mb-1 flex items-center gap-2 px-2 text-[12px] font-medium text-agent-muted">
                   <span className="truncate">{getProjectName(pId)}</span>
+                  {previewInstanceActive && pId === previewProjectId ? (
+                    <PreviewInstanceDot muted={previewInstanceMuted} />
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={onNewSession}
+                    disabled={loading}
+                    className="ml-auto inline-flex h-6 w-6 items-center justify-center rounded-md text-agent-subtle transition-colors hover:bg-agent-surface hover:text-agent-text disabled:opacity-50"
+                    title="新建对话"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               )}
               <div className="flex flex-col gap-0.5">
                 {groupSessions.map((session) => (
                   <div
                     key={session.id}
+                    title={previewInstanceActive && session.projectId === previewProjectId ? `${session.title}。活跃实例：运行中；静音：${previewInstanceMuted ? "是" : "否"}` : session.title}
                     className={cn(
                       "group/session relative flex w-full items-center gap-2.5 rounded-control text-left transition-colors duration-200",
-                      collapsed ? "h-9 justify-center px-0" : "px-3 py-1.5",
+                      collapsed ? "h-9 justify-center px-0" : "h-9 px-3",
                       session.id === activeSessionId
                         ? "bg-agent-surface text-agent-text font-semibold shadow-sm border border-agent-border-soft"
                         : "text-agent-muted hover:bg-agent-surface hover:text-agent-text border border-transparent"
                     )}
-                    title={session.title}
                   >
                     {collapsed ? (
                       <button
@@ -119,6 +129,9 @@ export function AgentSessionSidebar({
                         title={session.title}
                       >
                         <MessageSquare className={cn("h-4 w-4 shrink-0 transition-colors duration-200", session.id === activeSessionId ? "text-agent-accent" : "opacity-80")} />
+                        {previewInstanceActive && session.projectId === previewProjectId ? (
+                          <PreviewInstanceDot muted={previewInstanceMuted} collapsed />
+                        ) : null}
                       </button>
                     ) : editingSessionId === session.id ? (
                       <>
@@ -215,6 +228,20 @@ export function AgentSessionSidebar({
         </button>
       </div>
     </aside>
+  );
+}
+
+function PreviewInstanceDot({ muted, collapsed = false }: { muted: boolean; collapsed?: boolean }) {
+  return (
+    <span
+      className={cn(
+        "h-2 w-2 shrink-0 rounded-full border shadow-[0_0_8px_rgba(0,217,197,0.85)]",
+        muted ? "border-amber-200 bg-amber-300" : "border-[#00ffeb] bg-[#00d9c5]",
+        collapsed && "absolute right-2 top-2",
+      )}
+      title={`活跃实例：运行中；静音：${muted ? "是" : "否"}`}
+      aria-label={`活跃实例，静音${muted ? "开启" : "关闭"}`}
+    />
   );
 }
 

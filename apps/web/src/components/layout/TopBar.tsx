@@ -20,6 +20,8 @@ type Props = {
   assets: AssetSummary[];
   tasks: TaskRecord[];
   agentActive: boolean;
+  gamePreviewInstanceActive?: boolean;
+  gamePreviewInstanceMuted?: boolean;
   onThemeToggle: () => void;
   onToggleAgent: () => void;
   onOpenSettings: () => void;
@@ -50,7 +52,7 @@ function isWindowDragTarget(target: EventTarget | null) {
   );
 }
 
-export function TopBar({ project, runtime, notice, toolCount, theme, projects = [], tools = [], assets = [], tasks = [], agentActive, onThemeToggle, onToggleAgent, onOpenSettings, onSelectProject, onOpenModule, onOpenLogs, onOpenTools, onSelect, appMenu, searchFocusSignal = 0, onStartRuntime, onStopRuntime }: Props) {
+export function TopBar({ project, runtime, notice, toolCount, theme, projects = [], tools = [], assets = [], tasks = [], agentActive, gamePreviewInstanceActive = false, gamePreviewInstanceMuted = false, onThemeToggle, onToggleAgent, onOpenSettings, onSelectProject, onOpenModule, onOpenLogs, onOpenTools, onSelect, appMenu, searchFocusSignal = 0, onStartRuntime, onStopRuntime }: Props) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -148,7 +150,7 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
   if (agentActive) {
     return (
       <header
-        className="relative z-[999] flex h-[42px] shrink-0 select-none items-center justify-between border-b border-border bg-surface-panel px-3 text-text"
+        className="relative z-[999] flex h-[52px] shrink-0 select-none items-center justify-between gap-4 border-b border-border bg-surface-panel px-4 text-text"
         onPointerDown={handleTitlebarPointerDown}
         onPointerMove={handleTitlebarPointerMove}
         onPointerUp={clearTitlebarPointer}
@@ -160,19 +162,62 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
             type="button"
             className="flex h-7 items-center gap-1.5 rounded-[4px] px-3 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
             onClick={onToggleAgent}
-            title="切换为生成页"
-            aria-label="切换为生成页"
+            title="切换到资源生成"
+            aria-label="切换到资源生成"
           >
-            生成页
+            资源生成
           </button>
           <div className="flex h-7 items-center gap-1.5 rounded-[4px] bg-surface-panel px-3 text-[12px] font-medium text-text shadow-sm">
             <img src="/files.png" alt="" className="h-4 w-4 rounded-[3px] object-contain" />
-            <span>Agent 工作台</span>
+            <span>游戏开发</span>
+            <PreviewInstanceDot active={gamePreviewInstanceActive} muted={gamePreviewInstanceMuted} />
           </div>
+        </div>
+        <div className="ml-auto flex items-center gap-4 px-4" data-no-window-drag>
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn(
+              "h-7 px-2.5 text-[11px] font-medium border-border-soft transition-colors",
+              runtimeReady
+                ? "bg-surface-panel hover:bg-red-500/10 text-red-400 hover:text-red-300 hover:border-red-500/30"
+                : "bg-surface-panel hover:bg-brand/10 text-text hover:text-brand hover:border-brand/30"
+            )}
+            onClick={() => {
+              if (runtimeReady) {
+                onStopRuntime?.();
+              } else {
+                onStartRuntime?.();
+              }
+            }}
+            title={runtimeReady ? "停止 MCP" : project ? "启动 MCP" : "请先选择或导入 Maker 项目"}
+          >
+            <Power className="w-3.5 h-3.5 mr-1.5" />
+            {runtimeReady ? "停止 MCP" : "启动 MCP"}
+          </Button>
+
+          <button
+            onClick={() => onOpenTools?.()}
+            className="group flex flex-col items-center justify-center gap-1 cursor-pointer mt-0.5"
+            title="MCP 工具箱"
+          >
+            <div className={cn(
+              "w-2.5 h-2.5 rounded-full border transition-all duration-500",
+              runtimeReady
+                ? "bg-[#00d9c5] border-[#00ffeb] shadow-[0_0_8px_rgba(0,217,197,0.8)]"
+                : "bg-gray-500 border-gray-400 opacity-40"
+            )} />
+            <span className="text-[9px] text-text-subtle font-medium leading-none">
+              {runtimeReady ? `${toolCount} 个工具` : runtimeStatusLabel}
+            </span>
+          </button>
         </div>
         <div className="flex items-center gap-2" data-no-window-drag>
           <Button variant="ghost" size="icon" onClick={onThemeToggle} title="切换主题" className="h-8 w-8 text-text-muted hover:bg-surface-muted hover:text-text">
             <ThemeToggleIcon theme={theme} />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={onOpenSettings} title="设置" className="h-8 w-8 text-text-muted hover:bg-surface-muted hover:text-text">
+            <Settings className="w-[18px] h-[18px]" />
           </Button>
           <DesktopWindowControls />
         </div>
@@ -192,17 +237,18 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
       <div className="flex items-center min-w-0 shrink-0 w-[520px] pl-1 gap-3">
         <div className="mr-2 flex items-center rounded-control bg-surface-muted/60 p-1 shadow-inner" data-no-window-drag>
           <div className="flex h-7 items-center gap-1.5 rounded-[4px] bg-surface-panel px-3 text-[12px] font-medium text-text shadow-sm">
-            生成页
+            资源生成
           </div>
           <button
             type="button"
             className="flex h-7 items-center gap-1.5 rounded-[4px] px-3 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
             onClick={onToggleAgent}
-            title="打开 Agent 工作台"
-            aria-label="打开 Agent 工作台"
+            title={gamePreviewInstanceActive ? `打开游戏开发。活跃实例：运行中；静音：${gamePreviewInstanceMuted ? "是" : "否"}` : "打开游戏开发"}
+            aria-label="打开游戏开发"
           >
             <img src="/files.png" alt="" className="h-4 w-4 rounded-[3px] object-contain opacity-70" />
-            <span>Agent</span>
+            <span>游戏开发</span>
+            <PreviewInstanceDot active={gamePreviewInstanceActive} muted={gamePreviewInstanceMuted} />
           </button>
         </div>
         <div className="min-w-0">{appMenu}</div>
@@ -298,6 +344,20 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
         <DesktopWindowControls />
       </div>
     </header>
+  );
+}
+
+function PreviewInstanceDot({ active, muted }: { active: boolean; muted: boolean }) {
+  if (!active) return null;
+  return (
+    <span
+      className={cn(
+        "h-2 w-2 rounded-full border shadow-[0_0_8px_rgba(0,217,197,0.85)]",
+        muted ? "border-amber-200 bg-amber-300" : "border-[#00ffeb] bg-[#00d9c5]",
+      )}
+      title={`活跃实例：运行中；静音：${muted ? "是" : "否"}`}
+      aria-label={`活跃实例，静音${muted ? "开启" : "关闭"}`}
+    />
   );
 }
 

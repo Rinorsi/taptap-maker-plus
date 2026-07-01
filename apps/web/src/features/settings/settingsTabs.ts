@@ -4,6 +4,7 @@ import {
   Cpu,
   Download,
   FolderCog,
+  Gamepad2,
   Grid3X3,
   Keyboard,
   Palette,
@@ -19,6 +20,7 @@ export type SettingsTab =
   | "generation-defaults"
   | "canvas-assets"
   | "tasks"
+  | "game-development"
   | "runtime"
   | "software-update"
   | "shortcuts"
@@ -31,6 +33,7 @@ export const settingsTabs: Array<{ id: SettingsTab; label: string; icon: LucideI
   { id: "generation-defaults", label: "生成默认值", icon: Box, keywords: ["默认值", "新项目", "全局初始化", "模板", "工作空间", "项目初始化", "工作区默认值", "图像生成", "视频生成", "音乐", "音效", "3D 模型", "默认模型"] },
   { id: "canvas-assets", label: "画布与资产", icon: Workflow, keywords: ["节点", "节点编辑器", "画布自动保存", "画布更改自动保存", "进入画布", "侧边栏折叠", "离开画布", "恢复侧栏", "恢复侧栏状态", "网格", "显示网格背景", "迷你地图", "MiniMap", "吸附", "素材库", "素材", "资产", "文件流转", "外部拖入", "拖入资产", "自动复制", "每次询问", "移动资产", "删除资产", "移动删除资产前", "引用扫描", "项目资产", "资源"] },
   { id: "tasks", label: "任务与通知", icon: Grid3X3, keywords: ["任务面板", "任务详情", "点击任务默认展示", "状态", "日志", "错误", "异常通知", "桌面通知", "任务失败", "自动弹出错误日志", "生成类任务", "生成完成", "刷新资产", "完成后刷新资产", "通知策略"] },
+  { id: "game-development", label: "游戏开发", icon: Gamepad2, keywords: ["游戏开发", "预览", "TapTap Maker", "Maker 预览", "登录态", "保存登录", "清空登录态", "后台保留", "后台静音", "独立窗口", "嵌入", "资源生成", "开发窗口", "BGM", "静音"] },
   { id: "runtime", label: "MCP 运行时", icon: Cpu, keywords: ["MCP", "Runtime", "运行时", "自动启动策略", "手动控制", "选中项目后启动", "服务管理", "启动 MCP", "启动服务", "停止服务", "刷新工具", "MCP 包", "包更新", "安装", "重装", "卸载", "云端版本", "本地版本", "npm-cache"] },
   { id: "software-update", label: "软件更新", icon: Download, keywords: ["软件版本", "软件更新", "更新检查", "版本列表", "版本历史", "下载安装器", "覆盖安装", "GitHub Releases", "静态更新清单", "公告", "更新日志", "最新版本"] },
   { id: "shortcuts", label: "快捷键", icon: Keyboard, keywords: ["命令", "快捷键", "键盘", "Command Palette", "命令面板", "只读"] },

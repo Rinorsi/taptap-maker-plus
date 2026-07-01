@@ -12,6 +12,8 @@ updates/*
 update-feed/
 .update-feed-worktree/
 diagnostics/
+output/
+.agents/
 data/*.sqlite
 data/*.db
 data/*.sqlite-wal
@@ -22,6 +24,7 @@ data/
 Thumbs.db
 *.tmp
 temp_restore.txt
+test.html
 clean_imagestudio.txt
 jsx_clean.txt
 jsx_part.txt

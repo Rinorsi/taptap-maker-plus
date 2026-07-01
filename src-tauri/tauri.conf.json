@@ -1,12 +1,12 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "TapTap Maker Plus",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "identifier": "com.taptap.makerplus",
   "build": {
     "frontendDist": "../apps/web/dist",
     "devUrl": "http://127.0.0.1:5173",
-    "beforeDevCommand": "npm run dev:web",
+    "beforeDevCommand": "node scripts/ensure-dev-web.mjs",
     "beforeBuildCommand": "npm run build:desktop"
   },
   "app": {

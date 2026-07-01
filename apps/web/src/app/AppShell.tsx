@@ -120,6 +120,7 @@ import {
 import { FirstRunOnboarding } from "../features/onboarding/FirstRunOnboarding";
 import { useAppUpdateUi } from "../features/updates/appUpdateUi";
 import { AnnouncementDialog, useAppAnnouncements } from "../features/announcements/appAnnouncements";
+import { hideMakerPreview } from "../features/agent/remoteMakerPreview";
 
 const DEFAULT_PROJECT_MODULE: WorkbenchModule = defaultWorkspaceToModule("assets");
 const DEFAULT_SETTINGS_TAB: SettingsTab = "general";
@@ -128,6 +129,14 @@ const NODE_PRESET_TEXT_PREFIX = "taptap-node-preset:";
 const BOOTSTRAP_RETRY_DELAYS_MS = [800, 1200, 1800, 2600, 3600];
 const ASSET_REFERENCE_CACHE_TTL_MS = 30_000;
 const ONBOARDING_DISMISSED_STORAGE_KEY = "taptap.onboardingDismissed";
+const MAKER_PREVIEW_INSTANCE_EVENT = "taptap:maker-preview-instance";
+const MAKER_PREVIEW_RESYNC_EVENT = "taptap:maker-preview-resync";
+
+type MakerPreviewInstanceState = {
+  active: boolean;
+  projectId?: string;
+  muted: boolean;
+};
 
 type ReferenceMutationDecision = "update" | "skip" | "cancel";
 
@@ -187,6 +196,10 @@ export function AppShell() {
   const [selection, setSelection] = useState<InspectorSelection>();
   const [notice, setNotice] = useState("准备就绪");
   const [settingsPreferenceVersion, setSettingsPreferenceVersion] = useState(0);
+  const [makerPreviewInstance, setMakerPreviewInstance] = useState<MakerPreviewInstanceState>({
+    active: false,
+    muted: false,
+  });
   const [developerModeEnabled, setDeveloperModeEnabledState] = useState(() => isDeveloperModeEnabled());
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [announcementOpen, setAnnouncementOpen] = useState(false);
@@ -270,6 +283,22 @@ export function AppShell() {
   useEffect(() => {
     loadRemoteSettingsPreferences();
     applyWindowMinimumSize();
+  }, []);
+
+  useEffect(() => {
+    function handleMakerPreviewInstance(event: Event) {
+      const detail = (event as CustomEvent<Partial<MakerPreviewInstanceState>>).detail;
+      setMakerPreviewInstance({
+        active: Boolean(detail?.active),
+        projectId: typeof detail?.projectId === "string" ? detail.projectId : undefined,
+        muted: Boolean(detail?.muted),
+      });
+    }
+
+    window.addEventListener(MAKER_PREVIEW_INSTANCE_EVENT, handleMakerPreviewInstance);
+    return () => {
+      window.removeEventListener(MAKER_PREVIEW_INSTANCE_EVENT, handleMakerPreviewInstance);
+    };
   }, []);
 
   useEffect(() => {
@@ -386,6 +415,9 @@ export function AppShell() {
 
   function playThemeCinema(nextTheme: "light" | "dark") {
     if (nextTheme === theme && !cinemaThemeState.active) return;
+    if (makerPreviewInstance.active) {
+      void hideMakerPreview().catch(() => undefined);
+    }
     themeCinemaTargetRef.current = nextTheme;
     setCinemaThemeState({ active: true, toTheme: nextTheme });
   }
@@ -3866,6 +3898,7 @@ export function AppShell() {
   const runtimeView = runtime ?? selectedProject?.runtime;
   const isSettingsModule = activeModule === "settings";
   const isAgentModule = activeModule === "agent";
+  const isAgentContext = isAgentModule || (isSettingsModule && lastNonSettingsModule === "agent");
   const effectiveSidebarCollapsed = isSettingsModule ? false : sidebarCollapsed;
   const effectiveSidebarWidth = isSettingsModule ? sidebarWidth : sidebarCollapsed ? 56 : sidebarWidth;
   const agentPage: AgentPageState = useMemo(
@@ -3928,12 +3961,15 @@ export function AppShell() {
          onComplete={() => {
            themeCinemaTargetRef.current = undefined;
            setCinemaThemeState(prev => ({ ...prev, active: false }));
+           if (makerPreviewInstance.active && isAgentContext) {
+             window.dispatchEvent(new Event(MAKER_PREVIEW_RESYNC_EVENT));
+           }
          }}
       />
       <div
         className={cn(
           "w-full h-full flex flex-col overflow-hidden text-text",
-          isAgentModule ? "bg-[#18181b]" : "app-background rounded-[10px] border border-border-soft shadow-panel"
+          isAgentContext ? "bg-[#18181b]" : "app-background rounded-[10px] border border-border-soft shadow-panel"
         )}
         onClick={() => {
           setFallbackMenu(undefined);
@@ -3952,7 +3988,9 @@ export function AppShell() {
           tools={tools}
           assets={assets}
           tasks={tasks}
-          agentActive={isAgentModule}
+          agentActive={isAgentContext}
+          gamePreviewInstanceActive={makerPreviewInstance.active}
+          gamePreviewInstanceMuted={makerPreviewInstance.muted}
           onThemeToggle={() => {
             const nextTheme = theme === "light" ? "dark" : "light";
             writeLocalPreference(settingsPreferenceKeys.themePreference, nextTheme);
@@ -4002,6 +4040,8 @@ export function AppShell() {
               width={effectiveSidebarWidth}
               developerMode={developerModeEnabled}
               announcementUnread={announcementUnread}
+              gamePreviewInstanceActive={makerPreviewInstance.active}
+              gamePreviewInstanceMuted={makerPreviewInstance.muted}
               onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
               onClearProject={handleClearProject}
               onSelectModule={selectModule}

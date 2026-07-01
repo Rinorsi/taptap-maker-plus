@@ -1,9 +1,9 @@
 [package]
 name = "app"
-version = "0.14.0"
+version = "0.14.1"
 description = "TapTap Maker 本地桌面工作台"
 authors = ["TapTap Maker"]
-license = ""
+license = "MPL-2.0"
 repository = ""
 edition = "2021"
 rust-version = "1.77.2"

@@ -7,71 +7,91 @@ import {
   ErrorPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
-  useAui,
   useAuiState,
 } from "@assistant-ui/react";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
-  ChartColumnIcon,
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   CopyIcon,
-  FileTextIcon,
+  Loader2Icon,
+  LogsIcon,
   PencilIcon,
+  PlusIcon,
   RefreshCwIcon,
   SquareIcon,
-  User,
-  Bot
+  Gamepad2Icon,
+  ImagePlusIcon,
+  UploadIcon,
 } from "lucide-react";
-import { type FC, type ReactNode } from "react";
+import { useState, type FC } from "react";
 import { Button } from "../../../components/ui/Button";
 import { cn } from "../../../lib/utils";
+import type { AgentWorkspaceTab } from "../types";
 import { MarkdownText } from "./MarkdownText";
 import { ToolFallback } from "./ToolFallback";
 import { TooltipIconButton } from "./TooltipIconButton";
+import { motion, AnimatePresence } from "framer-motion";
 
 const isNewChatView = (state: AssistantState) =>
   state.thread.messages.length === 0 && (!state.thread.isLoading || state.threads.isLoading);
 
-export const Thread: FC<{ runStatusBar?: ReactNode }> = ({ runStatusBar }) => {
+type ThreadProps = {
+  activeRunCount: number;
+  pendingPreviewCount: number;
+  error: string;
+  showWelcome: boolean;
+  onOpenWorkspaceTab: (tab: AgentWorkspaceTab) => void;
+};
+
+export const Thread: FC<ThreadProps> = ({
+  activeRunCount,
+  pendingPreviewCount,
+  error,
+  showWelcome,
+  onOpenWorkspaceTab,
+}) => {
   const isEmpty = useAuiState(isNewChatView);
+  const showEmptyWelcome = showWelcome && isEmpty;
 
   return (
     <ThreadPrimitive.Root
       className="aui-root aui-thread-root flex h-full min-h-0 flex-col bg-transparent"
       style={{
-        ["--thread-max-width" as string]: "56rem",
-        ["--composer-bg" as string]: "color-mix(in oklab, var(--agent-surface) 50%, transparent)",
-        ["--composer-radius" as string]: "1.25rem",
-        ["--composer-padding" as string]: "8px",
+        ["--thread-max-width" as string]: showEmptyWelcome ? "860px" : "100%",
+        ["--composer-bg" as string]: "color-mix(in srgb, var(--agent-panel) 92%, transparent)",
+        ["--composer-radius" as string]: "18px",
+        ["--composer-padding" as string]: "10px",
       }}
     >
       <ThreadPrimitive.Viewport
         turnAnchor="top"
-        className={cn(
-          "relative flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto scroll-smooth px-4 pt-4",
-          isEmpty && "justify-center"
-        )}
+          className={cn(
+            "relative flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto scroll-smooth px-4 pt-4",
+            showEmptyWelcome && "justify-center pb-[12vh]"
+          )}
       >
-        <AuiIf condition={isNewChatView}>
-          <ThreadWelcome />
-        </AuiIf>
+        {showEmptyWelcome ? (
+          <ThreadWelcome onOpenWorkspaceTab={onOpenWorkspaceTab} />
+        ) : null}
 
-        <div className="mb-10 flex flex-col gap-y-4 empty:hidden">
+        <div className="mb-10 flex flex-col gap-y-5 empty:hidden">
           <ThreadPrimitive.Messages>{() => <ThreadMessage />}</ThreadPrimitive.Messages>
         </div>
 
         <ThreadPrimitive.ViewportFooter
           className={cn(
-            "mx-auto flex w-full max-w-[var(--thread-max-width)] shrink-0 flex-col gap-4 overflow-visible bg-transparent pb-4 md:pb-6 relative z-10",
-            !isEmpty && "sticky bottom-0 mt-auto"
+            "mx-auto flex w-full max-w-[var(--thread-max-width)] shrink-0 flex-col gap-4 overflow-visible bg-transparent pb-4 md:pb-5 relative z-10",
+            showEmptyWelcome ? "mt-7" : "sticky bottom-0 mt-auto"
           )}
         >
           <ThreadScrollToBottom />
-          {runStatusBar ? <div className="px-4">{runStatusBar}</div> : null}
-          <Composer />
+          <div className="relative w-full">
+            <ComposerStatusLine activeRunCount={activeRunCount} pendingPreviewCount={pendingPreviewCount} error={error} />
+            <Composer onOpenWorkspaceTab={onOpenWorkspaceTab} />
+          </div>
         </ThreadPrimitive.ViewportFooter>
       </ThreadPrimitive.Viewport>
     </ThreadPrimitive.Root>
@@ -92,62 +112,125 @@ const ThreadScrollToBottom: FC = () => (
     <TooltipIconButton
       tooltip="滚动到底部"
       variant="outline"
-      className="absolute -top-12 z-10 self-center rounded-full bg-background p-3 disabled:invisible shadow-sm"
+      className="absolute -top-10 z-10 self-center rounded-full border-agent-border bg-agent-panel p-3 text-agent-muted shadow-sm disabled:invisible"
     >
       <ArrowDownIcon className="h-4 w-4" />
     </TooltipIconButton>
   </ThreadPrimitive.ScrollToBottom>
 );
 
-const ThreadWelcome: FC = () => (
-  <div className="mx-auto mb-6 flex w-full max-w-[var(--thread-max-width)] flex-col items-center px-4 text-center">
-    <h1 className="m-0 text-3xl font-semibold tracking-normal text-agent-text">有什么可以帮您的？</h1>
-    <p className="m-0 mt-3 max-w-xl text-sm leading-6 text-agent-muted">
-      当前阶段会先读取 TapTap Maker 上下文并生成可审查的回复；文件、终端、浏览器和 Diff 工作区需要手动打开。
-    </p>
+const ThreadWelcome: FC<{ onOpenWorkspaceTab: (tab: AgentWorkspaceTab) => void }> = ({ onOpenWorkspaceTab }) => (
+  <div className="pointer-events-none mx-auto flex w-full max-w-[var(--thread-max-width)] flex-col items-center justify-center px-4">
+    <h1 className="m-0 text-center text-[26px] font-semibold tracking-normal text-[#101217] dark:text-agent-text">
+      你想做一个什么样的游戏？
+    </h1>
   </div>
 );
 
-const Composer: FC = () => (
-  <ComposerPrimitive.Root className="relative flex w-full flex-col px-4">
-    <div className="flex w-full flex-col gap-2 rounded-(--composer-radius) border border-agent-border-soft bg-(--composer-bg) p-(--composer-padding) shadow-sm transition-[border-color,box-shadow,background-color] focus-within:border-agent-border focus-within:bg-agent-panel focus-within:shadow-md">
-      <ComposerPrimitive.Input
-        placeholder="输入对话内容... (@ 引用上下文，/ 使用快捷指令)"
-        className="max-h-[30vh] w-full resize-none bg-transparent px-2.5 py-1 font-sans text-[14px] font-normal leading-relaxed text-agent-text outline-none placeholder:font-normal placeholder:text-agent-subtle"
-        rows={1}
-        autoFocus
-        aria-label="Agent Message Input"
-      />
-      <div className="flex items-center justify-between gap-3 px-1">
-        <div className="flex items-center gap-1">
-          <Button type="button" variant="ghost" size="icon" className="h-7 w-7 rounded-full text-agent-subtle hover:bg-agent-panel hover:text-agent-text transition-colors" title="添加上下文">
-            <FileTextIcon className="h-4 w-4" />
-          </Button>
-          <Button type="button" variant="ghost" className="h-7 rounded-full px-2.5 text-xs font-medium text-agent-muted hover:bg-agent-panel hover:text-agent-text transition-colors">
-            <ChartColumnIcon className="h-4 w-4" />
-            当前项目上下文
-          </Button>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <AuiIf condition={(state) => !state.thread.isRunning}>
-            <ComposerPrimitive.Send asChild>
-              <TooltipIconButton tooltip="发送消息" className="h-8 w-8 rounded-full bg-agent-text text-agent-bg hover:opacity-80 transition-opacity shadow-sm">
-                <ArrowUpIcon className="h-4 w-4 shrink-0" />
-              </TooltipIconButton>
-            </ComposerPrimitive.Send>
-          </AuiIf>
-          <AuiIf condition={(state) => state.thread.isRunning}>
-            <ComposerPrimitive.Cancel asChild>
-              <TooltipIconButton tooltip="停止生成" className="h-8 w-8 rounded-full bg-agent-panel text-agent-text hover:bg-agent-surface border border-agent-border-soft">
-                <SquareIcon className="h-4 w-4 shrink-0 fill-current" />
-              </TooltipIconButton>
-            </ComposerPrimitive.Cancel>
-          </AuiIf>
+const ComposerStatusLine: FC<{
+  activeRunCount: number;
+  pendingPreviewCount: number;
+  error: string;
+}> = ({ activeRunCount, pendingPreviewCount, error }) => {
+  if (error) {
+    return (
+      <div className="absolute -top-10 left-4 z-10 flex h-7 items-center gap-2 rounded-full border border-[#b03939]/25 bg-[#b03939]/10 px-3 text-[11px] text-[#b03939] shadow-sm backdrop-blur-md">
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#b03939]" />
+        <span className="truncate">Needs input · {error}</span>
+      </div>
+    );
+  }
+  if (pendingPreviewCount > 0) {
+    return (
+      <div className="absolute -top-10 left-4 z-10 flex h-7 items-center gap-2 rounded-full border border-agent-warning/25 bg-agent-warning/10 px-3 text-[11px] text-agent-warning shadow-sm backdrop-blur-md">
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-agent-warning" />
+        <span className="truncate">Needs input · {pendingPreviewCount} 个动作待审批</span>
+      </div>
+    );
+  }
+  if (activeRunCount > 0) {
+    return (
+      <div className="absolute -top-10 left-4 z-10 flex h-7 items-center gap-2 rounded-full border border-agent-border bg-agent-surface/80 px-3 text-[11px] text-agent-muted shadow-sm backdrop-blur-md">
+        <Loader2Icon className="h-3 w-3 shrink-0 animate-spin text-agent-accent" />
+        <span className="truncate">Generating response...</span>
+      </div>
+    );
+  }
+  return null;
+};
+
+const Composer: FC<{ onOpenWorkspaceTab: (tab: AgentWorkspaceTab) => void }> = ({ onOpenWorkspaceTab }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <ComposerPrimitive.Root className="relative flex w-full flex-col px-4">
+      <div className="agent-composer-shell flex w-full flex-col rounded-[18px] border border-[#d6d9de] bg-white shadow-[0_4px_18px_rgba(15,23,42,0.12)] transition-shadow hover:shadow-[0_8px_24px_rgba(15,23,42,0.14)] focus-within:shadow-[0_8px_24px_rgba(15,23,42,0.14)] dark:border-white/12 dark:bg-[#2a2b30] dark:shadow-[0_10px_28px_rgba(0,0,0,0.24)]">
+        <ComposerPrimitive.Input
+          placeholder="提出创意、问题，或随便聊聊..."
+          className="max-h-[180px] min-h-[58px] w-full resize-none overflow-y-auto bg-transparent px-4 pt-4 font-sans text-[15px] font-normal leading-relaxed text-[#1f2328] outline-none placeholder:font-normal placeholder:text-[#8b8f97] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 md:text-[15px] dark:text-[#f4f6fb] dark:placeholder:text-[#8f949f]"
+          rows={1}
+          autoFocus
+          aria-label="Agent Message Input"
+        />
+        <div className="flex items-center justify-between gap-2 px-4 pb-3">
+          <motion.div
+            className="flex h-8 shrink-0 items-center overflow-hidden rounded-full bg-gray-100 shadow-sm dark:bg-[#3a3b40]"
+            onMouseEnter={() => setIsExpanded(true)}
+            onMouseLeave={() => setIsExpanded(false)}
+            initial={false}
+            animate={{ width: isExpanded ? 160 : 32 }}
+            transition={{ type: "spring", stiffness: 500, damping: 30 }}
+          >
+            <div className="flex h-full w-8 shrink-0 items-center justify-center">
+              <PlusIcon className={cn("h-4 w-4 text-[#4b5563] transition-transform duration-300 dark:text-agent-muted", isExpanded && "rotate-45")} />
+            </div>
+            <AnimatePresence>
+              {isExpanded && (
+                <motion.div
+                  className="flex h-full items-center gap-1 px-1"
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                  transition={{ duration: 0.15 }}
+                >
+                  <TooltipIconButton tooltip="审查项目" className="h-7 w-7 rounded-full text-agent-muted hover:bg-white hover:text-agent-text dark:hover:bg-[#191a1c]" onClick={() => onOpenWorkspaceTab("overview")}>
+                    <Gamepad2Icon className="h-3.5 w-3.5" />
+                  </TooltipIconButton>
+                  <TooltipIconButton tooltip="上传素材" className="h-7 w-7 rounded-full text-agent-muted hover:bg-white hover:text-agent-text dark:hover:bg-[#191a1c]" onClick={() => onOpenWorkspaceTab("files")}>
+                    <ImagePlusIcon className="h-3.5 w-3.5" />
+                  </TooltipIconButton>
+                  <TooltipIconButton tooltip="发布准备" className="h-7 w-7 rounded-full text-agent-muted hover:bg-white hover:text-agent-text dark:hover:bg-[#191a1c]" onClick={() => onOpenWorkspaceTab("overview")}>
+                    <UploadIcon className="h-3.5 w-3.5" />
+                  </TooltipIconButton>
+                  <TooltipIconButton tooltip="诊断信息" className="h-7 w-7 rounded-full text-agent-muted hover:bg-white hover:text-agent-text dark:hover:bg-[#191a1c]" onClick={() => onOpenWorkspaceTab("logs")}>
+                    <LogsIcon className="h-3.5 w-3.5" />
+                  </TooltipIconButton>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+
+          <div className="flex shrink-0 items-center">
+            <AuiIf condition={(state) => !state.thread.isRunning}>
+              <ComposerPrimitive.Send asChild>
+                <TooltipIconButton tooltip="发送消息" className="h-9 w-9 rounded-full bg-[#8df3ea] text-white shadow-sm transition-opacity hover:opacity-85">
+                  <ArrowUpIcon className="h-4.5 w-4.5 shrink-0" />
+                </TooltipIconButton>
+              </ComposerPrimitive.Send>
+            </AuiIf>
+            <AuiIf condition={(state) => state.thread.isRunning}>
+              <ComposerPrimitive.Cancel asChild>
+                <TooltipIconButton tooltip="停止生成" className="h-8 w-8 rounded-full border border-agent-border bg-agent-panel text-agent-text shadow-sm hover:bg-agent-surface">
+                  <SquareIcon className="h-4 w-4 shrink-0 fill-current" />
+                </TooltipIconButton>
+              </ComposerPrimitive.Cancel>
+            </AuiIf>
+          </div>
         </div>
       </div>
-    </div>
-  </ComposerPrimitive.Root>
-);
+    </ComposerPrimitive.Root>
+  );
+};
 
 const MessageError: FC = () => (
   <MessagePrimitive.Error>
@@ -158,12 +241,16 @@ const MessageError: FC = () => (
 );
 
 const AssistantMessage: FC = () => (
-  <MessagePrimitive.Root className="group relative mx-auto flex w-full max-w-[var(--thread-max-width)] gap-3 px-4 mb-4" data-role="assistant">
-    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-control bg-agent-accent/10 text-agent-accent border border-agent-accent/20">
-      <Bot className="h-3.5 w-3.5" />
+  <MessagePrimitive.Root className="group relative mx-auto mb-5 flex w-full max-w-[var(--thread-max-width)] gap-3 px-5" data-role="assistant">
+    <div className="relative flex h-8 w-8 shrink-0 items-center justify-center">
+      <img
+        src="/taptap-maker/tap-BM8wfTgR.webp"
+        alt="Bot Avatar"
+        className="h-full w-full rounded-full object-cover"
+      />
     </div>
-    <div className="flex-1 min-w-0 pt-1">
-      <div className="text-[14px] leading-relaxed text-agent-text [contain-intrinsic-size:auto_24px] [content-visibility:auto]">
+    <div className="min-w-0 flex-1 pt-1">
+      <div className="min-w-0 max-w-full break-words rounded-none p-0 text-[15px] leading-7 text-[#1f2328] shadow-none [contain-intrinsic-size:auto_24px] [content-visibility:auto] dark:text-agent-text">
         <MessagePrimitive.Parts>
           {({ part }) => {
             if (part.type === "text") return <MarkdownText />;
@@ -212,12 +299,16 @@ const AssistantActionBar: FC = () => (
 
 const UserMessage: FC = () => (
   <MessagePrimitive.Root
-    className="fade-in slide-in-from-bottom-1 animate-in group mx-auto grid w-full max-w-[var(--thread-max-width)] grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-1.5 px-4 mb-4 duration-150 [&:where(>*)]:col-start-2"
+    className="fade-in slide-in-from-bottom-1 animate-in group mx-auto mb-5 grid w-full max-w-[var(--thread-max-width)] grid-cols-[minmax(42px,1fr)_auto] content-start gap-y-1.5 px-5 duration-150 [&:where(>*)]:col-start-2"
     data-role="user"
   >
     <div className="relative col-start-2 min-w-0">
-      <div className="peer rounded-[1.25rem] rounded-tr-sm bg-agent-surface text-agent-text px-3.5 py-2 text-[13.5px] leading-relaxed whitespace-pre-wrap break-words min-w-0 shadow-sm empty:hidden">
+      <div className="peer relative max-w-[340px] rounded-[10px] border border-[#87eee5] bg-[#e5fffc] px-4 py-2 text-[15px] leading-6 text-[#1f2328] shadow-none empty:hidden dark:border-white/12 dark:bg-[#2b2c30] dark:text-[#f4f6fb]">
+        <div className="min-h-0 min-w-0 max-w-full break-words rounded-none p-0 text-[#1f2328] shadow-none dark:text-[#f4f6fb]">
+          <div className="whitespace-pre-wrap text-[15px] leading-6 text-[#1f2328] dark:text-[#f4f6fb]">
         <MessagePrimitive.Parts />
+          </div>
+        </div>
       </div>
       <div className="absolute top-1/2 left-0 -translate-x-full -translate-y-1/2 pr-2 peer-empty:hidden">
         <UserActionBar />

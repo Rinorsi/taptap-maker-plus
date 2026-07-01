@@ -18,6 +18,8 @@ type Props = {
   width: number;
   developerMode: boolean;
   announcementUnread?: boolean;
+  gamePreviewInstanceActive?: boolean;
+  gamePreviewInstanceMuted?: boolean;
   onToggleCollapsed: () => void;
   onClearProject: () => void;
   onSelectModule: (module: WorkbenchModule) => void;
@@ -50,7 +52,7 @@ function normalizeSettingsSearchText(value: string) {
     .replace(/[\s_\-()[\]（）/\\:：,.，。"'“”]+/g, "");
 }
 
-export function ProjectSidebar({ projects, selectedProjectId, activeModule, activeSettingsTab, collapsed, width, developerMode, announcementUnread = false, onToggleCollapsed, onClearProject, onSelectModule, onSelectSettingsTab, onExitSettings, onOpenAnnouncement }: Props) {
+export function ProjectSidebar({ projects, selectedProjectId, activeModule, activeSettingsTab, collapsed, width, developerMode, announcementUnread = false, gamePreviewInstanceActive = false, gamePreviewInstanceMuted = false, onToggleCollapsed, onClearProject, onSelectModule, onSelectSettingsTab, onExitSettings, onOpenAnnouncement }: Props) {
   const [settingsSearch, setSettingsSearch] = useState("");
   const [disabledPagesOpen, setDisabledPagesOpen] = useState(false);
   
@@ -81,7 +83,7 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
         transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
         className="relative flex h-full shrink-0 select-none flex-col overflow-hidden border-r border-border bg-surface-panel"
       >
-        <div className="flex h-[52px] shrink-0 items-center gap-2 overflow-hidden border-b border-border-soft bg-surface-app px-3">
+        <div className="flex h-11 shrink-0 items-center gap-2 overflow-hidden border-b border-border-soft bg-surface-app px-3">
           <button
             onClick={onExitSettings}
             className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-muted hover:text-text focus-visible:outline-none"
@@ -96,8 +98,8 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
         </div>
 
         {!collapsed ? (
-          <div className="border-b border-border-soft bg-surface-app px-3 py-3">
-            <label className="flex h-9 items-center gap-2 rounded-lg border border-border bg-surface-panel px-3 text-text-muted focus-within:border-brand focus-within:text-text">
+          <div className="border-b border-border-soft bg-surface-app px-3 py-2">
+            <label className="flex h-8 items-center gap-2 rounded-lg border border-border bg-surface-panel px-3 text-text-muted focus-within:border-brand focus-within:text-text">
               <Search className="h-4 w-4 shrink-0" />
               <input
                 value={settingsSearch}
@@ -233,14 +235,15 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
 
                 const isActive = activeModule === route.id;
                 const Icon = moduleIcons[route.id] || LayoutDashboard;
+                const showPreviewDot = route.id === "agent" && gamePreviewInstanceActive;
                 
                 return (
                   <li key={route.id}>
                     <button 
                       type="button" 
-                      title={route.label} 
+                      title={showPreviewDot ? `${route.label}。活跃实例：运行中；静音：${gamePreviewInstanceMuted ? "是" : "否"}` : route.label} 
                       className={cn(
-                        "flex w-full cursor-pointer select-none items-center rounded-lg transition-colors outline-none",
+                        "relative flex w-full cursor-pointer select-none items-center rounded-lg transition-colors outline-none",
                         // 采用更舒展的内边距和字号，匹配官方 TapTap 侧边栏视觉
                         collapsed ? "justify-center h-[44px] p-0" : "justify-start py-[10px] px-3 gap-3 text-left",
                         isActive 
@@ -253,6 +256,7 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
                       {!collapsed && (
                         <>
                           <span className="min-w-0 flex-1 truncate text-left text-[14px]">{route.label}</span>
+                          {showPreviewDot ? <PreviewInstanceDot muted={gamePreviewInstanceMuted} /> : null}
                           {route.developerOnly ? (
                             <span
                               className="shrink-0 rounded-full border border-border-soft bg-surface-app px-1.5 py-0.5 text-[9px] font-semibold text-text-subtle"
@@ -263,6 +267,7 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
                           ) : null}
                         </>
                       )}
+                      {collapsed && showPreviewDot ? <PreviewInstanceDot muted={gamePreviewInstanceMuted} collapsed /> : null}
                     </button>
                   </li>
                 );
@@ -395,5 +400,18 @@ export function ProjectSidebar({ projects, selectedProjectId, activeModule, acti
         )}
       </div>
     </motion.aside>
+  );
+}
+
+function PreviewInstanceDot({ muted, collapsed = false }: { muted: boolean; collapsed?: boolean }) {
+  return (
+    <span
+      className={cn(
+        "h-2 w-2 shrink-0 rounded-full border shadow-[0_0_8px_rgba(0,217,197,0.85)]",
+        muted ? "border-amber-200 bg-amber-300" : "border-[#00ffeb] bg-[#00d9c5]",
+        collapsed && "absolute right-2 top-2",
+      )}
+      aria-label={`活跃实例，静音${muted ? "开启" : "关闭"}`}
+    />
   );
 }

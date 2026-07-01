@@ -1,30 +1,32 @@
-import { Activity, Bot, Braces, FileText, GitCompare, Globe, ListChecks, PackageOpen, Plus, Terminal, Wrench, X } from "lucide-react";
+import { Activity, Bot, Braces, CheckCircle2, CircleAlert, CircleDashed, FileText, GitCompare, Globe, ListChecks, PackageOpen, PanelTop, Plus, Terminal, Wrench, X, type LucideIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { AgentActionKind, AgentActionPreviewRecord, AgentContextSnapshot, AgentMessageRecord, AgentPageState, CompressedAgentContext, PiAgentRuntimeStatus } from "../api";
 import type { DesktopReadiness, ProjectSummary, RuntimeStatus } from "../../../api";
 import type { AgentWorkspaceTab } from "../types";
+import { AgentArtifactsTab } from "./AgentArtifactsTab";
 import { AgentBrowserTab } from "./AgentBrowserTab";
 import { AgentContextTab } from "./AgentContextTab";
 import { AgentDiffTab } from "./AgentDiffTab";
 import { AgentFilesTab } from "./AgentFilesTab";
 import { AgentLogsTab } from "./AgentLogsTab";
-import { AgentOverviewTab } from "./AgentOverviewTab";
 import { EmptyState } from "./AgentPanelPrimitives";
 import { AgentTerminalTab } from "./AgentTerminalTab";
+import { AgentWorkspaceBlueprint } from "./AgentWorkspaceBlueprint";
 import { cn } from "../../../lib/utils";
 
 type WorkspaceToolTab = {
   id: AgentWorkspaceTab;
   label: string;
   description: string;
-  icon: typeof Activity;
+  icon: LucideIcon;
   shortcut?: string;
   state?: "ready" | "stub";
 };
 
 const toolTabs: WorkspaceToolTab[] = [
   { id: "overview", label: "审查", description: "显示待处理动作和最近 Agent 决策。", icon: Activity, shortcut: "Ctrl+Shift+G", state: "ready" },
+  { id: "artifacts", label: "产物", description: "Open Canvas 式 artifact 预览、保存状态和版本骨架。", icon: PanelTop, state: "ready" },
   { id: "terminal", label: "终端", description: "只展示白名单命令快照，不是交互终端。", icon: Terminal, state: "ready" },
   { id: "browser", label: "浏览器", description: "按 URL 触发探测，不默认打开浏览器。", icon: Globe, shortcut: "Ctrl+T", state: "ready" },
   { id: "files", label: "文件", description: "浏览 Agent 可见的项目文件入口。", icon: FileText, shortcut: "Ctrl+P", state: "ready" },
@@ -81,49 +83,54 @@ export function AgentToolPanel({
   const visibleTabs = openTabs
     .map((id) => toolTabs.find((tab) => tab.id === id))
     .filter((tab): tab is WorkspaceToolTab => Boolean(tab));
+  const activeToolTab = toolTabs.find((tab) => tab.id === activeTab);
 
   return (
     <aside className="relative z-10 flex h-full min-h-0 flex-col bg-agent-panel text-agent-text">
       {activeTab === "launcher" ? (
-        <WorkspaceLauncher pendingPreviews={pendingPreviews.length} onOpenTab={onActiveTabChange} />
+        <WorkspaceLauncher
+          pendingPreviews={pendingPreviews.length}
+          pendingPreviewRecords={pendingPreviews}
+          selectedProject={selectedProject}
+          runtimeStatus={runtimeStatus}
+          pi={pi}
+          onOpenTab={onActiveTabChange}
+          onDecideActionPreview={onDecideActionPreview}
+          onExecuteActionPreview={onExecuteActionPreview}
+        />
       ) : (
         <>
-          <div className="relative z-20 shrink-0 border-b border-agent-border bg-agent-panel">
-            <div className="flex h-11 items-center px-2 pr-10">
-              <div className="flex flex-1 items-center min-w-0 gap-1 overflow-visible">
-                {visibleTabs.map((tab) => (
-                  <WorkspaceTabButton
-                    key={tab.id}
-                    tab={tab}
-                    selected={tab.id === activeTab}
-                    pendingPreviews={pendingPreviews.length}
-                    onSelect={() => onActiveTabChange(tab.id)}
-                    onClose={() => onCloseTab(tab.id)}
-                  />
-                ))}
-                <div className="relative shrink-0 ml-1">
-                  <button
-                    type="button"
-                    onClick={() => setMenuOpen((value) => !value)}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-control text-agent-muted transition-colors hover:bg-agent-surface hover:text-agent-text"
-                    title="打开工作区"
-                    aria-label="打开工作区"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </button>
-                  {menuOpen ? (
-                    <>
-                      <div className="fixed inset-0 z-30" onClick={() => setMenuOpen(false)} />
-                      <WorkspaceTabMenu
-                        pendingPreviews={pendingPreviews.length}
-                        onOpenTab={(tab) => {
-                          onActiveTabChange(tab);
-                          setMenuOpen(false);
-                        }}
-                      />
-                    </>
-                  ) : null}
-                </div>
+          <div className="relative z-20 shrink-0 border-b border-agent-border-soft bg-agent-bg">
+            <div className="flex h-[36px] items-center justify-between px-3">
+              <div className="flex items-center gap-2">
+                {activeToolTab?.icon && <activeToolTab.icon className="h-3.5 w-3.5 text-agent-muted" />}
+                <h2 className="truncate text-[12px] font-medium text-agent-text">{activeToolTab?.label ?? "Workspace"}</h2>
+                {activeToolTab?.id === "overview" && pendingPreviews.length > 0 && (
+                  <span className="rounded-full bg-agent-warning/20 px-1.5 py-0.5 text-[10px] text-agent-warning font-medium">
+                    {pendingPreviews.length}
+                  </span>
+                )}
+              </div>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setMenuOpen((value) => !value)}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-control text-agent-muted transition-colors hover:bg-agent-panel hover:text-agent-text hover:shadow-sm border border-transparent hover:border-agent-border-soft"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+                {menuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setMenuOpen(false)} />
+                    <WorkspaceTabMenu
+                      pendingPreviews={pendingPreviews.length}
+                      onOpenTab={(tab) => {
+                        onActiveTabChange(tab);
+                        setMenuOpen(false);
+                      }}
+                    />
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -153,42 +160,93 @@ export function AgentToolPanel({
 
 function WorkspaceLauncher({
   pendingPreviews,
+  pendingPreviewRecords,
+  selectedProject,
+  runtimeStatus,
+  pi,
   onOpenTab,
+  onDecideActionPreview,
+  onExecuteActionPreview,
 }: {
   pendingPreviews: number;
+  pendingPreviewRecords: AgentActionPreviewRecord[];
+  selectedProject?: ProjectSummary;
+  runtimeStatus: RuntimeStatus;
+  pi?: PiAgentRuntimeStatus;
   onOpenTab: (tab: AgentWorkspaceTab) => void;
+  onDecideActionPreview: (previewId: string, decision: "approved" | "rejected") => void;
+  onExecuteActionPreview: (previewId: string) => void;
 }) {
   return (
-    <div className="flex h-full min-h-0 flex-col items-center justify-center bg-agent-bg px-6 text-agent-text">
-      <div className="w-full max-w-[640px] -translate-y-8">
-        <div className="flex flex-col gap-1.5">
-          {launcherTabs.map((tabId) => {
-            const tab = toolTabs.find((item) => item.id === tabId);
-            if (!tab) return null;
-            const Icon = tab.icon;
-            const label = tab.id === "overview" && pendingPreviews > 0 ? `${tab.label} (${pendingPreviews})` : tab.label;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => onOpenTab(tab.id)}
-                className="group flex h-12 w-full items-center gap-3 rounded-control bg-transparent px-4 text-left text-agent-text transition-colors hover:bg-agent-surface"
-                title={tab.description}
-              >
-                <Icon className="h-[18px] w-[18px] shrink-0 text-agent-muted transition-colors group-hover:text-agent-text" />
-                <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-agent-text">{label}</span>
-                {tab.shortcut ? (
-                  <span className="shrink-0 rounded bg-agent-surface/50 px-2 py-0.5 text-[11px] text-agent-subtle transition-colors group-hover:bg-agent-panel group-hover:text-agent-muted border border-agent-border-soft">
-                    {tab.shortcut}
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
+    <div className="flex h-full min-h-0 flex-col bg-agent-bg text-agent-text">
+      <div className="flex min-h-14 shrink-0 items-center justify-between border-b border-agent-border bg-agent-panel px-4">
+        <div className="min-w-0">
+          <h2 className="truncate text-[16px] font-medium text-agent-text">
+            {selectedProject?.name ? `${selectedProject.name} Workspace` : "Agent Workspace"}
+          </h2>
+          <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-agent-subtle">
+            <ArtifactLikeStatus runtimeStatus={runtimeStatus} pi={pi} />
+          </div>
         </div>
+        <button
+          type="button"
+          onClick={() => onOpenTab("overview")}
+          className="inline-flex h-8 items-center gap-1.5 rounded-control border border-agent-border bg-agent-bg px-2.5 text-[12px] text-agent-muted transition-colors hover:bg-agent-surface hover:text-agent-text"
+        >
+          <Activity className="h-3.5 w-3.5" />
+          审查
+        </button>
       </div>
+      <AgentWorkspaceBlueprint
+        selectedProject={selectedProject}
+        runtimeStatus={runtimeStatus}
+        pi={pi}
+        pendingPreviews={pendingPreviewRecords}
+        onOpenTab={onOpenTab}
+        onDecideActionPreview={onDecideActionPreview}
+        onExecuteActionPreview={onExecuteActionPreview}
+      />
     </div>
   );
+}
+
+function ArtifactLikeStatus({
+  runtimeStatus,
+  pi,
+}: {
+  runtimeStatus: RuntimeStatus;
+  pi?: PiAgentRuntimeStatus;
+}) {
+  const piConnected = Boolean(pi?.connected);
+  return (
+    <>
+      <span className="inline-flex items-center gap-1">
+        {runtimeStatus === "ready" ? <CheckCircle2 className="h-3 w-3 text-agent-accent" /> : <CircleAlert className="h-3 w-3 text-agent-subtle" />}
+        MCP {runtimeStatus}
+      </span>
+      <span>·</span>
+      <span className="inline-flex items-center gap-1">
+        {piConnected ? <CheckCircle2 className="h-3 w-3 text-agent-accent" /> : <CircleDashed className="h-3 w-3" />}
+        Pi {piConnected ? "connected" : "待接入"}
+      </span>
+    </>
+  );
+}
+
+function WorkspaceStatePill({
+  tab,
+  pendingPreviews,
+}: {
+  tab?: WorkspaceToolTab;
+  pendingPreviews: number;
+}) {
+  if (tab?.state === "stub") {
+    return <span className="rounded-control border border-agent-border-soft bg-agent-surface px-1.5 py-0.5 text-[10px] text-agent-subtle">待接入</span>;
+  }
+  if (tab?.id === "overview" && pendingPreviews > 0) {
+    return <span className="rounded-control border border-agent-warning/25 bg-agent-warning/10 px-1.5 py-0.5 text-[10px] text-agent-warning">Needs input</span>;
+  }
+  return <span className="rounded-control border border-agent-border-soft bg-agent-bg px-1.5 py-0.5 text-[10px] text-agent-muted">可用</span>;
 }
 
 function WorkspaceTabButton({
@@ -208,7 +266,7 @@ function WorkspaceTabButton({
   return (
     <div
       className={cn(
-        "group/tab relative inline-flex h-8 min-w-[100px] max-w-[180px] shrink items-center gap-1.5 rounded-control px-2 text-[12px] font-medium transition-colors border border-transparent",
+        "group/tab relative inline-flex h-8 min-w-[88px] max-w-[140px] shrink items-center gap-1.5 rounded-control px-2 text-[12px] font-medium transition-colors border border-transparent",
         selected
           ? "bg-agent-surface text-agent-text shadow-sm"
           : "text-agent-muted hover:bg-agent-surface hover:text-agent-text"
@@ -247,16 +305,28 @@ function WorkspaceTabMenu({
   onOpenTab: (tab: AgentWorkspaceTab) => void;
 }) {
   return (
-    <div className="absolute left-0 top-9 z-40 w-[300px] rounded-panel border border-agent-border bg-agent-panel p-1.5 shadow-popover">
+    <div className="absolute right-0 top-9 z-40 w-[300px] max-w-[calc(100vw-24px)] rounded-panel border border-agent-border bg-agent-panel p-1.5 shadow-popover">
       <div className="flex flex-col gap-0.5">
         {toolTabs.map((tab) => {
           const Icon = tab.icon;
           const label = tab.id === "overview" && pendingPreviews > 0 ? `${tab.label} (${pendingPreviews})` : tab.label;
+          const openTab = () => onOpenTab(tab.id);
           return (
             <button
               key={tab.id}
               type="button"
-              onClick={() => onOpenTab(tab.id)}
+              data-workspace-tab={tab.id}
+              aria-label={`打开工作区：${tab.label}`}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                openTab();
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                openTab();
+              }}
               className="flex h-9 items-center gap-2.5 rounded-control px-2.5 text-left text-agent-muted transition-colors hover:bg-agent-surface hover:text-agent-text"
               title={tab.description}
             >
@@ -319,17 +389,25 @@ function WorkspaceContent({
           className="absolute inset-0 flex flex-col"
         >
           {activeTab === "overview" ? (
-            <AgentOverviewTab
-              context={context}
-              readiness={readiness}
-              pi={pi}
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <AgentWorkspaceBlueprint
+                selectedProject={selectedProject}
+                runtimeStatus={runtimeStatus}
+                pi={pi}
+                pendingPreviews={pendingPreviews}
+                onOpenTab={() => undefined}
+                onDecideActionPreview={onDecideActionPreview}
+                onExecuteActionPreview={onExecuteActionPreview}
+                compact
+              />
+            </div>
+          ) : null}
+          {activeTab === "artifacts" ? (
+            <AgentArtifactsTab
               selectedProject={selectedProject}
               runtimeStatus={runtimeStatus}
-              contextRows={contextRows}
+              pi={pi}
               pendingPreviews={pendingPreviews}
-              actionPreviews={actionPreviews}
-              onDecideActionPreview={onDecideActionPreview}
-              onExecuteActionPreview={onExecuteActionPreview}
             />
           ) : null}
           {activeTab === "terminal" ? <AgentTerminalTab context={context} readiness={readiness} runtimeStatus={runtimeStatus} pi={pi} /> : null}

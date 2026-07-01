@@ -7,6 +7,16 @@ type Props = {
   onExit: () => void;
 };
 
-export function AgentContextView({ project, page, onExit }: Props) {
-  return <AgentAppShell project={project} page={page} onExit={onExit} />;
+export function AgentContextView({
+  project,
+  page,
+  onExit,
+}: Props) {
+  return (
+    <AgentAppShell
+      project={project}
+      page={page}
+      onExit={onExit}
+    />
+  );
 }

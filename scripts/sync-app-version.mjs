@@ -36,7 +36,7 @@ function readJson(filePath) {
 }
 
 function writeJson(filePath, data) {
-  fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+  writeFileIfChanged(filePath, `${JSON.stringify(data, null, 2)}\n`);
 }
 
 function validateVersion(data) {
@@ -110,7 +110,7 @@ function syncWebIndex() {
   const filePath = path.join(workspaceRoot, "apps/web/index.html");
   let text = fs.readFileSync(filePath, "utf8");
   text = text.replace(/<title>.*<\/title>/, `<title>${escapeHtml(version.windowTitle)}</title>`);
-  fs.writeFileSync(filePath, text, "utf8");
+  writeFileIfChanged(filePath, text);
 }
 
 function syncCargoToml() {
@@ -119,7 +119,7 @@ function syncCargoToml() {
   text = replaceTomlString(text, "version", version.packageVersion);
   text = replaceTomlString(text, "description", version.description);
   text = replaceTomlArray(text, "authors", [version.publisher]);
-  fs.writeFileSync(filePath, text, "utf8");
+  writeFileIfChanged(filePath, text);
 }
 
 function replaceTomlString(text, key, value) {
@@ -150,5 +150,12 @@ function writeGeneratedModule(relativePath) {
   const filePath = path.join(workspaceRoot, relativePath);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const content = `export const appVersion = ${JSON.stringify(version, null, 2)} as const;\n`;
+  writeFileIfChanged(filePath, content);
+}
+
+function writeFileIfChanged(filePath, content) {
+  if (fs.existsSync(filePath) && fs.readFileSync(filePath, "utf8") === content) {
+    return;
+  }
   fs.writeFileSync(filePath, content, "utf8");
 }

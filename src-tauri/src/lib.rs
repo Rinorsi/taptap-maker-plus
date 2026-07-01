@@ -14,7 +14,11 @@ use std::{
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-use tauri::{LogicalSize, Manager, RunEvent, Url, WebviewWindowBuilder, WindowEvent};
+use tauri::{
+  Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, RunEvent, Url, WebviewWindow,
+  WebviewWindowBuilder, WindowEvent,
+};
+use tauri::webview::PageLoadEvent;
 
 const SERVER_HOST: &str = "127.0.0.1";
 const SERVER_PORT_NUMBER: u16 = 8787;
@@ -32,9 +36,214 @@ const MIN_WINDOW_LOGICAL_WIDTH: f64 = 1366.0;
 const MIN_WINDOW_LOGICAL_HEIGHT: f64 = 768.0;
 const APP_PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 const SETTINGS_FILE_NAME: &str = "settings.json";
+const MAKER_LOGIN_WEBVIEW_LABEL: &str = "maker-login";
+const MAKER_PREVIEW_WEBVIEW_LABEL: &str = "maker-preview";
+const MAKER_PREVIEW_LOAD_EVENT: &str = "taptap:maker-preview-load";
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 static APP_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+const MAKER_PREVIEW_INIT_SCRIPT: &str = r##"
+(() => {
+  if (window.__TAPTAP_MAKER_PREVIEW_ISOLATOR__) return;
+  window.__TAPTAP_MAKER_PREVIEW_ISOLATOR__ = true;
+
+  const state = { isolated: false, previewRequested: false };
+  window.__TAPTAP_MAKER_PREVIEW_READY__ = false;
+
+  function isProjectPage() {
+    return location.hostname === "maker.taptap.cn" && location.pathname.startsWith("/app/");
+  }
+
+  function isGamePage() {
+    return location.hostname.endsWith("games.tapapps.cn");
+  }
+
+  function findGameIframe() {
+    return document.querySelector('iframe[src*="games.tapapps.cn"]') ||
+      document.querySelector('iframe[src*=".games.tapapps.cn"]') ||
+      document.querySelector('iframe[src*="tapapps.cn"]');
+  }
+
+  function applyFullscreenStyle(element, zIndex) {
+    element.style.position = "fixed";
+    element.style.inset = "0";
+    element.style.width = "100vw";
+    element.style.height = "100vh";
+    element.style.minWidth = "100vw";
+    element.style.minHeight = "100vh";
+    element.style.maxWidth = "100vw";
+    element.style.maxHeight = "100vh";
+    element.style.margin = "0";
+    element.style.padding = "0";
+    element.style.border = "0";
+    element.style.overflow = "hidden";
+    element.style.transform = "none";
+    element.style.background = "#111214";
+    if (zIndex) element.style.zIndex = String(zIndex);
+  }
+
+  function hideMakerChrome(iframe) {
+    for (const child of Array.from(document.body.children)) {
+      if (child === iframe) continue;
+      if (child.tagName === "SCRIPT" || child.tagName === "STYLE") continue;
+      child.style.setProperty("display", "none", "important");
+      child.style.setProperty("visibility", "hidden", "important");
+    }
+  }
+
+  function hideProjectShell() {
+    if (!document.body) return;
+    document.documentElement.style.overflow = "hidden";
+    document.documentElement.style.margin = "0";
+    document.documentElement.style.padding = "0";
+    document.documentElement.style.background = "#111214";
+    document.documentElement.style.width = "100vw";
+    document.documentElement.style.height = "100vh";
+    document.body.style.overflow = "hidden";
+    document.body.style.margin = "0";
+    document.body.style.padding = "0";
+    document.body.style.background = "#111214";
+    document.body.style.width = "100vw";
+    document.body.style.height = "100vh";
+    for (const child of Array.from(document.body.children)) {
+      if (child.tagName === "SCRIPT" || child.tagName === "STYLE") continue;
+      if (child.getAttribute("data-taptap-maker-preview") === "active") continue;
+      child.style.setProperty("display", "none", "important");
+      child.style.setProperty("visibility", "hidden", "important");
+    }
+  }
+
+  function mountIframeFullscreen(iframe) {
+    if (iframe.parentElement !== document.body) {
+      document.body.appendChild(iframe);
+    }
+    iframe.setAttribute("data-taptap-maker-preview", "active");
+    applyFullscreenStyle(iframe, 2147483647);
+    iframe.style.setProperty("display", "block", "important");
+    iframe.style.setProperty("visibility", "visible", "important");
+    iframe.style.setProperty("object-fit", "fill", "important");
+    hideMakerChrome(iframe);
+    window.__TAPTAP_MAKER_PREVIEW_READY__ = true;
+  }
+
+  function isolateIframeAncestors(iframe) {
+    const previewRoot =
+      iframe.closest(".flex-1.min-h-0.relative") ||
+      iframe.closest(".absolute.top-0.right-0.bottom-0.left-0.overflow-auto") ||
+      iframe.parentElement;
+    if (previewRoot) {
+      applyFullscreenStyle(previewRoot, 2147483645);
+    }
+
+    let current = iframe.parentElement;
+    while (current && current !== document.body && current !== document.documentElement) {
+      current.style.width = "100vw";
+      current.style.height = "100vh";
+      current.style.minWidth = "100vw";
+      current.style.minHeight = "100vh";
+      current.style.maxWidth = "100vw";
+      current.style.maxHeight = "100vh";
+      current.style.margin = "0";
+      current.style.padding = "0";
+      current.style.overflow = "hidden";
+      current.style.background = "#111214";
+      if (current === previewRoot) break;
+      current = current.parentElement;
+    }
+  }
+
+  function isolateGamePage() {
+    document.documentElement.style.overflow = "hidden";
+    document.documentElement.style.margin = "0";
+    document.documentElement.style.padding = "0";
+    document.documentElement.style.background = "#111214";
+    document.documentElement.style.width = "100vw";
+    document.documentElement.style.height = "100vh";
+    document.body.style.overflow = "hidden";
+    document.body.style.margin = "0";
+    document.body.style.padding = "0";
+    document.body.style.background = "#111214";
+    document.body.style.width = "100vw";
+    document.body.style.height = "100vh";
+
+    const root = document.getElementById("root") || document.querySelector("#app") || document.body.firstElementChild;
+    if (root) applyFullscreenStyle(root, 2147483645);
+
+    for (const element of document.querySelectorAll("canvas, video, iframe")) {
+      applyFullscreenStyle(element, 2147483647);
+      element.style.display = "block";
+      element.style.objectFit = "fill";
+    }
+
+    state.isolated = true;
+    window.__TAPTAP_MAKER_PREVIEW_READY__ = true;
+    return true;
+  }
+
+  function controlName(element) {
+    return [
+      element.getAttribute("aria-label"),
+      element.getAttribute("title"),
+      element.textContent
+    ].filter(Boolean).join(" ").trim();
+  }
+
+  function requestPreviewTab() {
+    if (state.previewRequested) return;
+    const controls = Array.from(document.querySelectorAll('button, a, [role="button"], [role="tab"]'));
+    const previewControl = controls.find((element) => controlName(element) === "预览");
+    if (!previewControl) return;
+    state.previewRequested = true;
+    previewControl.click();
+  }
+
+  function isolatePreview() {
+    if (isGamePage()) {
+      return isolateGamePage();
+    }
+
+    if (!isProjectPage()) {
+      state.isolated = false;
+      window.__TAPTAP_MAKER_PREVIEW_READY__ = false;
+      return false;
+    }
+
+    const iframe = findGameIframe();
+    if (!iframe) {
+      state.isolated = false;
+      requestPreviewTab();
+      window.__TAPTAP_MAKER_PREVIEW_READY__ = false;
+      return false;
+    }
+
+    hideProjectShell();
+
+    isolateIframeAncestors(iframe);
+    mountIframeFullscreen(iframe);
+
+    state.isolated = true;
+    return true;
+  }
+
+  function schedule() {
+    window.requestAnimationFrame(() => isolatePreview());
+  }
+
+  schedule();
+  window.addEventListener("DOMContentLoaded", schedule, { once: false });
+  window.addEventListener("load", schedule, { once: false });
+  window.addEventListener("resize", schedule);
+  window.setInterval(schedule, 500);
+
+  new MutationObserver(schedule).observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["src", "class", "style"]
+  });
+})();
+"##;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct SettingsPreferencesFile {
@@ -51,6 +260,13 @@ struct SettingsPreferencesFileResponse {
   updated_at: Option<String>,
   path: String,
   exists: bool,
+}
+
+#[derive(Clone, Default)]
+struct MakerPreviewState {
+  webview: Arc<Mutex<Option<WebviewWindow>>>,
+  project_id: Arc<Mutex<Option<String>>>,
+  loading: Arc<Mutex<bool>>,
 }
 struct LocalPortProbe {
   host: &'static str,
@@ -195,6 +411,21 @@ fn append_desktop_event_log(app_handle: &tauri::AppHandle, message: &str) {
   if let Ok(app_data_dir) = app_handle.path().app_data_dir() {
     append_log(&app_data_dir.join("desktop.log"), message);
   }
+}
+
+fn safe_url_for_log(url: &Url) -> String {
+  let mut output = format!("{}://{}", url.scheme(), url.host_str().unwrap_or(""));
+  if let Some(port) = url.port() {
+    output.push_str(&format!(":{port}"));
+  }
+  output.push_str(url.path());
+  if url.query().is_some() {
+    output.push_str("?<redacted>");
+  }
+  if url.fragment().is_some() {
+    output.push_str("#<redacted>");
+  }
+  output
 }
 
 fn show_loading_error(app: &tauri::AppHandle, detail: &str) {
@@ -733,6 +964,325 @@ fn open_external_url(url: String) -> Result<(), String> {
   }
 }
 
+fn validate_maker_project_id(project_id: &str) -> Result<(), String> {
+  let valid = !project_id.is_empty()
+    && project_id.len() <= 96
+    && project_id
+      .chars()
+      .all(|item| item.is_ascii_alphanumeric() || item == '-' || item == '_');
+  if valid {
+    Ok(())
+  } else {
+    Err("Invalid Maker project id".to_string())
+  }
+}
+
+fn maker_preview_url(project_id: &str) -> Result<Url, String> {
+  validate_maker_project_id(project_id)?;
+  Url::parse(&format!("https://maker.taptap.cn/app/{project_id}")).map_err(|error| error.to_string())
+}
+
+fn maker_home_url() -> Result<Url, String> {
+  Url::parse("https://maker.taptap.cn/").map_err(|error| error.to_string())
+}
+
+fn maker_preview_webview(app: &tauri::AppHandle) -> Result<WebviewWindow, String> {
+  let state = app.state::<MakerPreviewState>();
+  if let Some(webview) = state.webview.lock().map_err(|error| error.to_string())?.as_ref().cloned() {
+    return Ok(webview);
+  }
+  if let Some(webview) = app.get_webview_window(MAKER_PREVIEW_WEBVIEW_LABEL) {
+    append_desktop_event_log(app, "maker preview window handle recovered");
+    *state.webview.lock().map_err(|error| error.to_string())? = Some(webview.clone());
+    return Ok(webview);
+  }
+  Err("Maker preview webview has not been opened".to_string())
+}
+
+fn maker_preview_ready_probe_script() -> String {
+  format!(
+    r#"(() => {{
+      try {{
+        {script}
+        return Boolean(window.__TAPTAP_MAKER_PREVIEW_READY__);
+      }} catch (_error) {{
+        return false;
+      }}
+    }})()"#,
+    script = MAKER_PREVIEW_INIT_SCRIPT,
+  )
+}
+
+fn start_maker_preview_ready_probe(app: tauri::AppHandle, webview: WebviewWindow) {
+  thread::spawn(move || {
+    for _attempt in 0..80 {
+      let (sender, receiver) = std::sync::mpsc::channel::<String>();
+      let eval_result = webview.eval_with_callback(maker_preview_ready_probe_script(), move |value| {
+        let _ = sender.send(value);
+      });
+      if eval_result.is_ok() {
+        if let Ok(value) = receiver.recv_timeout(Duration::from_millis(250)) {
+          if value.contains("true") {
+            if let Some(state) = app.try_state::<MakerPreviewState>() {
+              if let Ok(mut loading) = state.loading.lock() {
+                *loading = false;
+              }
+            }
+            let _ = app.emit(
+              MAKER_PREVIEW_LOAD_EVENT,
+              serde_json::json!({
+                "event": "ready",
+              }),
+            );
+            return;
+          }
+        }
+      }
+      thread::sleep(Duration::from_millis(100));
+    }
+
+    append_desktop_event_log(&app, "maker preview ready probe timed out");
+    if let Some(state) = app.try_state::<MakerPreviewState>() {
+      if let Ok(mut loading) = state.loading.lock() {
+        *loading = false;
+      }
+    }
+    let _ = webview.hide();
+    let _ = app.emit(
+      MAKER_PREVIEW_LOAD_EVENT,
+      serde_json::json!({
+        "event": "ready-timeout",
+      }),
+    );
+  });
+}
+
+#[tauri::command]
+async fn maker_preview_open(app: tauri::AppHandle, project_id: String) -> Result<(), String> {
+  let url = maker_preview_url(&project_id)?;
+  let state = app.state::<MakerPreviewState>();
+  append_desktop_event_log(&app, &format!("maker preview open requested: {}", safe_url_for_log(&url)));
+
+  if let Some(webview) = state.webview.lock().map_err(|error| error.to_string())?.as_ref().cloned() {
+    let current_project_id = state.project_id.lock().map_err(|error| error.to_string())?.clone();
+    if current_project_id.as_deref() == Some(project_id.as_str()) {
+      append_desktop_event_log(&app, "maker preview reused without navigation");
+      *state.loading.lock().map_err(|error| error.to_string())? = true;
+      webview.hide().map_err(|error| error.to_string())?;
+      start_maker_preview_ready_probe(app.clone(), webview);
+      return Ok(());
+    }
+    *state.loading.lock().map_err(|error| error.to_string())? = true;
+    webview.hide().map_err(|error| error.to_string())?;
+    webview.navigate(url).map_err(|error| error.to_string())?;
+    *state.project_id.lock().map_err(|error| error.to_string())? = Some(project_id);
+    return Ok(());
+  }
+
+  if let Some(webview) = app.get_webview_window(MAKER_PREVIEW_WEBVIEW_LABEL) {
+    append_desktop_event_log(&app, "maker preview window recovered");
+    let current_project_id = state.project_id.lock().map_err(|error| error.to_string())?.clone();
+    if current_project_id.as_deref() == Some(project_id.as_str()) {
+      append_desktop_event_log(&app, "maker preview recovered without navigation");
+      *state.loading.lock().map_err(|error| error.to_string())? = true;
+      webview.hide().map_err(|error| error.to_string())?;
+      *state.webview.lock().map_err(|error| error.to_string())? = Some(webview.clone());
+      start_maker_preview_ready_probe(app.clone(), webview);
+      return Ok(());
+    }
+    *state.loading.lock().map_err(|error| error.to_string())? = true;
+    webview.hide().map_err(|error| error.to_string())?;
+    webview.navigate(url).map_err(|error| error.to_string())?;
+    *state.webview.lock().map_err(|error| error.to_string())? = Some(webview);
+    *state.project_id.lock().map_err(|error| error.to_string())? = Some(project_id);
+    return Ok(());
+  }
+
+  let Some(main_window) = app.get_webview_window("main") else {
+    return Err("Unable to find main window".to_string());
+  };
+  *state.loading.lock().map_err(|error| error.to_string())? = true;
+  let app_for_load = app.clone();
+  append_desktop_event_log(&app, "maker preview window build starting");
+  let webview = WebviewWindowBuilder::new(
+    &app,
+    MAKER_PREVIEW_WEBVIEW_LABEL,
+    tauri::WebviewUrl::App("desktop-loading.html".into()),
+  )
+    .title("TapTap Maker Preview")
+    .decorations(false)
+    .skip_taskbar(true)
+    .shadow(false)
+    .inner_size(1.0, 1.0)
+    .parent(&main_window)
+    .map_err(|error| error.to_string())?
+    .on_navigation(|url| {
+      eprintln!("[maker-preview-navigation] {url}");
+      true
+    })
+    .initialization_script(MAKER_PREVIEW_INIT_SCRIPT)
+    .on_page_load(move |window, payload| {
+      let event = match payload.event() {
+        PageLoadEvent::Started => "started",
+        PageLoadEvent::Finished => "finished",
+      };
+      append_desktop_event_log(&app_for_load, &format!("maker preview page load {event}: {}", safe_url_for_log(payload.url())));
+      if matches!(payload.event(), PageLoadEvent::Started) {
+        let _ = window.hide();
+        if let Some(state) = app_for_load.try_state::<MakerPreviewState>() {
+          if let Ok(mut loading) = state.loading.lock() {
+            *loading = true;
+          }
+        }
+      }
+      if matches!(payload.event(), PageLoadEvent::Finished) {
+        start_maker_preview_ready_probe(app_for_load.clone(), window.clone());
+      }
+      let _ = app_for_load.emit(
+        MAKER_PREVIEW_LOAD_EVENT,
+        serde_json::json!({
+          "event": event,
+          "url": safe_url_for_log(payload.url()),
+        }),
+      );
+    })
+    .build()
+    .map_err(|error| error.to_string())?;
+  append_desktop_event_log(&app, "maker preview window built");
+  webview.hide().map_err(|error| error.to_string())?;
+  webview.navigate(url).map_err(|error| error.to_string())?;
+  *state.webview.lock().map_err(|error| error.to_string())? = Some(webview);
+  *state.project_id.lock().map_err(|error| error.to_string())? = Some(project_id);
+  Ok(())
+}
+
+#[tauri::command]
+async fn maker_preview_open_login(app: tauri::AppHandle, project_id: String) -> Result<(), String> {
+  validate_maker_project_id(&project_id)?;
+  let url = maker_home_url()?;
+  append_desktop_event_log(&app, &format!("maker login window open requested: {}", safe_url_for_log(&url)));
+
+  if let Some(webview) = app.get_webview_window(MAKER_LOGIN_WEBVIEW_LABEL) {
+    append_desktop_event_log(&app, "maker login window reused");
+    webview.navigate(url).map_err(|error| error.to_string())?;
+    webview.show().map_err(|error| error.to_string())?;
+    webview.set_focus().map_err(|error| error.to_string())?;
+    return Ok(());
+  }
+
+  let app_for_navigation = app.clone();
+  let app_for_load = app.clone();
+  append_desktop_event_log(&app, "maker login window build starting");
+  let webview = WebviewWindowBuilder::new(
+    &app,
+    MAKER_LOGIN_WEBVIEW_LABEL,
+    tauri::WebviewUrl::App("desktop-loading.html".into()),
+  )
+    .title("TapTap Maker Login")
+    .inner_size(1180.0, 820.0)
+    .center()
+    .focused(true)
+    .devtools(cfg!(debug_assertions))
+    .on_navigation(move |url| {
+      append_desktop_event_log(&app_for_navigation, &format!("maker login navigation: {}", safe_url_for_log(url)));
+      true
+    })
+    .on_page_load(move |_window, payload| {
+      let event = match payload.event() {
+        PageLoadEvent::Started => "started",
+        PageLoadEvent::Finished => "finished",
+      };
+      append_desktop_event_log(&app_for_load, &format!("maker login page load {event}: {}", safe_url_for_log(payload.url())));
+    })
+    .build()
+    .map_err(|error| error.to_string())?;
+  append_desktop_event_log(&app, "maker login window built");
+  webview.navigate(url).map_err(|error| error.to_string())?;
+  append_desktop_event_log(&app, "maker login navigation requested after build");
+  Ok(())
+}
+
+#[tauri::command]
+fn maker_preview_close_login(app: tauri::AppHandle) -> Result<(), String> {
+  append_desktop_event_log(&app, "maker login window close requested");
+  if let Some(webview) = app.get_webview_window(MAKER_LOGIN_WEBVIEW_LABEL) {
+    webview.destroy().map_err(|error| error.to_string())?;
+  }
+  Ok(())
+}
+
+#[tauri::command]
+async fn maker_preview_confirm_logged_in(app: tauri::AppHandle, project_id: String) -> Result<(), String> {
+  append_desktop_event_log(&app, "maker login confirmation requested");
+
+  maker_preview_open(app.clone(), project_id).await?;
+  maker_preview_reload(app)
+}
+
+#[tauri::command]
+fn maker_preview_set_bounds(app: tauri::AppHandle, x: f64, y: f64, width: f64, height: f64, scale_factor: f64) -> Result<(), String> {
+  if width <= 0.0 || height <= 0.0 || scale_factor <= 0.0 {
+    return maker_preview_hide(app);
+  }
+  let webview = maker_preview_webview(&app)?;
+  let Some(main_window) = app.get_webview_window("main") else {
+    return Err("Unable to find main window".to_string());
+  };
+  let main_position = main_window.inner_position().map_err(|error| error.to_string())?;
+  let x = main_position.x + (x * scale_factor).round() as i32;
+  let y = main_position.y + (y * scale_factor).round() as i32;
+  let width = (width * scale_factor).round().max(1.0) as u32;
+  let height = (height * scale_factor).round().max(1.0) as u32;
+  webview.set_position(PhysicalPosition::new(x, y)).map_err(|error| error.to_string())?;
+  webview.set_size(PhysicalSize::new(width, height)).map_err(|error| error.to_string())?;
+  if *app.state::<MakerPreviewState>().loading.lock().map_err(|error| error.to_string())? {
+    return Ok(());
+  }
+  webview.show().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn maker_preview_hide(app: tauri::AppHandle) -> Result<(), String> {
+  if let Ok(webview) = maker_preview_webview(&app) {
+    webview.hide().map_err(|error| error.to_string())?;
+  }
+  Ok(())
+}
+
+#[tauri::command]
+fn maker_preview_show(app: tauri::AppHandle) -> Result<(), String> {
+  maker_preview_webview(&app)?.show().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn maker_preview_reload(app: tauri::AppHandle) -> Result<(), String> {
+  let state = app.state::<MakerPreviewState>();
+  let project_id = state
+    .project_id
+    .lock()
+    .map_err(|error| error.to_string())?
+    .clone()
+    .ok_or_else(|| "Maker preview project id is not set".to_string())?;
+  *state.loading.lock().map_err(|error| error.to_string())? = true;
+  let webview = maker_preview_webview(&app)?;
+  webview.hide().map_err(|error| error.to_string())?;
+  webview
+    .navigate(maker_preview_url(&project_id)?)
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn maker_preview_close(app: tauri::AppHandle) -> Result<(), String> {
+  let state = app.state::<MakerPreviewState>();
+  let webview = state.webview.lock().map_err(|error| error.to_string())?.take();
+  if let Some(webview) = webview {
+    webview.destroy().map_err(|error| error.to_string())?;
+  }
+  *state.project_id.lock().map_err(|error| error.to_string())? = None;
+  *state.loading.lock().map_err(|error| error.to_string())? = false;
+  Ok(())
+}
+
 #[tauri::command]
 fn desktop_window_action(app: tauri::AppHandle, action: String) -> Result<(), String> {
   let Some(window) = app.get_webview_window("main") else {
@@ -861,6 +1411,7 @@ pub fn run() {
         tauri::Error::Io(std::io::Error::new(std::io::ErrorKind::Other, error))
       })?;
       app.manage(server.clone());
+      app.manage(MakerPreviewState::default());
 
       let dev_web_probes = [
         LocalPortProbe { host: "127.0.0.1", port: DEV_WEB_PORT_NUMBER },
@@ -922,6 +1473,15 @@ pub fn run() {
     })
     .invoke_handler(tauri::generate_handler![
       desktop_window_action,
+      maker_preview_close,
+      maker_preview_close_login,
+      maker_preview_confirm_logged_in,
+      maker_preview_hide,
+      maker_preview_open_login,
+      maker_preview_open,
+      maker_preview_reload,
+      maker_preview_set_bounds,
+      maker_preview_show,
       open_devtools,
       open_external_url,
       read_settings_preferences_file,

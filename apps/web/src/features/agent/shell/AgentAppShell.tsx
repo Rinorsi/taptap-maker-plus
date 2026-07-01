@@ -60,6 +60,8 @@ export function AgentAppShell({
         selectedProject={viewModel.selectedProject}
         runtimeStatus={viewModel.runtimeStatus}
         page={page}
+        sending={agent.sending}
+        error={agent.error}
         onToggleSessionRail={() => setSessionRailCollapsed((value) => !value)}
         onNewSession={() => void agent.createSession()}
         onSendMessage={(content) => agent.sendMessage(content)}

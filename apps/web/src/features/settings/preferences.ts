@@ -46,6 +46,10 @@ export type MusicVocalGender = "m" | "f";
 export type Model3DDefaultMode = "text_to_model" | "image_to_model" | "multiview_to_model";
 export type Model3DSubjectType = "biped" | "quadruped" | "scenery" | "other";
 export type Model3DTextureQuality = "standard" | "detailed";
+export type MakerPreviewSessionPreference = "keep" | "clear-on-exit";
+export type MakerPreviewBackgroundPreference = "hide" | "keep";
+export type MakerPreviewBackgroundAudioPreference = "mute" | "keep";
+export type MakerPreviewWindowModePreference = "embedded" | "separate";
 
 export type SettingsPreferences = {
   themePreference: ThemePreference;
@@ -99,6 +103,10 @@ export type SettingsPreferences = {
   model3dFaceLimit: string;
   model3dTextureQuality: Model3DTextureQuality;
   model3dTransparent: boolean;
+  makerPreviewSession: MakerPreviewSessionPreference;
+  makerPreviewBackground: MakerPreviewBackgroundPreference;
+  makerPreviewBackgroundAudio: MakerPreviewBackgroundAudioPreference;
+  makerPreviewWindowMode: MakerPreviewWindowModePreference;
 };
 
 export const settingsPreferenceKeys = {
@@ -153,6 +161,10 @@ export const settingsPreferenceKeys = {
   model3dFaceLimit: "taptap.settings.model3dFaceLimit",
   model3dTextureQuality: "taptap.settings.model3dTextureQuality",
   model3dTransparent: "taptap.settings.model3dTransparent",
+  makerPreviewSession: "taptap.settings.makerPreviewSession",
+  makerPreviewBackground: "taptap.settings.makerPreviewBackground",
+  makerPreviewBackgroundAudio: "taptap.settings.makerPreviewBackgroundAudio",
+  makerPreviewWindowMode: "taptap.settings.makerPreviewWindowMode",
 } as const;
 
 export const SETTINGS_PREFERENCES_CHANGED_EVENT = "taptap:settings-preferences-changed";
@@ -216,6 +228,10 @@ export const defaultSettingsPreferences: SettingsPreferences = {
   model3dFaceLimit: "20000",
   model3dTextureQuality: "standard",
   model3dTransparent: false,
+  makerPreviewSession: "keep",
+  makerPreviewBackground: "keep",
+  makerPreviewBackgroundAudio: "mute",
+  makerPreviewWindowMode: "embedded",
 };
 
 export const defaultWorkspaceLabels: Record<DefaultWorkspace, string> = {

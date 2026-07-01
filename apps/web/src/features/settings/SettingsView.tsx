@@ -18,6 +18,7 @@ import { AdvancedDeveloperSettingsSection } from "./sections/AdvancedDeveloperSe
 import { AppearanceSettingsSection } from "./sections/AppearanceSettingsSection";
 import { CanvasAssetsSettingsSection } from "./sections/CanvasAssetsSettingsSection";
 import { GeneralSettingsSection } from "./sections/GeneralSettingsSection";
+import { GameDevelopmentSettingsSection } from "./sections/GameDevelopmentSettingsSection";
 import { GenerationDefaultsSettingsSection } from "./sections/GenerationDefaultsSettingsSection";
 import { ProjectWorkspaceSettingsSection } from "./sections/ProjectWorkspaceSettingsSection";
 import { RuntimeSettingsSection } from "./sections/RuntimeSettingsSection";
@@ -163,6 +164,7 @@ export function SettingsView({
             <GenerationDefaultsSettingsSection prefs={prefs} setPref={setPref} />
             <CanvasAssetsSettingsSection prefs={prefs} setPref={setPref} />
             <TasksNotificationsSettingsSection prefs={prefs} setPref={setPref} />
+            <GameDevelopmentSettingsSection prefs={prefs} setPref={setPref} />
             <RuntimeSettingsSection
               prefs={prefs}
               setPref={setPref}

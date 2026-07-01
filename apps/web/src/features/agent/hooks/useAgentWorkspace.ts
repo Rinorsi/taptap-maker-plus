@@ -60,7 +60,7 @@ export function useAgentWorkspace({ project, page }: AgentWorkspaceProps): Agent
       setSessions(surface.sessions);
       const nextSession = sessionId
         ? surface.sessions.find((item) => item.id === sessionId) ?? surface.activeSession
-        : surface.activeSession;
+        : undefined;
       if (nextSession) {
         await loadSession(nextSession.id, false);
       } else {
@@ -114,6 +114,7 @@ export function useAgentWorkspace({ project, page }: AgentWorkspaceProps): Agent
       });
       setPi(created.pi);
       await refreshWorkspace(created.session.id);
+      await loadSession(created.session.id, false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {

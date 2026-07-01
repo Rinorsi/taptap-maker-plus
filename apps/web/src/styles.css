@@ -59,7 +59,7 @@
 
     --agent-bg: #FAFAFA;
     --agent-panel: #FFFFFF;
-    --agent-surface: rgba(0, 0, 0, 0.04);
+    --agent-surface: rgba(6, 10, 38, 0.045);
     --agent-border: rgba(0, 0, 0, 0.08);
     --agent-border-soft: rgba(0, 0, 0, 0.04);
     --agent-text: var(--color-text);
@@ -91,10 +91,10 @@
     --shadow-panel: 0 18px 40px rgba(0, 0, 0, 0.32);
     --shadow-popover: 0 12px 32px -6px rgba(0, 0, 0, 0.46);
 
-    --agent-bg: #18181A;
-    --agent-panel: #212124;
-    --agent-surface: rgba(255, 255, 255, 0.06);
-    --agent-border: rgba(255, 255, 255, 0.08);
+    --agent-bg: #191A1C;
+    --agent-panel: #222326;
+    --agent-surface: rgba(255, 255, 255, 0.065);
+    --agent-border: rgba(255, 255, 255, 0.09);
     --agent-border-soft: rgba(255, 255, 255, 0.04);
     --agent-text: var(--color-text);
     --agent-muted: var(--color-text-muted);
@@ -139,6 +139,13 @@
 
 @layer components {
   .app-background {
+    background-color: var(--surface-app);
+    background-image: var(--app-background-image);
+    background-size: cover;
+    background-position: center;
+  }
+
+  .agent-preview-background {
     background-color: var(--surface-app);
     background-image: var(--app-background-image);
     background-size: cover;
@@ -473,6 +480,36 @@
   .agent-markdown-text pre code {
     background: transparent;
     padding: 0;
+  }
+
+  .agent-composer-shell {
+    backdrop-filter: blur(12px);
+  }
+
+  @media (max-width: 1120px) {
+    .agent-composer-shell > div:last-child {
+      flex-wrap: wrap;
+    }
+
+    .agent-composer-shell textarea {
+      min-width: 220px;
+    }
+  }
+
+  @media (max-width: 860px) {
+    .agent-composer-shell {
+      border-radius: var(--radius-panel);
+    }
+
+    .agent-composer-shell > div:last-child {
+      align-items: stretch;
+    }
+
+    .agent-composer-shell textarea {
+      order: 1;
+      flex-basis: 100%;
+      min-width: 0;
+    }
   }
 
 }

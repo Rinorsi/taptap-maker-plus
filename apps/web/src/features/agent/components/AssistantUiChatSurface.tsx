@@ -6,8 +6,8 @@ import {
   useLocalRuntime
 } from "@assistant-ui/react";
 import { useMemo } from "react";
-import type { ReactNode } from "react";
 import type { AgentMessageRecord, AgentPageState, AgentSessionRecord } from "../api";
+import type { AgentWorkspaceTab } from "../types";
 import { Thread } from "../assistant-ui/Thread";
 
 export function AssistantUiChatSurface({
@@ -16,16 +16,24 @@ export function AssistantUiChatSurface({
   projectId,
   page,
   onSynced,
-  runStatusBar,
-  onSendMessage
+  onSendMessage,
+  activeRunCount,
+  pendingPreviewCount,
+  error,
+  showWelcome,
+  onOpenWorkspaceTab,
 }: {
   activeSession?: AgentSessionRecord;
   messages: AgentMessageRecord[];
   projectId?: string;
   page: AgentPageState;
   onSynced: () => void;
-  runStatusBar?: ReactNode;
   onSendMessage: (content: string) => Promise<void>;
+  activeRunCount: number;
+  pendingPreviewCount: number;
+  error: string;
+  showWelcome: boolean;
+  onOpenWorkspaceTab: (tab: AgentWorkspaceTab) => void;
 }) {
   const initialMessages = useMemo(() => toAssistantUiMessages(messages), [messages]);
   const adapter = useMemo<ChatModelAdapter>(() => ({
@@ -55,7 +63,13 @@ export function AssistantUiChatSurface({
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <Thread runStatusBar={runStatusBar} />
+      <Thread
+        activeRunCount={activeRunCount}
+        pendingPreviewCount={pendingPreviewCount}
+        error={error}
+        showWelcome={showWelcome}
+        onOpenWorkspaceTab={onOpenWorkspaceTab}
+      />
     </AssistantRuntimeProvider>
   );
 }

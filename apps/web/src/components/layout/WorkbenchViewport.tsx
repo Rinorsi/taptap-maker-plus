@@ -67,6 +67,7 @@ const SettingsView = lazy(() =>
 
 type Props = {
   activeModule: WorkbenchModule;
+  theme: "light" | "dark";
   project?: ProjectSummary;
   runtime?: RuntimeSummary;
   tools: ToolSummary[];
@@ -311,6 +312,7 @@ export function WorkbenchViewport(props: Props) {
         <AgentContextView
           project={props.project}
           page={props.agentPage}
+          theme={props.theme}
           onExit={props.onExitAgent}
         />
       ) : null}

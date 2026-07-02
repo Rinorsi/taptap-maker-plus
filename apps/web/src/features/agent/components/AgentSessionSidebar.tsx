@@ -5,6 +5,7 @@ import type { AgentSessionRecord } from "../api";
 import type { ProjectSummary } from "../../../api";
 import { cn } from "../../../lib/utils";
 import { formatShortTime } from "../utils";
+import { motion, AnimatePresence } from "framer-motion";
 
 export function AgentSessionSidebar({
   collapsed,
@@ -76,38 +77,52 @@ export function AgentSessionSidebar({
       </div>
 
       <div className="mt-6 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        {!collapsed && (
-          <div className="mb-2 flex h-7 items-center gap-2 px-2 text-[11px] font-semibold uppercase tracking-wider text-agent-subtle">
-            <span className="min-w-0 flex-1 truncate">主会话区 (Session)</span>
-            <button
-              type="button"
-              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-agent-subtle transition-colors hover:bg-agent-surface hover:text-agent-text"
-              title="选择工作区"
+        <AnimatePresence>
+          {!collapsed && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mb-2 flex items-center gap-2 px-2 text-[11px] font-semibold uppercase tracking-wider text-agent-subtle overflow-hidden"
             >
-              <FolderOpen className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        )}
+              <span className="min-w-0 flex-1 truncate py-1">主会话区 (Session)</span>
+              <button
+                type="button"
+                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-agent-subtle transition-colors hover:bg-agent-surface hover:text-agent-text"
+                title="选择工作区"
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
         {Object.keys(sessionsByProject).length > 0 ? (
           Object.entries(sessionsByProject).map(([pId, groupSessions]) => (
             <div key={pId} className="mb-4">
-              {!collapsed && (
-                <div className="mb-1 flex items-center gap-2 px-2 text-[12px] font-medium text-agent-muted">
-                  <span className="truncate">{getProjectName(pId)}</span>
-                  {previewInstanceActive && pId === previewProjectId ? (
-                    <PreviewInstanceDot muted={previewInstanceMuted} />
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={onNewSession}
-                    disabled={loading}
-                    className="ml-auto inline-flex h-6 w-6 items-center justify-center rounded-md text-agent-subtle transition-colors hover:bg-agent-surface hover:text-agent-text disabled:opacity-50"
-                    title="新建对话"
+              <AnimatePresence>
+                {!collapsed && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="mb-1 flex items-center gap-2 px-2 text-[12px] font-medium text-agent-muted overflow-hidden"
                   >
-                    <Plus className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              )}
+                    <span className="truncate py-1">{getProjectName(pId)}</span>
+                    {previewInstanceActive && pId === previewProjectId ? (
+                      <PreviewInstanceDot muted={previewInstanceMuted} />
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={onNewSession}
+                      disabled={loading}
+                      className="ml-auto inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-agent-subtle transition-colors hover:bg-agent-surface hover:text-agent-text disabled:opacity-50"
+                      title="新建对话"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
               <div className="flex flex-col gap-0.5">
                 {groupSessions.map((session) => (
                   <div
@@ -266,18 +281,25 @@ function SidebarItem({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "flex items-center gap-3 rounded-control text-left transition-colors text-agent-muted hover:bg-agent-surface hover:text-agent-text disabled:opacity-50 disabled:pointer-events-none",
+        "flex items-center gap-3 rounded-control text-left transition-colors text-agent-muted hover:bg-agent-surface hover:text-agent-text disabled:opacity-50 disabled:pointer-events-none relative overflow-hidden",
         collapsed ? "h-9 w-9 justify-center" : "w-full h-9 px-3"
       )}
       title={collapsed ? label : undefined}
     >
       <Icon className="h-[16px] w-[16px] shrink-0 opacity-80" />
-      {!collapsed && (
-        <span className="min-w-0 flex-1 flex justify-between items-center text-[13px] font-medium">
-          <span className="truncate">{label}</span>
-          {badge && <span className="shrink-0 rounded bg-agent-surface px-1.5 py-0.5 text-[10px] font-medium text-agent-subtle">{badge}</span>}
-        </span>
-      )}
+      <AnimatePresence>
+        {!collapsed && (
+          <motion.span
+            initial={{ opacity: 0, width: 0 }}
+            animate={{ opacity: 1, width: "auto" }}
+            exit={{ opacity: 0, width: 0 }}
+            className="min-w-0 flex-1 flex justify-between items-center text-[13px] font-medium whitespace-nowrap"
+          >
+            <span className="truncate pr-2">{label}</span>
+            {badge && <span className="shrink-0 rounded bg-agent-surface px-1.5 py-0.5 text-[10px] font-medium text-agent-subtle">{badge}</span>}
+          </motion.span>
+        )}
+      </AnimatePresence>
     </button>
   );
 }

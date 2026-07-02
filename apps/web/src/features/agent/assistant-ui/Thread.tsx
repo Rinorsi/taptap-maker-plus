@@ -25,6 +25,8 @@ import {
   Gamepad2Icon,
   ImagePlusIcon,
   UploadIcon,
+  FileUpIcon,
+  FolderUpIcon,
 } from "lucide-react";
 import { useState, type FC } from "react";
 import { Button } from "../../../components/ui/Button";
@@ -78,7 +80,10 @@ export const Thread: FC<ThreadProps> = ({
         ) : null}
 
         <div className="mb-10 flex flex-col gap-y-5 empty:hidden">
-          <ThreadPrimitive.Messages>{() => <ThreadMessage />}</ThreadPrimitive.Messages>
+          <AnimatePresence mode="popLayout">
+            <ThreadPrimitive.Messages>{() => <ThreadMessage />}</ThreadPrimitive.Messages>
+            <ThinkingIndicator activeRunCount={activeRunCount} />
+          </AnimatePresence>
         </div>
 
         <ThreadPrimitive.ViewportFooter
@@ -102,9 +107,16 @@ const ThreadMessage: FC = () => {
   const role = useAuiState((state) => state.message.role);
   const isEditing = useAuiState((state) => state.message.composer.isEditing);
 
-  if (isEditing) return <EditComposer />;
-  if (role === "user") return <UserMessage />;
-  return <AssistantMessage />;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 15 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      transition={{ type: "spring", stiffness: 300, damping: 25 }}
+    >
+      {isEditing ? <EditComposer /> : role === "user" ? <UserMessage /> : <AssistantMessage />}
+    </motion.div>
+  );
 };
 
 const ThreadScrollToBottom: FC = () => (
@@ -112,9 +124,9 @@ const ThreadScrollToBottom: FC = () => (
     <TooltipIconButton
       tooltip="滚动到底部"
       variant="outline"
-      className="absolute -top-10 z-10 self-center rounded-full border-agent-border bg-agent-panel p-3 text-agent-muted shadow-sm disabled:invisible"
+      className="absolute -top-14 z-20 self-center !h-10 !w-10 !p-2.5 rounded-full border border-[#00d1bf]/20 bg-[#f4f6fb]/90 text-[#00d1bf] shadow-xl backdrop-blur-xl disabled:invisible hover:bg-white hover:text-[#00c6b5] transition-all dark:bg-[#27292f]/80 dark:border-white/10"
     >
-      <ArrowDownIcon className="h-4 w-4" />
+      <ArrowDownIcon className="h-5 w-5" />
     </TooltipIconButton>
   </ThreadPrimitive.ScrollToBottom>
 );
@@ -148,15 +160,36 @@ const ComposerStatusLine: FC<{
       </div>
     );
   }
-  if (activeRunCount > 0) {
-    return (
-      <div className="absolute -top-10 left-4 z-10 flex h-7 items-center gap-2 rounded-full border border-agent-border bg-agent-surface/80 px-3 text-[11px] text-agent-muted shadow-sm backdrop-blur-md">
-        <Loader2Icon className="h-3 w-3 shrink-0 animate-spin text-agent-accent" />
-        <span className="truncate">Generating response...</span>
-      </div>
-    );
-  }
   return null;
+};
+
+const ThinkingIndicator: FC<{ activeRunCount: number }> = ({ activeRunCount }) => {
+  const isRunning = useAuiState((state) => state.thread.isRunning);
+  if (!isRunning && activeRunCount === 0) return null;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 15 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      transition={{ type: "spring", stiffness: 300, damping: 25 }}
+      className="group relative mx-auto mb-5 flex w-full max-w-[var(--thread-max-width)] gap-3 px-5"
+    >
+      <div className="relative flex h-8 w-8 shrink-0 items-center justify-center">
+        <img
+          src="/taptap-maker/tap-BM8wfTgR.webp"
+          alt="Bot Avatar"
+          className="h-full w-full rounded-full object-cover"
+        />
+      </div>
+      <div className="min-w-0 flex-1 pt-3">
+        <div className="flex h-4 items-center gap-1.5 px-1 opacity-70">
+          <motion.span animate={{ scale: [1, 1.4, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1.2, delay: 0 }} className="h-1.5 w-1.5 rounded-full bg-[#00d1bf] dark:bg-[#00c6b5]" />
+          <motion.span animate={{ scale: [1, 1.4, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1.2, delay: 0.2 }} className="h-1.5 w-1.5 rounded-full bg-[#00d1bf] dark:bg-[#00c6b5]" />
+          <motion.span animate={{ scale: [1, 1.4, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1.2, delay: 0.4 }} className="h-1.5 w-1.5 rounded-full bg-[#00d1bf] dark:bg-[#00c6b5]" />
+        </div>
+      </div>
+    </motion.div>
+  );
 };
 
 const Composer: FC<{ onOpenWorkspaceTab: (tab: AgentWorkspaceTab) => void }> = ({ onOpenWorkspaceTab }) => {
@@ -173,48 +206,71 @@ const Composer: FC<{ onOpenWorkspaceTab: (tab: AgentWorkspaceTab) => void }> = (
           aria-label="Agent Message Input"
         />
         <div className="flex items-center justify-between gap-2 px-4 pb-3">
-          <motion.div
-            className="flex h-8 shrink-0 items-center overflow-hidden rounded-full bg-gray-100 shadow-sm dark:bg-[#3a3b40]"
-            onMouseEnter={() => setIsExpanded(true)}
-            onMouseLeave={() => setIsExpanded(false)}
-            initial={false}
-            animate={{ width: isExpanded ? 160 : 32 }}
-            transition={{ type: "spring", stiffness: 500, damping: 30 }}
-          >
-            <div className="flex h-full w-8 shrink-0 items-center justify-center">
-              <PlusIcon className={cn("h-4 w-4 text-[#4b5563] transition-transform duration-300 dark:text-agent-muted", isExpanded && "rotate-45")} />
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="relative flex shrink-0 items-center">
+              <TooltipIconButton
+                tooltip="添加附件"
+                className={cn("h-8 w-8 rounded-full bg-gray-100 text-[#4b5563] shadow-sm transition-all duration-300 hover:bg-gray-200 dark:bg-[#3a3b40] dark:text-agent-muted dark:hover:bg-[#4a4b50]", isExpanded && "rotate-45")}
+                onClick={() => setIsExpanded(!isExpanded)}
+              >
+                <PlusIcon className="h-4 w-4 shrink-0" />
+              </TooltipIconButton>
+              <AnimatePresence>
+                {isExpanded && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setIsExpanded(false)} />
+                    <motion.div
+                      className="absolute bottom-full left-0 z-50 mb-2 flex w-36 flex-col overflow-hidden rounded-xl border border-black/10 bg-white p-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.12)] dark:border-white/10 dark:bg-[#2b2c30]"
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                    >
+                      <button
+                        className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[14px] text-agent-text transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+                        onClick={() => { setIsExpanded(false); onOpenWorkspaceTab("files"); }}
+                      >
+                        <FileUpIcon className="h-4 w-4 shrink-0 text-agent-muted" />
+                        上传文件
+                      </button>
+                      <button
+                        className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[14px] text-agent-text transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+                        onClick={() => { setIsExpanded(false); onOpenWorkspaceTab("files"); }}
+                      >
+                        <FolderUpIcon className="h-4 w-4 shrink-0 text-agent-muted" />
+                        上传文件夹
+                      </button>
+                      <div className="my-1 h-[1px] w-full bg-black/5 dark:bg-white/5" />
+                      <button
+                        className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[14px] text-agent-text transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+                        onClick={() => { setIsExpanded(false); onOpenWorkspaceTab("overview"); }}
+                      >
+                        <Gamepad2Icon className="h-4 w-4 shrink-0 text-agent-muted" />
+                        项目设定
+                      </button>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
             </div>
-            <AnimatePresence>
-              {isExpanded && (
-                <motion.div
-                  className="flex h-full items-center gap-1 px-1"
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -10 }}
-                  transition={{ duration: 0.15 }}
-                >
-                  <TooltipIconButton tooltip="审查项目" className="h-7 w-7 rounded-full text-agent-muted hover:bg-white hover:text-agent-text dark:hover:bg-[#191a1c]" onClick={() => onOpenWorkspaceTab("overview")}>
-                    <Gamepad2Icon className="h-3.5 w-3.5" />
-                  </TooltipIconButton>
-                  <TooltipIconButton tooltip="上传素材" className="h-7 w-7 rounded-full text-agent-muted hover:bg-white hover:text-agent-text dark:hover:bg-[#191a1c]" onClick={() => onOpenWorkspaceTab("files")}>
-                    <ImagePlusIcon className="h-3.5 w-3.5" />
-                  </TooltipIconButton>
-                  <TooltipIconButton tooltip="发布准备" className="h-7 w-7 rounded-full text-agent-muted hover:bg-white hover:text-agent-text dark:hover:bg-[#191a1c]" onClick={() => onOpenWorkspaceTab("overview")}>
-                    <UploadIcon className="h-3.5 w-3.5" />
-                  </TooltipIconButton>
-                  <TooltipIconButton tooltip="诊断信息" className="h-7 w-7 rounded-full text-agent-muted hover:bg-white hover:text-agent-text dark:hover:bg-[#191a1c]" onClick={() => onOpenWorkspaceTab("logs")}>
-                    <LogsIcon className="h-3.5 w-3.5" />
-                  </TooltipIconButton>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </motion.div>
+            <div className="flex h-7 items-center gap-1.5 rounded-full border border-black/5 bg-gray-50/50 px-2.5 text-[12px] font-medium text-agent-muted dark:border-white/5 dark:bg-[#323337]/50">
+              <span className="flex h-1.5 w-1.5 rounded-full bg-[#00d1bf]"></span>
+              TapTap Engine
+            </div>
+            <button
+              className="flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[12px] font-medium text-agent-muted transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+              onClick={() => onOpenWorkspaceTab("files")}
+            >
+              <FolderUpIcon className="h-3.5 w-3.5 shrink-0" />
+              工作区已连接
+            </button>
+          </div>
 
           <div className="flex shrink-0 items-center">
             <AuiIf condition={(state) => !state.thread.isRunning}>
               <ComposerPrimitive.Send asChild>
-                <TooltipIconButton tooltip="发送消息" className="h-9 w-9 rounded-full bg-[#8df3ea] text-white shadow-sm transition-opacity hover:opacity-85">
-                  <ArrowUpIcon className="h-4.5 w-4.5 shrink-0" />
+                <TooltipIconButton tooltip="发送消息" className="h-9 w-9 rounded-full bg-[#00d1bf] text-[#062421] shadow-[0_0_12px_rgba(0,209,191,0.4)] transition-all hover:bg-[#00e2cf] hover:shadow-[0_0_16px_rgba(0,209,191,0.6)]">
+                  <ArrowUpIcon className="h-5 w-5 shrink-0" />
                 </TooltipIconButton>
               </ComposerPrimitive.Send>
             </AuiIf>
@@ -258,11 +314,6 @@ const AssistantMessage: FC = () => (
             return null;
           }}
         </MessagePrimitive.Parts>
-        <AuiIf condition={(state) => state.message.status?.type === "running" && state.message.parts.length === 0}>
-          <span className="animate-pulse font-sans text-agent-subtle" aria-label="Agent 正在生成">
-            ●
-          </span>
-        </AuiIf>
         <MessageError />
       </div>
       <div className="mt-2 flex min-h-7 items-center gap-2">
@@ -303,9 +354,9 @@ const UserMessage: FC = () => (
     data-role="user"
   >
     <div className="relative col-start-2 min-w-0">
-      <div className="peer relative max-w-[340px] rounded-[10px] border border-[#87eee5] bg-[#e5fffc] px-4 py-2 text-[15px] leading-6 text-[#1f2328] shadow-none empty:hidden dark:border-white/12 dark:bg-[#2b2c30] dark:text-[#f4f6fb]">
-        <div className="min-h-0 min-w-0 max-w-full break-words rounded-none p-0 text-[#1f2328] shadow-none dark:text-[#f4f6fb]">
-          <div className="whitespace-pre-wrap text-[15px] leading-6 text-[#1f2328] dark:text-[#f4f6fb]">
+      <div className="peer relative max-w-[340px] rounded-[18px] rounded-br-[4px] border border-[#a7eae2] bg-gradient-to-br from-[#e6fcf9] to-[#d0f5f1] px-4 py-2 text-[15px] leading-6 text-[#093530] shadow-sm empty:hidden dark:border-white/5 dark:from-[#21242d] dark:to-[#262a35] dark:text-[#f4f6fb]">
+        <div className="min-h-0 min-w-0 max-w-full break-words rounded-none p-0 shadow-none">
+          <div className="whitespace-pre-wrap text-[15px] leading-6">
         <MessagePrimitive.Parts />
           </div>
         </div>

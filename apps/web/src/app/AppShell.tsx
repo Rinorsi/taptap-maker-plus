@@ -3958,13 +3958,13 @@ export function AppShell() {
            document.documentElement.dataset.theme = newTheme;
            setTheme(newTheme);
          }}
-         onComplete={() => {
-           themeCinemaTargetRef.current = undefined;
-           setCinemaThemeState(prev => ({ ...prev, active: false }));
-           if (makerPreviewInstance.active && isAgentContext) {
-             window.dispatchEvent(new Event(MAKER_PREVIEW_RESYNC_EVENT));
-           }
-         }}
+          onComplete={() => {
+            themeCinemaTargetRef.current = undefined;
+            setCinemaThemeState(prev => ({ ...prev, active: false }));
+            if (makerPreviewInstance.active && isAgentContext) {
+              window.dispatchEvent(new Event(MAKER_PREVIEW_RESYNC_EVENT));
+            }
+          }}
       />
       <div
         className={cn(
@@ -4070,6 +4070,7 @@ export function AppShell() {
           >
             <WorkbenchViewport
               activeModule={activeModule}
+              theme={theme}
               project={
                 selectedProject
                   ? { ...selectedProject, runtime: runtimeView }

@@ -1,0 +1,18 @@
+{
+  "generatedAt": "2026-07-02T09:34:23.877Z",
+  "nodeRuntime": {
+    "node": "node-runtime/node.exe",
+    "npm": "node-runtime/npm.cmd",
+    "npx": "node-runtime/npx.cmd",
+    "nodeVersion": "v24.13.1",
+    "npmVersion": "11.8.0",
+    "npxVersion": "11.8.0"
+  },
+  "makerPackage": {
+    "name": "@taptap/maker",
+    "version": "0.0.22",
+    "packageJson": "data/npm-cache/_npx/b65342bb843ad6a2/node_modules/@taptap/maker/package.json"
+  },
+  "npmCache": "data/npm-cache",
+  "productionDependencyCount": 397
+}

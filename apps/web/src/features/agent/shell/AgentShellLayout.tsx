@@ -1,30 +1,15 @@
 import {
-  Camera,
   EyeOff,
   Folder,
   Gamepad2,
   History,
-  Maximize2,
   Menu,
   MessageSquarePlus,
-  Monitor,
-  MonitorSmartphone,
-  PackageOpen,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Pencil,
   RefreshCw,
-  RotateCw,
-  Smartphone,
-  Share2,
-  Tablet,
-  Video,
   Wrench,
-  X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { motion } from "framer-motion";
-import type { AgentWorkspaceTab } from "../types";
+import { motion, AnimatePresence } from "framer-motion";
 import { AgentChatPanel } from "../components/AgentChatPanel";
 import { AgentSessionSidebar } from "../components/AgentSessionSidebar";
 import type {
@@ -43,7 +28,6 @@ import type {
   RuntimeStatus,
 } from "../../../api";
 import { cn } from "../../../lib/utils";
-import { AgentToolPanel } from "../components/AgentToolPanel";
 import { openExternalUrl } from "../../../lib/externalLinks";
 import { readStoredPreference } from "../../settings/preferences";
 import {
@@ -55,42 +39,32 @@ import {
   openMakerPreviewLogin,
   reloadMakerPreview,
   setMakerPreviewBounds,
+  setMakerPreviewTheme,
 } from "../remoteMakerPreview";
-
-type PreviewDeviceId = "adaptive" | "pc" | "phone" | "tablet";
-type PreviewOrientation = "portrait" | "landscape";
-type PreviewChrome = "none" | "capsule" | "island";
-
-type PreviewSettings = {
-  deviceId: PreviewDeviceId;
-  orientation: PreviewOrientation;
-  scale: number;
-  chrome: PreviewChrome;
-};
-
-type PreviewDevicePreset = {
-  id: PreviewDeviceId;
-  label: string;
-  width?: number;
-  height?: number;
-};
-
-const previewDevicePresets: PreviewDevicePreset[] = [
-  { id: "adaptive", label: "自适应" },
-  { id: "pc", label: "PC", width: 1920, height: 1080 },
-  { id: "phone", label: "手机", width: 390, height: 867 },
-  { id: "tablet", label: "平板", width: 820, height: 1180 },
-];
 
 const MAKER_PREVIEW_INSTANCE_EVENT = "taptap:maker-preview-instance";
 const MAKER_PREVIEW_LOAD_EVENT = "taptap:maker-preview-load";
 const MAKER_PREVIEW_RESYNC_EVENT = "taptap:maker-preview-resync";
 const MAKER_PREVIEW_HIDDEN_STORAGE_PREFIX = "taptap.makerPreview.hidden.";
+const MAKER_PREVIEW_GAME_IFRAME_STORAGE_PREFIX = "taptap.makerPreview.gameIframeSrc.";
 
 type MakerPreviewInstanceState = {
   active: boolean;
   projectId?: string;
   muted: boolean;
+};
+
+type MakerPreviewLoadPayload = {
+  event?: string;
+  url?: string;
+  href?: string | null;
+  gameIframeSrc?: string | null;
+  gamePage?: boolean;
+  shellInstalled?: boolean;
+  shellHasViewport?: boolean;
+  shellChildCount?: number;
+  probeSnapshot?: string | null;
+  probeError?: string | null;
 };
 
 function dispatchMakerPreviewInstanceState(detail: { active: boolean; projectId?: string; muted: boolean }) {
@@ -101,8 +75,16 @@ function shouldKeepMakerPreviewInBackground() {
   return readStoredPreference("makerPreviewBackground") === "keep";
 }
 
+function shouldCloseMakerPreviewOnBackground() {
+  return readStoredPreference("makerPreviewBackground") !== "keep" || readStoredPreference("makerPreviewBackgroundAudio") === "mute";
+}
+
 function makerPreviewHiddenStorageKey(projectId: string) {
   return `${MAKER_PREVIEW_HIDDEN_STORAGE_PREFIX}${projectId}`;
+}
+
+function makerPreviewGameIframeStorageKey(projectId: string) {
+  return `${MAKER_PREVIEW_GAME_IFRAME_STORAGE_PREFIX}${projectId}`;
 }
 
 function readStoredMakerPreviewHidden(projectId?: string) {
@@ -115,10 +97,19 @@ function writeStoredMakerPreviewHidden(projectId: string | undefined, hidden: bo
   localStorage.setItem(makerPreviewHiddenStorageKey(projectId), String(hidden));
 }
 
+function readStoredMakerPreviewGameIframeSrc(projectId?: string) {
+  if (!projectId) return "";
+  return localStorage.getItem(makerPreviewGameIframeStorageKey(projectId)) ?? "";
+}
+
+function writeStoredMakerPreviewGameIframeSrc(projectId: string | undefined, src: string | undefined | null) {
+  if (!projectId || !src) return;
+  localStorage.setItem(makerPreviewGameIframeStorageKey(projectId), src);
+}
+
 export function AgentShellLayout({
   sessionRailCollapsed,
-  activeTab,
-  openWorkspaceTabs,
+  theme,
   pendingPreviewCount,
   sessions,
   activeSession,
@@ -142,8 +133,6 @@ export function AgentShellLayout({
   onSendMessage,
   onSelectSession,
   onRenameSession,
-  onActiveTabChange,
-  onCloseWorkspaceTab,
   onArchiveSession,
   onDecideActionPreview,
   onCreateActionPreview,
@@ -151,8 +140,7 @@ export function AgentShellLayout({
   onSynced,
 }: {
   sessionRailCollapsed: boolean;
-  activeTab: AgentWorkspaceTab;
-  openWorkspaceTabs: AgentWorkspaceTab[];
+  theme: "light" | "dark";
   pendingPreviewCount: number;
   sessions: AgentSessionRecord[];
   activeSession?: AgentSessionRecord;
@@ -176,8 +164,6 @@ export function AgentShellLayout({
   onSendMessage: (content: string) => Promise<void>;
   onSelectSession: (sessionId: string) => void;
   onRenameSession: (sessionId: string, title: string) => void;
-  onActiveTabChange: (tab: AgentWorkspaceTab) => void;
-  onCloseWorkspaceTab: (tab: AgentWorkspaceTab) => void;
   onArchiveSession: (sessionId?: string) => void;
   onDecideActionPreview: (
     previewId: string,
@@ -192,16 +178,8 @@ export function AgentShellLayout({
   onSynced: () => void;
 }) {
   const [sessionsOpen, setSessionsOpen] = useState(false);
-  const [previewSettings, setPreviewSettings] = useState<PreviewSettings>({
-    deviceId: "adaptive",
-    orientation: "landscape",
-    scale: 1,
-    chrome: "none",
-  });
-  const [toolsOpen, setToolsOpen] = useState(false);
   const [chatPanelCollapsed, setChatPanelCollapsed] = useState(false);
   const [chatPanelWidth, setChatPanelWidth] = useState(520);
-  const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false);
   const [previewReloadSignal, setPreviewReloadSignal] = useState(0);
   const [previewHideSignal, setPreviewHideSignal] = useState(0);
   const [previewManuallyHidden, setPreviewManuallyHidden] = useState(() =>
@@ -211,7 +189,6 @@ export function AgentShellLayout({
     active: false,
     muted: false,
   });
-  const previousActiveTabRef = useRef<AgentWorkspaceTab>(activeTab);
   const hasActiveConversation = Boolean(activeSession);
   const previewInstanceActive = makerPreviewInstance.active;
   const previewInstanceMuted = makerPreviewInstance.muted;
@@ -232,27 +209,7 @@ export function AgentShellLayout({
     };
   }, []);
 
-  useEffect(() => {
-    previousActiveTabRef.current = activeTab;
-    if (activeTab !== "closed" && activeTab !== "launcher") setToolsOpen(true);
-  }, [activeTab]);
 
-  useEffect(() => {
-    if (previewSettings.deviceId !== "adaptive") return;
-    if (previewSettings.chrome === "none" && previewSettings.scale === 1) return;
-    setPreviewSettings((settings) => ({ ...settings, chrome: "none", scale: 1 }));
-  }, [previewSettings.chrome, previewSettings.deviceId, previewSettings.scale]);
-
-  function toggleTools() {
-    if (toolsOpen) {
-      setToolsOpen(false);
-      onActiveTabChange("closed");
-      return;
-    }
-    setToolsOpen(true);
-    const previous = previousActiveTabRef.current;
-    onActiveTabChange(previous === "closed" ? "overview" : previous);
-  }
 
   function startChatPanelResize(event: ReactPointerEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -276,7 +233,7 @@ export function AgentShellLayout({
         initial={false}
         animate={{ width: sessionRailCollapsed ? 76 : 260 }}
         transition={{ type: "spring", stiffness: 350, damping: 30 }}
-        className="hidden"
+        className="hidden md:flex flex-col border-r border-black/10 bg-agent-panel dark:border-white/10 z-10"
       >
         <div className="min-h-0 flex-1">
           <AgentSessionSidebar
@@ -341,7 +298,13 @@ export function AgentShellLayout({
               type="button"
               className="absolute left-7 top-5 z-20 inline-flex h-8 w-8 items-center justify-center rounded-md text-agent-muted transition-colors hover:bg-black/5 hover:text-agent-text dark:text-[#b8bbc5] dark:hover:bg-white/10 dark:hover:text-white"
               title="打开侧栏"
-              onClick={() => setSessionsOpen(true)}
+              onClick={() => {
+                if (window.innerWidth >= 768) {
+                  onToggleSessionRail();
+                } else {
+                  setSessionsOpen(true);
+                }
+              }}
             >
               <Menu className="h-5 w-5" />
             </button>
@@ -361,7 +324,7 @@ export function AgentShellLayout({
               activeRunCount={sending ? 1 : 0}
               error={error}
               showWelcome
-              onOpenWorkspaceTab={onActiveTabChange}
+              onOpenWorkspaceTab={() => {}}
             />
             <div className="pointer-events-none absolute bottom-6 left-1/2 hidden -translate-x-1/2 items-center gap-5 text-[13px] text-[#8a94a6] md:flex">
               <span>TapTap 制造论坛</span>
@@ -370,42 +333,40 @@ export function AgentShellLayout({
           </div>
         ) : (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row">
-          {!chatPanelCollapsed ? (
-          <motion.section
-            initial={false}
-            animate={{ width: chatPanelWidth }}
-            transition={{ type: "spring", stiffness: 320, damping: 32 }}
-            className="relative flex min-h-[44%] min-w-0 flex-col border-b border-black/10 bg-white lg:min-h-0 lg:shrink-0 lg:border-b-0 lg:border-r dark:border-white/10 dark:bg-[#202124]"
-          >
+          <AnimatePresence initial={false}>
+            {!chatPanelCollapsed && (
+              <motion.section
+                initial={{ width: 0, opacity: 0 }}
+                animate={{ width: chatPanelWidth, opacity: 1 }}
+                exit={{ width: 0, opacity: 0 }}
+                transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                className="relative flex min-h-[44%] min-w-0 flex-col border-b border-black/10 bg-white lg:min-h-0 lg:shrink-0 lg:border-b-0 lg:border-r dark:border-white/10 dark:bg-[#202124] overflow-hidden"
+              >
             <ConversationHeader
               projectName={selectedProject?.name ?? "未命名游戏"}
-              publishActive={activeTab === "overview"}
-              onOpenSessions={() => setSessionsOpen(true)}
-              onOpenPublish={() => onActiveTabChange("overview")}
+              previewInstanceActive={previewInstanceActive}
+              onOpenSessions={() => {
+                if (window.innerWidth >= 768) {
+                  onToggleSessionRail();
+                } else {
+                  setSessionsOpen(true);
+                }
+              }}
             />
             <div className="grid h-9 shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-black/10 bg-white px-3 dark:border-white/10 dark:bg-[#202124]">
               <div className="flex min-w-0 items-center justify-self-start">
                 <button
                   type="button"
                   className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[#65627a] hover:bg-black/5 hover:text-[#272536] dark:text-[#b8bbc5] dark:hover:bg-white/10 dark:hover:text-white"
-                  title="重载对话"
-                  onClick={() => onActiveTabChange("overview")}
+                  title="重新加载"
                 >
                   <History className="h-4 w-4" />
                 </button>
               </div>
-              <div className="flex min-w-0 items-center gap-1.5 justify-self-center text-[13px] text-agent-muted">
+              <div className="flex min-w-0 items-center justify-self-center text-[13px] text-agent-muted">
                 <span className="truncate">
                   {sending ? "正在制作..." : loading ? "正在加载对话..." : "对话"}
                 </span>
-                <button
-                  type="button"
-                  className="rounded p-0.5 text-agent-subtle hover:bg-black/5 hover:text-agent-text dark:hover:bg-white/10"
-                  title="编辑名称"
-                  disabled
-                >
-                  <Pencil className="h-3 w-3" />
-                </button>
               </div>
               <button
                 type="button"
@@ -435,7 +396,7 @@ export function AgentShellLayout({
                 activeRunCount={sending ? 1 : 0}
                 error={error}
                 showWelcome={false}
-                onOpenWorkspaceTab={onActiveTabChange}
+                onOpenWorkspaceTab={() => {}}
               />
             </div>
             <div
@@ -446,74 +407,20 @@ export function AgentShellLayout({
               onPointerDown={startChatPanelResize}
             />
           </motion.section>
-          ) : null}
+            )}
+          </AnimatePresence>
 
           <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-[#f7f7f8] lg:basis-[54%] dark:bg-[#111214]">
-            <GamePreviewHeader
-              previewSettings={previewSettings}
-              runtimeStatus={runtimeStatus}
-              chatPanelCollapsed={chatPanelCollapsed}
-              deviceSettingsOpen={deviceSettingsOpen}
-              previewManuallyHidden={previewManuallyHidden}
-              onPreviewSettingsChange={setPreviewSettings}
-              onToggleDeviceSettings={() => setDeviceSettingsOpen((value) => !value)}
-              onToggleChatPanel={() => setChatPanelCollapsed((value) => !value)}
-              onReloadPreview={() => setPreviewReloadSignal((value) => value + 1)}
-              onHidePreview={() => setPreviewHideSignal((value) => value + 1)}
-            />
             <GamePreviewSurface
               projectName={selectedProject?.name}
               makerProjectId={selectedProject?.makerProjectId}
+              theme={theme}
               runtimeStatus={runtimeStatus}
-              previewSettings={previewSettings}
               reloadSignal={previewReloadSignal}
               hideSignal={previewHideSignal}
               pendingPreviewCount={pendingPreviewCount}
-              onOpenTools={() => onActiveTabChange("overview")}
               onPreviewHiddenChange={setPreviewManuallyHidden}
             />
-
-            {toolsOpen ? (
-              <div className="absolute inset-y-0 right-0 z-20 flex w-full max-w-[420px] flex-col border-l border-black/10 bg-white shadow-[-18px_0_40px_rgba(6,10,38,0.12)] dark:border-white/10 dark:bg-[#222326]">
-                <div className="flex h-11 shrink-0 items-center justify-between border-b border-black/10 px-3 dark:border-white/10">
-                  <div className="flex items-center gap-2 text-[13px] font-semibold">
-                    <PackageOpen className="h-4 w-4 text-agent-muted" />
-                    辅助面板
-                  </div>
-                  <button
-                    type="button"
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-agent-muted hover:bg-black/5 hover:text-agent-text dark:hover:bg-white/10"
-                    title="关闭"
-                    onClick={toggleTools}
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-                <div className="min-h-0 flex-1">
-                  <AgentToolPanel
-                    activeTab={activeTab === "closed" ? "overview" : activeTab}
-                    openTabs={openWorkspaceTabs}
-                    onActiveTabChange={onActiveTabChange}
-                    onCloseTab={onCloseWorkspaceTab}
-                    context={context}
-                    compressedContext={compressedContext}
-                    compressedContextSnapshotId={compressedContextSnapshotId}
-                    readiness={readiness}
-                    pi={pi}
-                    actionPreviews={actionPreviews}
-                    contextRows={contextRows}
-                    pendingPreviews={pendingPreviews}
-                    selectedProject={selectedProject}
-                    runtimeStatus={runtimeStatus}
-                    messages={messages}
-                    page={page}
-                    onDecideActionPreview={onDecideActionPreview}
-                    onCreateActionPreview={onCreateActionPreview}
-                    onExecuteActionPreview={onExecuteActionPreview}
-                  />
-                </div>
-              </div>
-            ) : null}
           </section>
         </div>
         )}
@@ -524,416 +431,73 @@ export function AgentShellLayout({
 
 function ConversationHeader({
   projectName,
-  publishActive,
+  previewInstanceActive,
   onOpenSessions,
-  onOpenPublish,
 }: {
   projectName: string;
-  publishActive: boolean;
+  previewInstanceActive?: boolean;
   onOpenSessions: () => void;
-  onOpenPublish: () => void;
 }) {
   return (
-    <header className="flex h-11 shrink-0 items-center border-b border-black/10 bg-white px-4 dark:border-white/10 dark:bg-[#202124]">
-      <div className="flex min-w-0 flex-1 items-center gap-2">
+    <header className="flex h-12 shrink-0 items-center border-b border-black/10 bg-white px-4 dark:border-white/10 dark:bg-[#202124]">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
         <button
           type="button"
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-agent-muted hover:bg-black/5 hover:text-agent-text dark:hover:bg-white/10"
+          className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-agent-muted hover:bg-black/5 hover:text-agent-text dark:hover:bg-white/10"
           title="打开侧栏"
           onClick={onOpenSessions}
         >
           <Menu className="h-5 w-5" />
+          {previewInstanceActive ? (
+            <span className="absolute right-1 top-1.5 h-1.5 w-1.5 rounded-full bg-[#00d9c5] shadow-[0_0_6px_rgba(0,217,197,0.8)]" />
+          ) : null}
         </button>
         <div className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate text-[16px] font-semibold text-agent-text">
+          <span className="truncate text-[15px] font-medium text-agent-text">
             {projectName}
           </span>
-          <button
-            type="button"
-            className="rounded p-0.5 text-agent-subtle hover:bg-black/5 hover:text-agent-text dark:hover:bg-white/10"
-            title="编辑名称"
-            disabled
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
         </div>
-      </div>
-
-      <div className="flex shrink-0 items-center gap-3">
-        <button
-          type="button"
-          className={cn(
-            "inline-flex h-7 items-center gap-1.5 rounded-full px-4 text-[14px] font-medium transition-colors",
-            publishActive
-              ? "bg-[#00d1bf] text-white hover:bg-[#00c6b5] dark:bg-[#00d1bf] dark:text-[#062421] dark:hover:bg-[#00c6b5]"
-              : "bg-[#dffdf9] text-[#00cdbb] hover:bg-[#c9fbf5] dark:bg-[#173d3a] dark:text-[#70f4e8] dark:hover:bg-[#1d4b47]",
-          )}
-          onClick={onOpenPublish}
-        >
-          <PublishPlaneIcon />
-          发布
-        </button>
       </div>
     </header>
-  );
-}
-
-function PublishPlaneIcon() {
-  return (
-    <svg
-      width="10"
-      height="10"
-      viewBox="-0.5 0 12 11"
-      xmlns="http://www.w3.org/2000/svg"
-      className="h-3 w-3 fill-current"
-      aria-hidden="true"
-    >
-      <path d="M11.0087 0.660044C10.9117 0.46611 10.6751 0.385584 10.4795 0.48255L0.171762 5.60192C-0.0221713 5.69889 -0.102698 5.93554 -0.00573077 6.13111C0.0156354 6.17383 0.0435778 6.21164 0.076446 6.24287C0.119166 6.28397 0.170112 6.31518 0.230935 6.3349L3.69863 7.42451L4.23111 6.76384L1.40109 5.87472L9.16477 2.01589L5.01174 7.04322C5.00206 7.05458 4.99327 7.06667 4.98544 7.07938L4.50555 7.67594V10.151C4.50555 10.3696 4.6814 10.5454 4.89998 10.5454C5.11855 10.5454 5.29441 10.3696 5.29441 10.151V7.92245L9.06615 9.10573C9.11052 9.11888 9.1549 9.12544 9.19926 9.12379C9.3899 9.12872 9.56246 8.99396 9.59862 8.80004L11.0432 0.909811C11.0481 0.883519 11.0498 0.855577 11.0498 0.829285C11.0481 0.7734 11.0366 0.71424 11.0087 0.660018L11.0087 0.660044ZM8.90178 8.22815L5.84988 7.27001L9.99796 2.24761L8.90177 8.22814L8.90178 8.22815Z" />
-    </svg>
-  );
-}
-
-function GamePreviewHeader({
-  previewSettings,
-  runtimeStatus,
-  chatPanelCollapsed,
-  deviceSettingsOpen,
-  previewManuallyHidden,
-  onPreviewSettingsChange,
-  onToggleDeviceSettings,
-  onToggleChatPanel,
-  onReloadPreview,
-  onHidePreview,
-}: {
-  previewSettings: PreviewSettings;
-  runtimeStatus: RuntimeStatus;
-  chatPanelCollapsed: boolean;
-  deviceSettingsOpen: boolean;
-  previewManuallyHidden: boolean;
-  onPreviewSettingsChange: (settings: PreviewSettings | ((settings: PreviewSettings) => PreviewSettings)) => void;
-  onToggleDeviceSettings: () => void;
-  onToggleChatPanel: () => void;
-  onReloadPreview: () => void;
-  onHidePreview: () => void;
-}) {
-  const toolbarButtonClass = "inline-flex h-9 w-9 items-center justify-center rounded-md border border-black/10 bg-white text-[#6b7280] shadow-[0_2px_8px_rgba(15,23,42,0.12)] transition-colors hover:bg-black/5 hover:text-agent-text dark:border-white/10 dark:bg-[#2b2c30] dark:text-[#c8ccd3] dark:shadow-none dark:hover:bg-white/10 dark:hover:text-white";
-  const selectedPreset = getPreviewDevicePreset(previewSettings.deviceId);
-  const dimensions = getPreviewDimensions(previewSettings);
-  const scaleLabel = `${Math.round(previewSettings.scale * 100)}%`;
-  const sizeLabel = dimensions ? `${dimensions.width} x ${dimensions.height}` : "填满窗口";
-  const canRotate = previewSettings.deviceId !== "adaptive";
-  const DeviceIcon = getPreviewDeviceIcon(previewSettings.deviceId);
-
-  return (
-    <div className="shrink-0 border-b border-black/10 bg-white dark:border-white/10 dark:bg-[#202124]">
-      <div className="grid h-12 grid-cols-[32px_1fr_32px] items-center px-2">
-        <button
-          type="button"
-          className={cn("justify-self-start", agentIconButtonClass)}
-          title={chatPanelCollapsed ? "展开对话面板" : "收起对话面板"}
-          aria-label={chatPanelCollapsed ? "展开对话面板" : "收起对话面板"}
-          onClick={onToggleChatPanel}
-        >
-          {chatPanelCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-        </button>
-
-        <div className="flex items-center justify-center gap-3">
-          <button type="button" className={toolbarButtonClass} title="重载预览" aria-label="重载预览" onClick={onReloadPreview}>
-            <RefreshCw className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            className={cn(
-              toolbarButtonClass,
-              previewManuallyHidden &&
-                "border-[#00d9c5] bg-[#00d9c5] text-white hover:bg-[#00d9c5] hover:text-white dark:border-[#00d9c5] dark:bg-[#00d9c5] dark:text-white dark:hover:bg-[#00d9c5]",
-            )}
-            title={previewManuallyHidden ? "预览已隐藏" : "隐藏预览"}
-            aria-label={previewManuallyHidden ? "预览已隐藏" : "隐藏预览"}
-            aria-pressed={previewManuallyHidden}
-            onClick={onHidePreview}
-          >
-            <EyeOff className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            className={cn(toolbarButtonClass, deviceSettingsOpen && "border-[#00d9c5] bg-[#00d9c5] text-white hover:bg-[#00d9c5] hover:text-white dark:border-[#00d9c5] dark:bg-[#00d9c5] dark:text-white dark:hover:bg-[#00d9c5]")}
-            title={deviceSettingsOpen ? "收起设备预览设置" : "打开设备预览设置"}
-            aria-label={deviceSettingsOpen ? "收起设备预览设置" : "打开设备预览设置"}
-            onClick={onToggleDeviceSettings}
-          >
-            <MonitorSmartphone className="h-4 w-4" />
-          </button>
-          <button type="button" className={toolbarButtonClass} title="截图" aria-label="截图">
-            <Camera className="h-4 w-4" />
-          </button>
-          <button type="button" className={toolbarButtonClass} title="录制" aria-label="录制">
-            <Video className="h-4 w-4" />
-          </button>
-          <button type="button" className={toolbarButtonClass} title="全屏" aria-label="全屏">
-            <Maximize2 className="h-4 w-4" />
-          </button>
-          <button type="button" className={toolbarButtonClass} title="分享" aria-label="分享">
-            <Share2 className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-
-      {deviceSettingsOpen ? (
-      <div className="flex h-12 items-center justify-center gap-3 border-t border-black/10 bg-[#f8f9fb] px-3 text-[13px] text-agent-muted dark:border-white/10 dark:bg-[#202124]">
-        <span className="hidden shrink-0 sm:inline">设备：</span>
-        <select
-          className="h-8 rounded-md border border-black/10 bg-white px-2 text-[13px] text-agent-text shadow-sm outline-none hover:bg-black/5 dark:border-white/10 dark:bg-[#222326] dark:hover:bg-white/10"
-          value={previewSettings.deviceId}
-          title="设备预设"
-          onChange={(event) => {
-            const deviceId = event.target.value as PreviewDeviceId;
-            const nextPreset = getPreviewDevicePreset(deviceId);
-            onPreviewSettingsChange((settings) => ({
-              ...settings,
-              deviceId,
-              chrome: deviceId === "adaptive" ? "none" : settings.chrome,
-              scale: deviceId === "adaptive" ? 1 : settings.scale,
-              orientation: nextPreset.id === "pc" || nextPreset.id === "adaptive" ? "landscape" : settings.orientation,
-            }));
-          }}
-        >
-          {previewDevicePresets.map((preset) => (
-            <option key={preset.id} value={preset.id}>
-              {preset.label}{preset.width && preset.height ? ` (${preset.width}x${preset.height})` : ""}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className="inline-flex h-8 w-9 items-center justify-center rounded-md border border-black/10 bg-white text-agent-text shadow-sm hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-45 dark:border-white/10 dark:bg-[#222326] dark:hover:bg-white/10"
-          title={canRotate ? "横竖屏切换" : "自适应模式不需要横竖屏"}
-          disabled={!canRotate}
-          onClick={() => onPreviewSettingsChange((settings) => ({
-            ...settings,
-            orientation: settings.orientation === "portrait" ? "landscape" : "portrait",
-          }))}
-        >
-          <RotateCw className="h-3.5 w-3.5" />
-        </button>
-        <span className="hidden shrink-0 md:inline">
-          尺寸：{sizeLabel}
-        </span>
-        <select
-          className="h-8 rounded-md border border-black/10 bg-white px-2 text-[13px] text-agent-text shadow-sm outline-none hover:bg-black/5 dark:border-white/10 dark:bg-[#222326] dark:hover:bg-white/10"
-          value={String(previewSettings.scale)}
-          title="窗口百分比"
-          disabled={previewSettings.deviceId === "adaptive"}
-          onChange={(event) => {
-            const scale = Number(event.target.value);
-            onPreviewSettingsChange((settings) => ({ ...settings, scale }));
-          }}
-        >
-          <option value="1">100%</option>
-          <option value="0.89">89%</option>
-          <option value="0.75">75%</option>
-          <option value="0.5">50%</option>
-        </select>
-        <select
-          className="h-8 rounded-md border border-black/10 bg-white px-2 text-[13px] text-agent-text shadow-sm outline-none hover:bg-black/5 dark:border-white/10 dark:bg-[#222326] dark:hover:bg-white/10"
-          value={previewSettings.chrome}
-          title="浏览器壳"
-          disabled={previewSettings.deviceId === "adaptive"}
-          onChange={(event) => {
-            const chrome = event.target.value as PreviewChrome;
-            onPreviewSettingsChange((settings) => ({ ...settings, chrome }));
-          }}
-        >
-          <option value="none">无外壳</option>
-          <option value="capsule">胶囊</option>
-          <option value="island">灵动岛</option>
-        </select>
-        <span className="hidden shrink-0 rounded-md border border-black/10 bg-white px-2.5 py-1.5 text-[13px] text-agent-muted shadow-sm lg:inline-flex lg:items-center lg:gap-1.5 dark:border-white/10 dark:bg-[#222326]">
-          <DeviceIcon className="h-3.5 w-3.5" />
-          {selectedPreset.label} · {scaleLabel} · {runtimeStatus === "ready" ? "Running" : "Standby"}
-        </span>
-        <button type="button" className="inline-flex h-8 w-10 items-center justify-center rounded-md border border-black/10 bg-white text-agent-muted shadow-sm hover:bg-black/5 dark:border-white/10 dark:bg-[#222326] dark:hover:bg-white/10" title="复制预览">
-          <CopyPreviewIcon />
-        </button>
-      </div>
-      ) : null}
-    </div>
   );
 }
 
 const agentIconButtonClass = "inline-flex h-7 w-7 items-center justify-center rounded-md text-[#65627a] transition-colors hover:bg-black/5 hover:text-[#272536] dark:text-[#b8bbc5] dark:hover:bg-white/10 dark:hover:text-white";
 const newChatButtonClass = "inline-flex h-7 w-7 items-center justify-center rounded-md bg-transparent text-[#5f5b78] transition-colors hover:bg-black/5 hover:text-[#272536] dark:text-[#d8dcdf] dark:hover:bg-white/10 dark:hover:text-white";
 
-function CopyPreviewIcon() {
-  return (
-    <span className="relative block h-4 w-4">
-      <span className="absolute left-1 top-0 h-3.5 w-3 rounded-[3px] border border-current" />
-      <span className="absolute left-0 top-1 h-3.5 w-3 rounded-[3px] border border-current bg-white dark:bg-[#222326]" />
-    </span>
-  );
-}
-
-function getPreviewDevicePreset(deviceId: PreviewDeviceId) {
-  return previewDevicePresets.find((preset) => preset.id === deviceId) ?? previewDevicePresets[0];
-}
-
-function getPreviewDeviceIcon(deviceId: PreviewDeviceId) {
-  if (deviceId === "pc") return Monitor;
-  if (deviceId === "tablet") return Tablet;
-  if (deviceId === "phone") return Smartphone;
-  return Maximize2;
-}
-
-function getPreviewDimensions(settings: PreviewSettings) {
-  const preset = getPreviewDevicePreset(settings.deviceId);
-  if (!preset.width || !preset.height) return null;
-  const portraitWidth = Math.min(preset.width, preset.height);
-  const portraitHeight = Math.max(preset.width, preset.height);
-  if (settings.orientation === "landscape") {
-    return {
-      width: portraitHeight,
-      height: portraitWidth,
-    };
-  }
-  return {
-    width: portraitWidth,
-    height: portraitHeight,
-  };
-}
-
-function getPreviewChromeHeight(settings: PreviewSettings) {
-  if (settings.chrome === "none") return 0;
-  if (settings.deviceId === "pc") return 44;
-  if (settings.deviceId === "tablet") return 38;
-  if (settings.deviceId === "phone") return settings.chrome === "island" ? 46 : 40;
-  return 36;
-}
-
-function getPreviewFrameStyle(settings: PreviewSettings) {
-  const dimensions = getPreviewDimensions(settings);
-  if (!dimensions) {
-    return {
-      height: "100%",
-      width: "100%",
-      maxHeight: "100%",
-      maxWidth: "100%",
-    };
-  }
-
-  const aspectRatio = `${dimensions.width} / ${dimensions.height}`;
-  if (dimensions.width >= dimensions.height) {
-    return {
-      aspectRatio,
-      maxWidth: `${Math.round(settings.scale * 100)}%`,
-      maxHeight: `${Math.round(settings.scale * 100)}%`,
-    };
-  }
-
-  return {
-    aspectRatio,
-    maxHeight: `${Math.round(settings.scale * 100)}%`,
-    maxWidth: `${Math.round(settings.scale * 100)}%`,
-  };
-}
-
-function PreviewDeviceChrome({
-  deviceId,
-  chrome,
-  height,
-  label,
-}: {
-  deviceId: PreviewDeviceId;
-  chrome: PreviewChrome;
-  height: number;
-  label: string;
-}) {
-  if (height <= 0) return null;
-  const showPhoneControl = deviceId === "phone" || deviceId === "tablet";
-
-  return (
-    <div
-      className="pointer-events-none absolute left-0 right-0 top-0 z-30 flex items-center justify-between border-b border-white/10 bg-[#111217]/96 px-3 text-white/60"
-      style={{ height }}
-      aria-hidden="true"
-    >
-      <div className="flex min-w-0 items-center gap-2">
-        {deviceId === "pc" ? (
-          <div className="flex items-center gap-1">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#ffbd2e]" />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
-          </div>
-        ) : null}
-        <span className="truncate text-[11px]">{label}</span>
-      </div>
-      {showPhoneControl ? (
-        <div
-          className={cn(
-            "flex items-center justify-center bg-black/72 shadow-[0_10px_24px_rgba(0,0,0,0.24)]",
-            chrome === "island"
-              ? "h-7 w-24 rounded-full"
-              : "h-7 w-[88px] rounded-full border border-white/12",
-          )}
-        >
-          {chrome === "capsule" ? (
-            <div className="flex items-center gap-3">
-              <span className="h-1.5 w-1.5 rounded-full bg-white/80" />
-              <span className="h-1.5 w-1.5 rounded-full bg-white/80" />
-              <span className="h-4 w-4 rounded-full border-2 border-white/85" />
-            </div>
-          ) : (
-            <span className="h-2.5 w-10 rounded-full bg-white/12" />
-          )}
-        </div>
-      ) : (
-        <div className="flex min-w-0 flex-1 justify-center px-4">
-          <div className="h-6 w-full max-w-[460px] rounded-md bg-white/8" />
-        </div>
-      )}
-      <div className="h-2 w-8 rounded-full bg-white/12" />
-    </div>
-  );
-}
-
 function GamePreviewSurface({
   projectName,
   makerProjectId,
+  theme,
   runtimeStatus,
-  previewSettings,
   reloadSignal,
   hideSignal,
   pendingPreviewCount,
-  onOpenTools,
   onPreviewHiddenChange,
 }: {
   projectName?: string;
   makerProjectId?: string;
+  theme: "light" | "dark";
   runtimeStatus: RuntimeStatus;
-  previewSettings: PreviewSettings;
   reloadSignal: number;
   hideSignal: number;
   pendingPreviewCount: number;
-  onOpenTools: () => void;
   onPreviewHiddenChange?: (hidden: boolean) => void;
 }) {
   const ready = runtimeStatus === "ready";
 
   return (
     <div
-      className={cn(
-        "agent-preview-background relative flex min-h-0 flex-1 items-center justify-center overflow-hidden",
-        previewSettings.deviceId === "adaptive" ? "p-0" : "p-5",
-      )}
+      className="agent-preview-background relative flex min-h-0 flex-1 items-center justify-center overflow-hidden"
     >
       <RemoteMakerPreviewFrame
         makerProjectId={makerProjectId}
         projectName={projectName}
-        previewSettings={previewSettings}
+        theme={theme}
         reloadSignal={reloadSignal}
         hideSignal={hideSignal}
         runtimeReady={ready}
         pendingPreviewCount={pendingPreviewCount}
-        onOpenTools={onOpenTools}
         onPreviewHiddenChange={onPreviewHiddenChange}
       />
 
@@ -944,25 +508,80 @@ function GamePreviewSurface({
   );
 }
 
+function GamepadSvgAnimation({ className, glowColor }: { className?: string; glowColor?: string }) {
+  return (
+    <motion.svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      initial="hidden"
+      animate="visible"
+    >
+      {glowColor && (
+        <defs>
+          <filter id="svg-glow">
+            <feGaussianBlur stdDeviation="1.5" result="coloredBlur" />
+            <feMerge>
+              <feMergeNode in="coloredBlur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+      )}
+      <motion.path
+        d="M21 15a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+        variants={{
+          hidden: { pathLength: 0, opacity: 0 },
+          visible: {
+            pathLength: 1,
+            opacity: 1,
+            transition: { duration: 1.5, ease: "easeInOut", repeat: Infinity, repeatType: "loop", repeatDelay: 1 }
+          }
+        }}
+        filter={glowColor ? "url(#svg-glow)" : undefined}
+      />
+      <motion.line
+        x1="6" y1="12" x2="10" y2="12"
+        variants={{
+          hidden: { pathLength: 0, opacity: 0 },
+          visible: { pathLength: 1, opacity: 1, transition: { duration: 1, delay: 0.5, repeat: Infinity, repeatDelay: 1.5 } }
+        }}
+      />
+      <motion.line
+        x1="8" y1="10" x2="8" y2="14"
+        variants={{
+          hidden: { pathLength: 0, opacity: 0 },
+          visible: { pathLength: 1, opacity: 1, transition: { duration: 1, delay: 0.5, repeat: Infinity, repeatDelay: 1.5 } }
+        }}
+      />
+      <motion.circle cx="15" cy="11" r="1" fill="currentColor" variants={{ hidden: { scale: 0, opacity: 0 }, visible: { scale: 1, opacity: 1, transition: { duration: 0.5, delay: 0.8, repeat: Infinity, repeatType: "reverse" } } }} />
+      <motion.circle cx="17" cy="13" r="1" fill="currentColor" variants={{ hidden: { scale: 0, opacity: 0 }, visible: { scale: 1, opacity: 1, transition: { duration: 0.5, delay: 1, repeat: Infinity, repeatType: "reverse" } } }} />
+    </motion.svg>
+  );
+}
+
 function RemoteMakerPreviewFrame({
   makerProjectId,
   projectName,
-  previewSettings,
+  theme,
   reloadSignal,
   hideSignal,
   runtimeReady,
   pendingPreviewCount,
-  onOpenTools,
   onPreviewHiddenChange,
 }: {
   makerProjectId?: string;
   projectName?: string;
-  previewSettings: PreviewSettings;
+  theme: "light" | "dark";
   reloadSignal: number;
   hideSignal: number;
   runtimeReady: boolean;
   pendingPreviewCount: number;
-  onOpenTools: () => void;
   onPreviewHiddenChange?: (hidden: boolean) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -971,18 +590,17 @@ function RemoteMakerPreviewFrame({
   const [nativePreviewStarted, setNativePreviewStarted] = useState(false);
   const [previewManuallyHidden, setPreviewManuallyHidden] = useState(() => readStoredMakerPreviewHidden(makerProjectId));
   const [previewMaskVisible, setPreviewMaskVisible] = useState(false);
+  const [gameIframeSrc, setGameIframeSrc] = useState(() => readStoredMakerPreviewGameIframeSrc(makerProjectId));
   const nativePreviewOpenedRef = useRef(false);
   const nativePreviewReadyRef = useRef(false);
+  const previewManuallyHiddenRef = useRef(previewManuallyHidden);
+  const previewMaskVisibleRef = useRef(previewMaskVisible);
   const previewMaskTimerRef = useRef<number | undefined>(undefined);
   const syncPulseTimerRef = useRef<number | undefined>(undefined);
   const lastReloadSignalRef = useRef(reloadSignal);
   const lastHideSignalRef = useRef(hideSignal);
   const nativePreviewAvailable = isMakerPreviewWebViewAvailable();
   const remoteUrl = makerProjectId ? makerPreviewUrl(makerProjectId) : "";
-  const dimensions = getPreviewDimensions(previewSettings);
-  const chromeHeight = getPreviewChromeHeight(previewSettings);
-  const frameStyle = getPreviewFrameStyle(previewSettings);
-  const frameLabel = dimensions ? `${dimensions.width} x ${dimensions.height}` : "自适应";
   const openRemotePreview = useCallback(() => {
     if (!remoteUrl) return;
     void openExternalUrl(remoteUrl);
@@ -994,6 +612,10 @@ function RemoteMakerPreviewFrame({
     if (!element) return;
     const rect = element.getBoundingClientRect();
     if (rect.width < 1 || rect.height < 1) return;
+    if (previewMaskVisibleRef.current || previewManuallyHiddenRef.current) {
+      void hideMakerPreview().catch(() => undefined);
+      return;
+    }
     void setMakerPreviewBounds({
       x: rect.left,
       y: rect.top,
@@ -1004,6 +626,10 @@ function RemoteMakerPreviewFrame({
       setPreviewError(formatPreviewError(error));
     });
   }, [nativePreviewAvailable]);
+  const syncPreviewTheme = useCallback(() => {
+    if (!nativePreviewAvailable) return;
+    void setMakerPreviewTheme(theme).catch(() => undefined);
+  }, [nativePreviewAvailable, theme]);
   const stopSyncPulse = useCallback(() => {
     if (syncPulseTimerRef.current) {
       window.clearInterval(syncPulseTimerRef.current);
@@ -1063,9 +689,23 @@ function RemoteMakerPreviewFrame({
   }, []);
 
   useEffect(() => {
+    previewManuallyHiddenRef.current = previewManuallyHidden;
+  }, [previewManuallyHidden]);
+
+  useEffect(() => {
+    previewMaskVisibleRef.current = previewMaskVisible;
+    if (previewMaskVisible) {
+      void hideMakerPreview().catch(() => undefined);
+      return;
+    }
+    window.requestAnimationFrame(syncBounds);
+  }, [previewMaskVisible, syncBounds]);
+
+  useEffect(() => {
     const active = Boolean(makerProjectId && nativePreviewAvailable);
     const manuallyHidden = readStoredMakerPreviewHidden(makerProjectId);
     setPreviewManuallyHidden(manuallyHidden);
+    setGameIframeSrc(readStoredMakerPreviewGameIframeSrc(makerProjectId));
     onPreviewHiddenChange?.(manuallyHidden);
     setNativePreviewStarted(active && !manuallyHidden);
     dispatchMakerPreviewInstanceState({ active: active && !manuallyHidden, projectId: makerProjectId, muted: false });
@@ -1080,12 +720,12 @@ function RemoteMakerPreviewFrame({
       nativePreviewReadyRef.current = false;
       clearPreviewMask();
       stopSyncPulse();
-      if (shouldKeepMakerPreviewInBackground()) {
+      if (!shouldCloseMakerPreviewOnBackground() && shouldKeepMakerPreviewInBackground()) {
         void hideMakerPreview().catch(() => undefined);
         return;
       }
       dispatchMakerPreviewInstanceState({ active: false, projectId: makerProjectId, muted: false });
-      void hideMakerPreview().catch(() => undefined);
+      void closeMakerPreview().catch(() => undefined);
     };
   }, [clearPreviewMask, makerProjectId, nativePreviewAvailable, onPreviewHiddenChange, stopSyncPulse]);
 
@@ -1106,6 +746,7 @@ function RemoteMakerPreviewFrame({
         nativePreviewOpenedRef.current = true;
         dispatchMakerPreviewInstanceState({ active: true, projectId: makerProjectId, muted: false });
         if (!disposed) {
+          syncPreviewTheme();
           syncBounds();
           startSyncPulse();
         }
@@ -1122,14 +763,19 @@ function RemoteMakerPreviewFrame({
       nativePreviewOpenedRef.current = false;
       nativePreviewReadyRef.current = false;
       stopSyncPulse();
-      if (shouldKeepMakerPreviewInBackground()) {
+      if (!shouldCloseMakerPreviewOnBackground() && shouldKeepMakerPreviewInBackground()) {
         void hideMakerPreview().catch(() => undefined);
         return;
       }
       dispatchMakerPreviewInstanceState({ active: false, projectId: makerProjectId, muted: false });
-      void hideMakerPreview().catch(() => undefined);
+      void closeMakerPreview().catch(() => undefined);
     };
-  }, [clearPreviewMask, makerProjectId, nativePreviewAvailable, nativePreviewStarted, showPreviewMask, startSyncPulse, stopSyncPulse, syncBounds]);
+  }, [clearPreviewMask, makerProjectId, nativePreviewAvailable, nativePreviewStarted, showPreviewMask, startSyncPulse, stopSyncPulse, syncBounds, syncPreviewTheme]);
+
+  useEffect(() => {
+    if (!nativePreviewAvailable || !nativePreviewStarted) return;
+    syncPreviewTheme();
+  }, [nativePreviewAvailable, nativePreviewStarted, syncPreviewTheme]);
 
   useEffect(() => {
     if (reloadSignal === lastReloadSignalRef.current) return;
@@ -1175,7 +821,7 @@ function RemoteMakerPreviewFrame({
     let unlisten: (() => void) | undefined;
     void import("@tauri-apps/api/event")
       .then(({ listen }) =>
-        listen<{ event?: string }>(MAKER_PREVIEW_LOAD_EVENT, (event) => {
+        listen<MakerPreviewLoadPayload>(MAKER_PREVIEW_LOAD_EVENT, (event) => {
           if (disposed) return;
           if (event.payload?.event === "started") {
             setPreviewMaskVisible(true);
@@ -1184,10 +830,16 @@ function RemoteMakerPreviewFrame({
           }
           if (event.payload?.event === "finished") {
             nativePreviewOpenedRef.current = true;
+            syncPreviewTheme();
             startSyncPulse();
             return;
           }
           if (event.payload?.event === "ready") {
+            syncPreviewTheme();
+            if (event.payload.gameIframeSrc) {
+              writeStoredMakerPreviewGameIframeSrc(makerProjectId, event.payload.gameIframeSrc);
+              setGameIframeSrc(event.payload.gameIframeSrc);
+            }
             nativePreviewOpenedRef.current = true;
             nativePreviewReadyRef.current = true;
             window.requestAnimationFrame(() => {
@@ -1198,9 +850,17 @@ function RemoteMakerPreviewFrame({
             return;
           }
           if (event.payload?.event === "ready-timeout") {
+            nativePreviewOpenedRef.current = false;
             nativePreviewReadyRef.current = false;
             stopSyncPulse();
-            setPreviewError("TapTap Maker 已发出声音但没有交出可嵌入的游戏画面，请点击刷新重新抓取预览容器。");
+            if (event.payload.gameIframeSrc) {
+              writeStoredMakerPreviewGameIframeSrc(makerProjectId, event.payload.gameIframeSrc);
+              setGameIframeSrc(event.payload.gameIframeSrc);
+            }
+            setPreviewError("TapTap Maker 预览 WebView shell 没有接管到游戏画面，请重新载入预览。");
+            setNativePreviewStarted(false);
+            dispatchMakerPreviewInstanceState({ active: false, projectId: makerProjectId, muted: false });
+            void closeMakerPreview().catch(() => undefined);
             clearPreviewMask();
           }
         }),
@@ -1213,7 +873,7 @@ function RemoteMakerPreviewFrame({
       disposed = true;
       unlisten?.();
     };
-  }, [clearPreviewMask, nativePreviewAvailable, nativePreviewStarted, startSyncPulse, stopSyncPulse, syncBounds]);
+  }, [clearPreviewMask, makerProjectId, nativePreviewAvailable, nativePreviewStarted, startSyncPulse, stopSyncPulse, syncBounds, syncPreviewTheme]);
 
   useEffect(() => {
     if (!nativePreviewAvailable || !nativePreviewStarted) return;
@@ -1282,151 +942,176 @@ function RemoteMakerPreviewFrame({
   return (
     <div
       ref={containerRef}
+      data-game-iframe-src={gameIframeSrc || undefined}
       className={cn(
-        "relative flex shrink-0 flex-col overflow-hidden bg-[#15171c] transition-all",
-        dimensions ? "rounded-[18px] border border-black/10 shadow-[0_22px_70px_rgba(6,10,38,0.22)] dark:border-white/10" : "rounded-none border-0 shadow-none",
-        dimensions
-          ? dimensions.width >= dimensions.height
-            ? "w-full"
-            : "h-full"
-          : "h-full w-full",
+        "relative flex h-full w-full shrink-0 flex-col overflow-hidden bg-[#15171c] transition-shadow duration-300",
       )}
-      style={frameStyle}
     >
       <div
         ref={nativeViewportRef}
-        className="pointer-events-none absolute bg-[#050608]"
-        style={{
-          left: dimensions ? 8 : 0,
-          right: dimensions ? 8 : 0,
-          top: dimensions ? chromeHeight + 8 : chromeHeight,
-          bottom: dimensions ? 8 : 0,
-        }}
+        className="pointer-events-none absolute inset-0 bg-[#050608]"
         aria-hidden="true"
       />
-      {previewSettings.chrome !== "none" ? (
-        <PreviewDeviceChrome
-          deviceId={previewSettings.deviceId}
-          chrome={previewSettings.chrome}
-          height={chromeHeight}
-          label={frameLabel}
-        />
-      ) : null}
-      <div className="pointer-events-none absolute inset-0 z-10 rounded-[18px] ring-1 ring-white/10" />
       {!nativePreviewAvailable && makerProjectId ? (
-        <div className="relative z-20 flex h-full flex-col items-center justify-center bg-[#17181d] px-8 text-center text-white">
-          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-[18px] border border-white/15 bg-white/10 backdrop-blur">
-            <Gamepad2 className="h-7 w-7" />
-          </div>
-          <h2 className="m-0 text-[20px] font-semibold">桌面原生预览未启用</h2>
-          <p className="m-0 mt-2 max-w-[420px] text-[13px] leading-6 text-white/58">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-[#050608] px-8 text-center text-white pointer-events-auto"
+        >
+          <motion.div
+            animate={{ y: [-8, 8, -8] }}
+            transition={{ repeat: Infinity, duration: 6, ease: "easeInOut" }}
+            className="mb-12 relative flex items-center justify-center"
+          >
+            <div className="absolute inset-0 scale-150 bg-white/5 blur-[80px] rounded-full" />
+            <GamepadSvgAnimation className="h-32 w-32 text-white/50 relative z-10 drop-shadow-2xl" glowColor="rgba(255,255,255,0.2)" />
+          </motion.div>
+          <h2 className="m-0 text-[26px] font-semibold tracking-tight text-white/90">桌面原生预览未启用</h2>
+          <p className="m-0 mt-4 max-w-[420px] text-[15px] leading-relaxed text-white/40">
             当前页面没有连接到桌面端原生 WebView，无法承载同一个登录会话。
           </p>
           <button
             type="button"
             onClick={openLoginWindow}
-            className="mt-5 inline-flex h-9 items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 text-[13px] font-medium text-white transition-colors hover:bg-white/16"
+            className="mt-10 inline-flex h-11 items-center gap-2.5 rounded-full border border-white/10 bg-white/5 px-8 text-[14px] font-medium text-white transition-all hover:bg-white/10 hover:scale-105 active:scale-95"
           >
-            <Folder className="h-4 w-4" />
+            <Folder className="h-4.5 w-4.5" />
             打开 TapTap Maker
           </button>
-        </div>
+        </motion.div>
       ) : previewManuallyHidden ? (
-        <div className="relative z-20 flex h-full flex-col items-center justify-center bg-[#17181d] px-8 text-center text-white">
-          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-[18px] border border-white/15 bg-white/10 backdrop-blur">
-            <EyeOff className="h-7 w-7" />
-          </div>
-          <h2 className="m-0 text-[20px] font-semibold">预览已隐藏</h2>
-          <p className="m-0 mt-2 max-w-[420px] text-[13px] leading-6 text-white/58">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-[#050608] px-8 text-center text-white pointer-events-auto"
+        >
+          <motion.div
+            animate={{ y: [-6, 6, -6] }}
+            transition={{ repeat: Infinity, duration: 5, ease: "easeInOut" }}
+            className="mb-12 relative flex items-center justify-center"
+          >
+            <div className="absolute inset-0 scale-150 bg-white/5 blur-[80px] rounded-full" />
+            <EyeOff className="h-32 w-32 text-white/30 relative z-10 drop-shadow-2xl" strokeWidth={1} />
+          </motion.div>
+          <h2 className="m-0 text-[26px] font-semibold tracking-tight text-white/70">预览已隐藏</h2>
+          <p className="m-0 mt-4 max-w-[420px] text-[15px] leading-relaxed text-white/30">
             游戏预览已中断，后台 iframe 不会继续播放声音。
           </p>
           <button
             type="button"
-            className="mt-5 inline-flex h-9 items-center gap-2 rounded-full border border-white/15 bg-[#8df3ea] px-4 text-[13px] font-medium text-[#062421] transition-colors hover:bg-[#a3fff6]"
+            className="mt-10 inline-flex h-11 items-center gap-2.5 rounded-full bg-[#00d1bf] px-8 text-[14px] font-medium text-[#062421] transition-all hover:bg-[#00c6b5] hover:scale-105 active:scale-95 shadow-[0_0_30px_rgba(0,209,191,0.3)]"
             onClick={confirmLoggedInAndRefreshPreview}
           >
-            <RefreshCw className="h-4 w-4" />
+            <RefreshCw className="h-4.5 w-4.5" />
             重新载入预览
           </button>
-        </div>
+        </motion.div>
       ) : !makerProjectId || previewError ? (
-        <div className="relative z-20 flex h-full flex-col items-center justify-center bg-[#17181d] px-8 text-center text-white">
-          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-[18px] border border-white/15 bg-white/10 backdrop-blur">
-            <Wrench className="h-7 w-7" />
-          </div>
-          <h2 className="m-0 text-[20px] font-semibold">
-            {!makerProjectId ? "未绑定 Maker 项目" : "远程预览暂不可用"}
-          </h2>
-          <p className="m-0 mt-2 max-w-[420px] text-[13px] leading-6 text-white/58">
-            {!makerProjectId
-              ? "当前项目缺少 makerProjectId，无法打开 TapTap Maker 远程预览。"
-              : previewError}
-          </p>
-          <button
-            type="button"
-            className="mt-5 inline-flex h-9 items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 text-[13px] font-medium text-white transition-colors hover:bg-white/16"
-            onClick={makerProjectId ? openLoginWindow : onOpenTools}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="absolute inset-0 z-[100] flex flex-col items-center overflow-y-auto bg-[#050608] px-8 py-8 text-center text-white pointer-events-auto"
+        >
+          <motion.div
+            animate={{ y: [-8, 8, -8] }}
+            transition={{ repeat: Infinity, duration: 6, ease: "easeInOut" }}
+            className="mb-12 relative flex items-center justify-center"
           >
-            <Folder className="h-4 w-4" />
-            {makerProjectId ? "打开登录窗口" : "查看制作状态"}
-          </button>
-          {makerProjectId ? (
+            <div className="absolute inset-0 scale-150 bg-rose-500/10 blur-[80px] rounded-full" />
+            <Wrench className="h-32 w-32 text-rose-400/60 relative z-10 drop-shadow-2xl" strokeWidth={1} />
+          </motion.div>
+          <h2 className="m-0 text-[26px] font-semibold tracking-tight text-white/90">
+            {!makerProjectId ? "未绑定 Maker 项目" : "预览未连接"}
+          </h2>
+          <p className="m-0 mt-4 max-w-[560px] text-[15px] leading-relaxed text-white/42">
+            {!makerProjectId
+              ? "当前项目没有 makerProjectId，右侧预览没有可打开的 Maker 地址。"
+              : previewError || "没有获取到游戏预览页面。"}
+          </p>
+          <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
             <button
               type="button"
-              className="mt-2 inline-flex h-9 items-center gap-2 rounded-full border border-white/15 bg-[#8df3ea] px-4 text-[13px] font-medium text-[#062421] transition-colors hover:bg-[#a3fff6]"
-              onClick={confirmLoggedInAndRefreshPreview}
+              className="inline-flex h-11 items-center gap-2.5 rounded-full border border-white/10 bg-white/5 px-8 text-[14px] font-medium text-white transition-all hover:bg-white/10 hover:scale-105 active:scale-95"
+              onClick={makerProjectId ? openLoginWindow : undefined}
             >
-              <RefreshCw className="h-4 w-4" />
-              我已登录，刷新预览
+              <Folder className="h-4.5 w-4.5" />
+              {makerProjectId ? "打开登录窗口" : "暂无项目"}
             </button>
-          ) : null}
-        </div>
+            {makerProjectId ? (
+              <button
+                type="button"
+                className="inline-flex h-11 items-center gap-2.5 rounded-full bg-[#00d1bf] px-8 text-[14px] font-medium text-[#062421] transition-all hover:bg-[#00c6b5] hover:scale-105 active:scale-95 shadow-[0_0_30px_rgba(0,209,191,0.3)]"
+                onClick={confirmLoggedInAndRefreshPreview}
+              >
+                <RefreshCw className="h-4.5 w-4.5" />
+                我已登录，刷新预览
+              </button>
+            ) : null}
+          </div>
+        </motion.div>
       ) : nativePreviewStarted ? (
         previewMaskVisible ? (
-          <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#111217] px-8 text-center text-white">
-            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-[16px] border border-white/12 bg-white/8">
-              <Gamepad2 className="h-6 w-6" />
-            </div>
-            <h2 className="m-0 text-[19px] font-semibold">正在刷新预览</h2>
-            <p className="m-0 mt-2 max-w-[360px] text-[13px] leading-6 text-white/56">
-              正在载入游戏画面。
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-[#050608] px-8 text-center text-white pointer-events-auto"
+          >
+            <motion.div
+              animate={{ opacity: [0.6, 1, 0.6], scale: [0.95, 1, 0.95] }}
+              transition={{ repeat: Infinity, duration: 2.5, ease: "easeInOut" }}
+              className="mb-12 relative flex items-center justify-center"
+            >
+              <div className="absolute inset-0 scale-150 bg-[#00d1bf]/20 blur-[80px] rounded-full" />
+              <GamepadSvgAnimation className="h-32 w-32 text-[#00d1bf] relative z-10 drop-shadow-[0_0_20px_rgba(0,209,191,0.6)]" glowColor="#00d1bf" />
+            </motion.div>
+            <h2 className="m-0 text-[26px] font-semibold tracking-tight text-white/90">正在刷新预览</h2>
+            <p className="m-0 mt-4 max-w-[360px] text-[15px] leading-relaxed text-white/40">
+              正在与游戏引擎建立连接，获取原生画面。
             </p>
-          </div>
+          </motion.div>
         ) : null
       ) : (
-        <div className="relative z-20 flex h-full flex-col items-center justify-center bg-[#17181d] px-8 text-center text-white">
-          <div className="pointer-events-none absolute left-3 top-3 rounded-full border border-white/10 bg-black/35 px-3 py-1.5 text-[12px] font-medium text-white/70 backdrop-blur">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-[#050608] px-8 text-center text-white pointer-events-auto"
+        >
+          <div className="pointer-events-none absolute left-4 top-4 rounded-full border border-white/5 bg-white/5 px-4 py-2 text-[12px] font-medium text-white/60 backdrop-blur">
             {projectName ?? "远程预览"}
-            <span className="ml-2 text-white/45">{runtimeReady ? "Running" : "TapTap Maker"}</span>
+            <span className="ml-2 text-white/30">{runtimeReady ? "Running" : "TapTap Maker"}</span>
           </div>
-          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-[18px] border border-white/15 bg-white/10 backdrop-blur">
-            <Gamepad2 className="h-7 w-7" />
-          </div>
-          <h2 className="m-0 text-[20px] font-semibold">{nativePreviewStarted ? "正在打开 TapTap Maker" : "TapTap Maker 预览"}</h2>
-          <p className="m-0 mt-2 max-w-[420px] text-[13px] leading-6 text-white/58">
-            {nativePreviewStarted
-              ? "正在载入右侧原生预览；若仍停留在登录页，请先完成登录。"
-              : "先打开 TapTap Maker 登录窗口，登录完成后点击我已登录。"}
+          <motion.div
+            animate={{ y: [-8, 8, -8] }}
+            transition={{ repeat: Infinity, duration: 6, ease: "easeInOut" }}
+            className="mb-12 relative flex items-center justify-center"
+          >
+            <div className="absolute inset-0 scale-150 bg-[#00d1bf]/10 blur-[80px] rounded-full" />
+            <GamepadSvgAnimation className="h-32 w-32 text-[#00d1bf]/60 relative z-10 drop-shadow-2xl" glowColor="rgba(0,209,191,0.2)" />
+          </motion.div>
+          <h2 className="m-0 text-[26px] font-semibold tracking-tight text-white/90">TapTap Maker 预览</h2>
+          <p className="m-0 mt-4 max-w-[420px] text-[15px] leading-relaxed text-white/40">
+            如登录态失效，先打开 TapTap Maker 登录窗口；登录完成后刷新预览。
           </p>
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+          <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
             <button
               type="button"
               onClick={openLoginWindow}
-              className="inline-flex h-9 items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 text-[13px] font-medium text-white transition-colors hover:bg-white/16"
+              className="inline-flex h-11 items-center gap-2.5 rounded-full border border-white/10 bg-white/5 px-8 text-[14px] font-medium text-white transition-all hover:bg-white/10 hover:scale-105 active:scale-95"
             >
-              <Folder className="h-4 w-4" />
+              <Folder className="h-4.5 w-4.5" />
               打开登录窗口
             </button>
             <button
               type="button"
               onClick={confirmLoggedInAndRefreshPreview}
-              className="inline-flex h-9 items-center gap-2 rounded-full border border-white/15 bg-[#8df3ea] px-4 text-[13px] font-medium text-[#062421] transition-colors hover:bg-[#a3fff6]"
+              className="inline-flex h-9 items-center gap-2 rounded-full bg-[#00d1bf] px-5 text-[13px] font-medium text-[#062421] transition-colors hover:bg-[#00c6b5]"
             >
               <RefreshCw className="h-4 w-4" />
               我已登录，刷新预览
             </button>
           </div>
-        </div>
+        </motion.div>
       )}
 
       {pendingPreviewCount > 0 ? (

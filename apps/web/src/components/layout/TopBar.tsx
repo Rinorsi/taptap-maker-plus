@@ -157,17 +157,17 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
         onPointerCancel={clearTitlebarPointer}
         onDoubleClick={handleTitlebarDoubleClick}
       >
-        <div className="flex items-center rounded-control bg-surface-muted/60 p-1 shadow-inner" data-no-window-drag>
+        <div className="flex items-center rounded-[10px] border border-border-soft bg-surface-panel/90 p-1 shadow-[0_8px_24px_rgba(6,10,38,0.06)]" data-no-window-drag>
           <button
             type="button"
-            className="flex h-7 items-center gap-1.5 rounded-[4px] px-3 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+            className="flex h-7 items-center gap-1.5 rounded-[7px] px-3 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
             onClick={onToggleAgent}
             title="切换到资源生成"
             aria-label="切换到资源生成"
           >
             资源生成
           </button>
-          <div className="flex h-7 items-center gap-1.5 rounded-[4px] bg-surface-panel px-3 text-[12px] font-medium text-text shadow-sm">
+          <div className="flex h-7 items-center gap-1.5 rounded-[7px] border border-brand/20 bg-brand/10 px-3 text-[12px] font-semibold text-text shadow-[0_0_0_1px_rgba(0,217,197,0.08),0_8px_18px_rgba(0,217,197,0.10)]">
             <img src="/files.png" alt="" className="h-4 w-4 rounded-[3px] object-contain" />
             <span>游戏开发</span>
             <PreviewInstanceDot active={gamePreviewInstanceActive} muted={gamePreviewInstanceMuted} />
@@ -235,13 +235,13 @@ export function TopBar({ project, runtime, notice, toolCount, theme, projects = 
       onDoubleClick={handleTitlebarDoubleClick}
     >
       <div className="flex items-center min-w-0 shrink-0 w-[520px] pl-1 gap-3">
-        <div className="mr-2 flex items-center rounded-control bg-surface-muted/60 p-1 shadow-inner" data-no-window-drag>
-          <div className="flex h-7 items-center gap-1.5 rounded-[4px] bg-surface-panel px-3 text-[12px] font-medium text-text shadow-sm">
+        <div className="mr-2 flex items-center rounded-[10px] border border-border-soft bg-surface-panel/90 p-1 shadow-[0_8px_24px_rgba(6,10,38,0.06)]" data-no-window-drag>
+          <div className="flex h-7 items-center gap-1.5 rounded-[7px] border border-brand/20 bg-brand/10 px-3 text-[12px] font-semibold text-text shadow-[0_0_0_1px_rgba(0,217,197,0.08),0_8px_18px_rgba(0,217,197,0.10)]">
             资源生成
           </div>
           <button
             type="button"
-            className="flex h-7 items-center gap-1.5 rounded-[4px] px-3 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+            className="flex h-7 items-center gap-1.5 rounded-[7px] px-3 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
             onClick={onToggleAgent}
             title={gamePreviewInstanceActive ? `打开游戏开发。活跃实例：运行中；静音：${gamePreviewInstanceMuted ? "是" : "否"}` : "打开游戏开发"}
             aria-label="打开游戏开发"

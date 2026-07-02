@@ -273,7 +273,7 @@ function requireTauriConfig(rootPackage: JsonObject, tauriCliPackage: JsonObject
   const build = requireObject(tauriConfig.build, "tauri.conf.json build");
   const frontendDist = requireExactString(build.frontendDist, "../apps/web/dist", "tauri.conf.json build.frontendDist");
   const devUrl = requireExactString(build.devUrl, "http://127.0.0.1:5173", "tauri.conf.json build.devUrl");
-  const beforeDevCommand = requireExactString(build.beforeDevCommand, "npm run dev:web", "tauri.conf.json build.beforeDevCommand");
+  const beforeDevCommand = requireExactString(build.beforeDevCommand, "node scripts/ensure-dev-web.mjs", "tauri.conf.json build.beforeDevCommand");
   const beforeBuildCommand = requireExactString(build.beforeBuildCommand, "npm run build:desktop", "tauri.conf.json build.beforeBuildCommand");
   requirePackageScript(rootPackage, "dev:web", "npm run dev --workspace @taptap/web");
   requirePackageScript(rootPackage, "dev:server", "npm run dev --workspace @taptap/server");

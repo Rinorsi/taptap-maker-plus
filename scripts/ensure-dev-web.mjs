@@ -45,7 +45,7 @@ if (
 
 const child =
   process.platform === "win32"
-    ? spawn("cmd.exe", ["/d", "/s", "/c", "npm", "run", "dev:web"], {
+    ? spawn(process.env.ComSpec || "C:\\Windows\\System32\\cmd.exe", ["/d", "/s", "/c", "npm run dev:web"], {
         stdio: "inherit",
       })
     : spawn("npm", ["run", "dev:web"], {

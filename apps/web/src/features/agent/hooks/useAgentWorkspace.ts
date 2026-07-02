@@ -60,7 +60,7 @@ export function useAgentWorkspace({ project, page }: AgentWorkspaceProps): Agent
       setSessions(surface.sessions);
       const nextSession = sessionId
         ? surface.sessions.find((item) => item.id === sessionId) ?? surface.activeSession
-        : undefined;
+        : surface.activeSession;
       if (nextSession) {
         await loadSession(nextSession.id, false);
       } else {

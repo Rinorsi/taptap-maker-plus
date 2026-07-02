@@ -11,7 +11,7 @@ export function isMakerPreviewWebViewAvailable() {
 }
 
 export function makerPreviewUrl(projectId: string) {
-  return `https://maker.taptap.cn/app/${encodeURIComponent(projectId)}`;
+  return `https://maker.taptap.cn/app/${encodeURIComponent(projectId)}?hide_chat=1&tab=preview`;
 }
 
 async function invokeMakerPreview(command: string, args?: Record<string, unknown>) {
@@ -46,6 +46,10 @@ export async function setMakerPreviewBounds(bounds: MakerPreviewBounds) {
     height: bounds.height,
     scaleFactor: bounds.scaleFactor,
   });
+}
+
+export async function setMakerPreviewTheme(theme: "light" | "dark") {
+  return invokeMakerPreview("maker_preview_set_theme", { theme });
 }
 
 export async function hideMakerPreview() {

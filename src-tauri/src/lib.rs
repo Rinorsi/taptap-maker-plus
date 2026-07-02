@@ -446,6 +446,7 @@ const MAKER_PREVIEW_INIT_SCRIPT_TEMPLATE: &str = r##"
     if (panel) panel.dataset.open = String(state.settingsOpen);
     if (settingsButton) settingsButton.dataset.active = String(state.settingsOpen);
     state.stage.dataset.settings = String(state.settingsOpen);
+    state.stage.dataset.device = state.settings.device;
     state.frame.dataset.device = state.settings.device;
     state.chrome.dataset.mode = state.settings.chrome;
 
@@ -453,11 +454,17 @@ const MAKER_PREVIEW_INIT_SCRIPT_TEMPLATE: &str = r##"
     if (!dimensions) {
       state.frame.style.width = "100%";
       state.frame.style.height = "100%";
+      state.frame.style.minWidth = "100%";
+      state.frame.style.minHeight = "100%";
+      state.frame.style.maxWidth = "100%";
+      state.frame.style.maxHeight = "100%";
       state.frame.style.aspectRatio = "auto";
       return;
     }
 
     const scale = Number(state.settings.scale) || 1;
+    state.frame.style.minWidth = "";
+    state.frame.style.minHeight = "";
     state.frame.style.aspectRatio = `${dimensions[0]} / ${dimensions[1]}`;
     if (dimensions[0] >= dimensions[1]) {
       state.frame.style.width = `${Math.round(scale * 100)}%`;
@@ -612,27 +619,71 @@ fn encode_base64(input: &[u8]) -> String {
   output
 }
 
+fn maker_preview_shell_style_template(app: Option<&tauri::AppHandle>) -> String {
+  if cfg!(debug_assertions) {
+    if let Some(app_handle) = app {
+      if let Ok(root) = workspace_root(app_handle) {
+        let path = root
+          .join("src-tauri")
+          .join("injected")
+          .join("maker-preview-shell.css");
+        if let Ok(style) = fs::read_to_string(path) {
+          return style;
+        }
+      }
+    }
+  }
+  MAKER_PREVIEW_SHELL_STYLE_TEMPLATE.to_string()
+}
+
+fn maker_preview_shell_style(app: Option<&tauri::AppHandle>) -> String {
+  let light_background = format!(
+    "data:image/jpeg;base64,{}",
+    encode_base64(include_bytes!(
+      "../../apps/web/public/taptap-backgrounds/bg-pattern_white.jpg"
+    ))
+  );
+  let dark_background = format!(
+    "data:image/png;base64,{}",
+    encode_base64(include_bytes!(
+      "../../apps/web/public/taptap-backgrounds/bg-pattern_black.png"
+    ))
+  );
+  maker_preview_shell_style_template(app)
+    .replace("__TAPTAP_MAKER_LIGHT_BACKGROUND__", &light_background)
+    .replace("__TAPTAP_MAKER_DARK_BACKGROUND__", &dark_background)
+}
+
 fn maker_preview_init_script() -> &'static str {
   MAKER_PREVIEW_INIT_SCRIPT.get_or_init(|| {
-    let light_background = format!(
-      "data:image/jpeg;base64,{}",
-      encode_base64(include_bytes!(
-        "../../apps/web/public/taptap-backgrounds/bg-pattern_white.jpg"
-      ))
-    );
-    let dark_background = format!(
-      "data:image/png;base64,{}",
-      encode_base64(include_bytes!(
-        "../../apps/web/public/taptap-backgrounds/bg-pattern_black.png"
-      ))
-    );
-    let shell_style = MAKER_PREVIEW_SHELL_STYLE_TEMPLATE
-      .replace("__TAPTAP_MAKER_LIGHT_BACKGROUND__", &light_background)
-      .replace("__TAPTAP_MAKER_DARK_BACKGROUND__", &dark_background);
+    let shell_style = maker_preview_shell_style(None);
     let shell_style = serde_json::to_string(&shell_style).unwrap_or_else(|_| "\"\"".to_string());
     MAKER_PREVIEW_INIT_SCRIPT_TEMPLATE
       .replace("__TAPTAP_MAKER_SHELL_STYLE__", &shell_style)
   })
+}
+
+#[cfg(debug_assertions)]
+fn start_maker_preview_shell_style_dev_watcher(app: tauri::AppHandle) {
+  thread::spawn(move || {
+    let Ok(root) = workspace_root(&app) else {
+      return;
+    };
+    let path = root
+      .join("src-tauri")
+      .join("injected")
+      .join("maker-preview-shell.css");
+    let mut last_modified = fs::metadata(&path).and_then(|metadata| metadata.modified()).ok();
+    loop {
+      thread::sleep(Duration::from_millis(500));
+      let modified = fs::metadata(&path).and_then(|metadata| metadata.modified()).ok();
+      if modified.is_none() || modified == last_modified {
+        continue;
+      }
+      last_modified = modified;
+      let _ = maker_preview_reload_shell_style(app.clone());
+    }
+  });
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -2089,6 +2140,25 @@ fn maker_preview_set_theme(app: tauri::AppHandle, theme: String) -> Result<(), S
 }
 
 #[tauri::command]
+fn maker_preview_reload_shell_style(app: tauri::AppHandle) -> Result<(), String> {
+  let webview = maker_preview_webview(&app)?;
+  let shell_style = serde_json::to_string(&maker_preview_shell_style(Some(&app)))
+    .map_err(|error| error.to_string())?;
+  let script = format!(
+    r#"(() => {{
+      const style = document.getElementById("taptap-maker-preview-style");
+      if (!style) return false;
+      style.textContent = {};
+      return true;
+    }})()"#,
+    shell_style
+  );
+  webview.eval(&script).map_err(|error| error.to_string())?;
+  append_desktop_event_log(&app, "maker preview shell style reloaded");
+  Ok(())
+}
+
+#[tauri::command]
 fn maker_preview_reload(app: tauri::AppHandle) -> Result<(), String> {
   let state = app.state::<MakerPreviewState>();
   let project_id = state
@@ -2258,6 +2328,8 @@ pub fn run() {
       })?;
       app.manage(server.clone());
       app.manage(MakerPreviewState::default());
+      #[cfg(debug_assertions)]
+      start_maker_preview_shell_style_dev_watcher(app.handle().clone());
 
       let dev_web_probes = [LocalPortProbe {
         host: "127.0.0.1",
@@ -2335,6 +2407,7 @@ pub fn run() {
       maker_preview_open_login,
       maker_preview_open,
       maker_preview_reload,
+      maker_preview_reload_shell_style,
       maker_preview_set_bounds,
       maker_preview_set_theme,
       maker_preview_show,
